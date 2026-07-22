@@ -1,0 +1,25 @@
+# qPTM REST API URL rewriting
+# Place this .htaccess in the /api/ directory of the qPTM website
+
+RewriteEngine On
+
+# Route /api/search to search.php
+RewriteRule ^search$ search.php [L,QSA]
+
+# Route /api/site/{uniprot}/{position} to site.php
+RewriteRule ^site/([A-Za-z0-9_]+)/([0-9]+)$ site.php [L,QSA]
+
+# Route /api/protein/{uniprot} to protein.php
+RewriteRule ^protein/([A-Za-z0-9_]+)$ protein.php [L,QSA]
+
+# Route /api/conditions to conditions.php
+RewriteRule ^conditions$ conditions.php [L,QSA]
+
+# Route /api/kinases/{uniprot}/{position} to kinases.php
+RewriteRule ^kinases/([A-Za-z0-9_]+)/([0-9]+)$ kinases.php [L,QSA]
+
+# Route /api/stats to stats.php
+RewriteRule ^stats$ stats.php [L,QSA]
+
+# Route /api/browse/{type} to browse.php
+RewriteRule ^browse/([a-z]+)$ browse.php [L,QSA]

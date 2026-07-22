@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
+
+# Environment
+.env
+*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data files (large, user-downloaded)
+agent-backend/data/psp/*
+agent-backend/data/dbptm/*
+agent-backend/data/ptmphase/*
+agent-backend/data/ptmint/*
+!agent-backend/data/psp/.gitkeep
+!agent-backend/data/dbptm/.gitkeep
+!agent-backend/data/ptmphase/.gitkeep
+!agent-backend/data/ptmint/.gitkeep
+
+# Keep the curated stability dataset (it's small and included)
+!agent-backend/data/stability/ptm_stability_curated.tsv

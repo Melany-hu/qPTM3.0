@@ -1,0 +1,79 @@
+uniprot_ac	gene	ptm_type	position	effect_direction	mechanism	writer	eraser	reader	ubiquitin_sites	evidence	source
+P04637	TP53	phosphorylation	15	stabilize	Phospho-inactivated primary degron (residues 18-28); reduced MDM2 affinity	CK1/CSNK1A1	-	-	K370/K372/K373/K381/K382/K386	experimental	PMC9839724
+P04637	TP53	phosphorylation	18	stabilize	Part of phospho-inactivated primary degron; reduced MDM2 affinity	CK1/CSNK1A1	-	-	K370/K372/K373/K381/K382/K386	experimental	PMC9839724
+P04637	TP53	ubiquitylation	370	destabilize	MDM2-mediated ubiquitination at secondary degron (C-terminal lysines)	MDM2	USP7	-	-	experimental	PMC9839724
+P04637	TP53	ubiquitylation	372	destabilize	MDM2-mediated ubiquitination at secondary degron	MDM2	USP7	-	-	experimental	PMC9839724
+P04637	TP53	ubiquitylation	373	destabilize	MDM2-mediated ubiquitination at secondary degron	MDM2	USP7	-	-	experimental	PMC9839724
+P04637	TP53	ubiquitylation	381	destabilize	MDM2-mediated ubiquitination at secondary degron	MDM2	USP7	-	-	experimental	PMC9839724
+P04637	TP53	ubiquitylation	382	destabilize	MDM2-mediated ubiquitination at secondary degron	MDM2	USP7	-	-	experimental	PMC9839724
+P04637	TP53	ubiquitylation	386	destabilize	MDM2-mediated ubiquitination at secondary degron	MDM2	USP7	-	-	experimental	PMC9839724
+P04637	TP53	methylation	372	stabilize	SETD7 mono/di-methylation recruits TIP60 -> acetylates C-terminal lysines -> prevents ubiquitination (crosstalk)	SETD7	-	TIP60	-	experimental	PMC9839724
+P04637	TP53	methylation	370	stabilize	K370/K382 di-methylation recruits TP53BP1 (Tudor domain reader) -> potentially protects degron	-	-	TP53BP1	-	experimental	PMC9839724
+P04637	TP53	methylation	382	stabilize	K382 di-methylation recruits TP53BP1 (Tudor domain reader) -> potentially protects degron	-	-	TP53BP1	-	experimental	PMC9839724
+P04637	TP53	methylation	370	destabilize	K370 mono-methylation recruits repressors -> suppresses activity	-	-	-	-	experimental	PMC9839724
+P04637	TP53	methylation	382	destabilize	K382 mono-methylation recruits repressors -> suppresses activity	-	-	-	-	experimental	PMC9839724
+P04637	TP53	acetylation	370	stabilize	C-terminal lysine acetylation prevents MDM2 ubiquitination	CBP	SIRT1	-	-	experimental	PMC9839724
+P04637	TP53	acetylation	372	stabilize	C-terminal lysine acetylation prevents MDM2 ubiquitination	CBP	-	-	-	experimental	PMC9839724
+P04637	TP53	acetylation	373	stabilize	C-terminal lysine acetylation prevents MDM2 ubiquitination	CBP	-	-	-	experimental	PMC9839724
+P04637	TP53	acetylation	381	stabilize	C-terminal lysine acetylation prevents MDM2 ubiquitination	CBP	-	-	-	experimental	PMC9839724
+P04637	TP53	acetylation	382	stabilize	C-terminal lysine acetylation prevents MDM2 ubiquitination; pS15 recruits CBP for acetylation (crosstalk)	CBP	-	-	-	experimental	PMC9839724
+P04637	TP53	acetylation	386	stabilize	C-terminal lysine acetylation prevents MDM2 ubiquitination	CBP	-	-	-	experimental	PMC9839724
+P01106	MYC	phosphorylation	62	stabilize	S62 phosphorylation by ERK + PIN1 isomerization at P63 -> phospho-inactivated degron -> stabilize/activate	ERK	PP2A	PIN1	-	experimental	PMC9839724
+P01106	MYC	phosphorylation	58	destabilize	T58 phosphorylation by GSK-3beta + PP2A dephosphorylation of S62 -> phospho-activated degron (pT58) -> SCF^FBXW7 degradation	GSK3B	PP2A	-	-	experimental	PMC9839724
+P01106	MYC	acetylation	-	stabilize	Acetylation by p300/GCN5/TIP60 partially stabilizes (suppresses UPS degradation); SIRT1 deacetylation decreases stability	p300/GCN5/TIP60	SIRT1	-	-	experimental	PMC9839724
+P01106	MYC	sumoylation	52	stabilize	K52 SUMOylation by PIAS1 upregulates S62 phosphorylation (via JNK1) suppresses T58 -> stabilization	PIAS1	-	-	-	experimental	PMC9839724
+Q16665	HIF1A	hydroxylation	402	destabilize	P402 hydroxylation by 2-oxoglutarate-dependent dioxygenases (oxygen-dependent) -> VHL E3 ligase recognition -> proteasomal degradation	PHD1/PHD2	-	VHL	-	experimental	PMC9839724
+Q16665	HIF1A	hydroxylation	564	destabilize	P564 hydroxylation (oxygen-dependent) -> VHL E3 ligase recognition -> proteasomal degradation	PHD1/PHD2	-	VHL	-	experimental	PMC9839724
+Q16665	HIF1A	methylation	32	destabilize	K32me1 by SETD7 -> methyl-activated degron -> ubiquitination at K532/K538/K547	SETD7	LSD1	L3MBTL3	K532/K538/K547	experimental	PMC9839724
+Q16665	HIF1A	methylation	391	destabilize	K391me1 by SETD7 (second methyl-activated degron; dependent on P402/P564 hydroxylation); LSD1 demethylates both K32 and K391	SETD7	LSD1	L3MBTL3	-	experimental	PMC9839724
+Q16665	HIF1A	acetylation	709	stabilize	K709 acetylation by p300 -> stabilization (competition with ubiquitination at same site)	p300	-	-	-	experimental	PMC9839724
+P35222	CTNNB1	phosphorylation	45	destabilize	S45 phosphorylation by CK1alpha/delta then T41/S37/S33 by GSK-3alpha/beta -> phospho-activated degron (DpSGXXpS motif) -> beta-TrCP recognition -> ubiquitination/degradation	CK1	GSK3B	-	-	experimental	PMC9839724
+P35222	CTNNB1	phosphorylation	41	destabilize	T41 phosphorylation by GSK-3 as part of phospho-activated degron -> beta-TrCP recognition	GSK3B	-	beta-TrCP	-	experimental	PMC9839724
+P35222	CTNNB1	phosphorylation	37	destabilize	S37 phosphorylation by GSK-3 as part of phospho-activated degron -> beta-TrCP recognition	GSK3B	-	beta-TrCP	-	experimental	PMC9839724
+P35222	CTNNB1	phosphorylation	33	destabilize	S33 phosphorylation by GSK-3 as part of phospho-activated degron -> beta-TrCP recognition	GSK3B	-	beta-TrCP	-	experimental	PMC9839724
+P24864	CCNE1	phosphorylation	384	destabilize	S384 phosphorylation by CDK2 + T380 by GSK-3 -> SCF^FBXW7 -> degradation	CDK2	-	-	-	experimental	PMC9839724
+P24864	CCNE1	phosphorylation	380	destabilize	T380 phosphorylation by GSK-3 -> SCF^FBXW7 -> degradation	GSK3	-	-	-	experimental	PMC9839724
+P24385	CCND1	phosphorylation	286	destabilize	T286 phosphorylation -> nuclear export (exportin) -> cytoplasmic SCF degradation (SCF^FBXW8 SCF^FBXW4-alphaB crystallin SCF^FBXO31). Mechanism is nuclear export not direct degron	-	-	-	-	experimental	PMC9839724
+O95997	PTTG1	phosphorylation	-	destabilize	Phosphorylation near D box -> increases affinity for APC/C^CDC20 -> degradation (phospho-activated)	-	-	-	-	experimental	PMC9839724
+O75496	GMNN	phosphorylation	-	stabilize	D box phosphorylation by Aurora kinase A -> loses affinity for APC/C^FZR1 -> phospho-inactivated degron -> stabilization	AURKA	-	-	-	experimental	PMC9839724
+Q99741	CDC6	phosphorylation	-	stabilize	Phospho-inactivated degron (APC/C substrate); phosphorylation prevents APC/C recognition	-	-	-	-	experimental	PMC9839724
+Q13309	SKP2	phosphorylation	-	stabilize	Phospho-inactivated degron (APC/C substrate); phosphorylation prevents APC/C recognition	-	-	-	-	experimental	PMC9839724
+P10275	AR	phosphorylation	215	stabilize	S215/S792 phosphorylation by Akt (upon IGF-1) -> solubilizes polyQ-AR from aggregates -> UPS degradation (MDM2 E3 ligase)	Akt	-	-	-	experimental	PMC9839724
+P10275	AR	phosphorylation	792	stabilize	S792 phosphorylation by Akt -> solubilizes polyQ-AR from aggregates -> UPS degradation	Akt	-	-	-	experimental	PMC9839724
+P10275	AR	phosphorylation	96	destabilize	S96 phosphorylation by CDK2 -> drives aggregation -> protects from degradation	CDK2	-	-	-	experimental	PMC9839724
+P42858	HTT	phosphorylation	421	stabilize	S421 phosphorylation by Akt/IKK -> reduced aggregation -> clearance promoted	Akt/IKK	-	-	-	experimental	PMC9839724
+P42858	HTT	phosphorylation	3	stabilize	T3 phosphorylation -> reduced aggregation -> clearance promoted	-	-	-	-	experimental	PMC9839724
+P42858	HTT	phosphorylation	13	stabilize	S13/S16 phosphorylation -> reduced aggregation -> clearance promoted	-	-	-	-	experimental	PMC9839724
+P42858	HTT	phosphorylation	16	stabilize	S16 phosphorylation -> reduced aggregation -> clearance promoted	-	-	-	-	experimental	PMC9839724
+P42858	HTT	acetylation	444	stabilize	K444 acetylation -> autophagic clearance (C. elegans data)	-	-	-	-	experimental	PMC9839724
+P36956	SREBF1	phosphorylation	430	destabilize	S430 phosphorylation -> phospho-degron -> SCF^FBXW7	GSK3	-	-	-	experimental	PMC9839724
+P36956	SREBF1	methylation	321	stabilize	R321 di-methylation by PRMT5 -> reduces GSK-3 phosphorylation of S430 -> stabilizes (indirect crosstalk)	PRMT5	-	-	-	experimental	PMC9839724
+P00533	EGFR	phosphorylation	-	destabilize	C-terminal tail tyrosine phosphorylation -> CBL E3 ligase binding (via SH2 domain + GRB2 adapter) -> K63-linked ubiquitination -> non-clathrin endocytosis -> lysosomal degradation. Distinct from SCF phospho-degron mechanism	-	-	CBL	-	experimental	PMC9839724
+Q04206	RELA	methylation	314	destabilize	K314/K315 me1 by SETD7 -> methyl-activated degron -> ubiquitination at K28/K62/K195	SETD7	-	L3MBTL3	K28/K62/K195	experimental	PMC9839724
+Q04206	RELA	methylation	315	destabilize	K315 me1 by SETD7 -> methyl-activated degron -> ubiquitination	SETD7	-	L3MBTL3	K28/K62/K195	experimental	PMC9839724
+Q04206	RELA	acetylation	310	stabilize	K310 acetylation by p300 -> stabilizes (suppresses SETD7 methylation at K314/K315 - crosstalk)	p300	-	-	-	experimental	PMC9839724
+P25963	NFKBIA	phosphorylation	32	destabilize	Doubly phosphorylated I-kappa-B-alpha peptide derived from I-kB-alpha recruits beta-TrCP (mentioned in PROTAC context)	IKK	-	beta-TrCP	-	experimental	PMC9839724
+P25963	NFKBIA	phosphorylation	36	destabilize	Doubly phosphorylated I-kappa-B-alpha peptide recruits beta-TrCP	IKK	-	beta-TrCP	-	experimental	PMC9839724
+P26358	DNMT1	methylation	142	destabilize	K142 me1 by SETD7 -> methyl-activated degron -> ubiquitination at C-terminus. Recognized by L3MBTL3 (MBT domain reader) recruits CUL4/DCAF5 E3 ligase	SETD7	LSD1	L3MBTL3	C-terminus	experimental	PMC9839724
+Q01094	E2F1	methylation	185	destabilize	K185 me1 by SETD7 -> methyl-activated degron -> ubiquitination at K161/K164. Recognized by L3MBTL3 recruits CUL4/DCAF5	SETD7	LSD1	L3MBTL3	K161/K164	experimental	PMC9839724
+Q12778	FOXO1	methylation	273	destabilize	K273 me1 by G9a -> increased SKP2 interaction -> poly-ubiquitination/degradation. FOXO1 reduced G9a elevated in colon cancer	G9a	-	-	-	experimental	PMC9839724
+Q12778	FOXO1	methylation	251	stabilize	R251/R253 (human) methylation by PRMT1 -> prevents Akt phosphorylation of S256 -> prevents cytoplasmic translocation -> stabilizes nuclear FOXO1 (indirect crosstalk)	PRMT1	-	-	-	experimental	PMC9839724
+Q12778	FOXO1	methylation	253	stabilize	R253 methylation by PRMT1 -> prevents Akt phosphorylation of S256 -> prevents cytoplasmic translocation -> stabilizes nuclear FOXO1 (indirect crosstalk)	PRMT1	-	-	-	experimental	PMC9839724
+O43524	FOXO3	methylation	271	destabilize	K271 me1 by SETD7 -> methyl-activated degron -> ubiquitination at K242/K259/K290/K569	SETD7	-	-	K242/K259/K290/K569	experimental	PMC9839724
+P35398	RORA	methylation	38	destabilize	K38 me1 by EZH2 -> methyl-activated degron. K38me1 recognized by DCAF1 reader (chromodomain) recruits DDB1/CUL4 E3 ligase. EZH2 inversely correlated with ROR-alpha in breast cancer	EZH2	-	DCAF1	C-terminus	experimental	PMC9839724
+P03372	ESR1	methylation	302	stabilize	K302 me1 by SETD7 -> stabilization + increased promoter recruitment. Inactivated degron	SETD7	-	-	-	experimental	PMC9839724
+Q96LA8	PRMT6	methylation	35	destabilize	R35 me1/me2 auto-methylation by PRMT6 -> inactivated degron	PRMT6	-	-	-	experimental	PMC9839724
+O43474	KLF4	methylation	374	destabilize	R374/R376/R377 me1/me2 by PRMT5 -> inactivated degron -> ubiquitination at K43	PRMT5	-	-	K43	experimental	PMC9839724
+O43474	KLF4	methylation	376	destabilize	R376 me1/me2 by PRMT5 -> inactivated degron -> ubiquitination at K43	PRMT5	-	-	K43	experimental	PMC9839724
+O43474	KLF4	methylation	377	destabilize	R377 me1/me2 by PRMT5 -> inactivated degron -> ubiquitination at K43	PRMT5	-	-	K43	experimental	PMC9839724
+Q9Y6Q9	NCOA3	methylation	1171	destabilize	R1171 me1/me2 by CARM1 -> inactivated degron -> ubiquitination at K723/K786	CARM1	-	-	K723/K786	experimental	PMC9839724
+O15169	AXIN1	methylation	378	stabilize	R378 me1 by PRMT1 -> increased GSK-3beta interaction -> reduced ubiquitination -> stabilization (indirect)	PRMT1	-	-	K789/K821	experimental	PMC9839724
+O60341	KDM1A	methylation	-	stabilize	LSD1 tri-methylation by SUV39H2 -> protects from poly-ubiquitination -> stabilization -> increased half-life -> CoREST complex binding	SUV39H2	-	-	-	experimental	PMC9839724
+P29590	PML	sumoylation	-	destabilize	PML-RAR SUMOylation upon arsenic induction -> RNF4 (StUbL) recognition -> poly-ubiquitination -> degradation	-	-	RNF4	-	experimental	PMC9839724
+P10636	MAPT	sumoylation	-	stabilize	Tau SUMOylation + hyperphosphorylation -> mutually reinforcing -> proteolytic stabilization	-	-	-	-	experimental	PMC9839724
+Q15043	SLC39A14	glycosylation	102	stabilize	N102 deglycosylation required for proteasomal degradation. Glycosylation = inactivated degron (stabilizing). Regulated by cellular iron content	-	-	-	-	experimental	PMC9839724
+O15350	TP73	acetylation	-	stabilize	Acetylation competes with ubiquitination (competition mechanism)	-	-	-	-	experimental	PMC9839724
+Q13761	RUNX3	acetylation	-	stabilize	Acetylation competes with ubiquitination (competition mechanism)	-	-	-	-	experimental	PMC9839724
+O15105	SMAD7	acetylation	-	stabilize	Acetylation competes with ubiquitination (competition mechanism)	-	-	-	-	experimental	PMC9839724
+P36956	SREBF1	acetylation	-	stabilize	SREBP1a acetylation competes with ubiquitination (competition mechanism)	-	-	-	-	experimental	PMC9839724
+Q12772	SREBF2	acetylation	-	stabilize	SREBP2 acetylation competes with ubiquitination (competition mechanism)	-	-	-	-	experimental	PMC9839724
