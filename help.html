@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta content="width=device-width, initial-scale=1.0" name="viewport">
+  <title>qPTM | Help</title>
+  <script src="assets/js/include.js"></script>
+</head>
+<body>
+<div id="preloader">
+  <div class="preloader-inner">
+    <div class="preloader-spinner"></div>
+    <span class="preloader-text">Loading...</span>
+  </div>
+</div>
+
+<div id="site-header"></div>
+
+<section id="main" class="help-page">
+
+
+    <div class="page-hero">
+      <h1>Help</h1>
+    </div>
+
+  <div class="help-layout">
+    <aside class="help-sidebar">
+      <nav class="help-nav" aria-label="Help page navigation">
+        <ul class="help-nav-list">
+          <li>
+            <a href="#help-about" class="help-nav-link active"><i class="ri-information-line mr-2"></i>About qPTM</a>
+            <ul class="help-nav-sublist">
+              <li><a href="#help-version" class="help-nav-link">Version comparison</a></li>
+            </ul>
+          </li>
+          <li>
+            <a href="#help-usage" class="help-nav-link"><i class="ri-book-open-line mr-2"></i>Usage</a>
+            <ul class="help-nav-sublist">
+              <li><a href="#help-home" class="help-nav-link">Home (Quick Search)</a></li>
+              <li><a href="#help-advanced" class="help-nav-link">Advanced Search</a></li>
+              <li><a href="#help-browse" class="help-nav-link">Browse</a></li>
+              <li><a href="#help-results" class="help-nav-link">Results</a></li>
+              <li><a href="#help-download" class="help-nav-link">Download</a></li>
+            </ul>
+          </li>
+          <li><a href="#help-reliability" class="help-nav-link"><i class="ri-star-line mr-2"></i>Reliability</a></li>
+          <li>
+            <a href="#help-curated" class="help-nav-link"><i class="ri-database-2-line mr-2"></i>Curated Data Summary</a>
+            <ul class="help-nav-sublist">
+              <li><a href="#help-datasets" class="help-nav-link">Curated datasets</a></li>
+              <li><a href="#help-literatures" class="help-nav-link">Curated literatures</a></li>
+            </ul>
+          </li>
+          <li><a href="#help-contact" class="help-nav-link"><i class="ri-team-line mr-2"></i>Contact</a></li>
+        </ul>
+      </nav>
+    </aside>
+
+    <div class="help-content">
+
+  <div class="lp-panel help-section" id="help-about">
+    <div class="lp-panel-header"><i class="ri-information-line mr-2"></i>About qPTM</div>
+    <div class="lp-panel-body">
+      <p class="text-des"><strong>qPTM 3.0</strong> hosts quantitative PTM proteomics data for 6 types of post-translational modifications (acetylation, glycosylation, methylation, phosphorylation, SUMOylation, ubiquitylation) in 4 different organisms (human, mouse, rat, yeast).</p>
+      <p class="text-des">In total, <strong>14,183,172</strong> quantification events for <strong>796,337</strong> sites on <strong>73,783</strong> proteins under <strong>3,391</strong> conditions are collected and integrated. The matched proteome datasets were also integrated when available, providing a comprehensive view of PTM regulation.</p>
+
+      <div class="help-summary-section help-section" id="help-version">
+        <h3 class="help-summary-title">Comparison between qPTM 3.0 and qPTM 2.0</h3>
+        <p class="text-des">Compared with the previous release (qPTM 2.0), qPTM 3.0 has substantially expanded the curated data as summarized below.</p>
+        <div class="help-table-scroll help-version-table-wrap">
+          <table class="lp-table help-version-table">
+            <thead>
+              <tr>
+                <th>Item</th>
+                <th>qPTM 2.0</th>
+                <th>qPTM 3.0</th>
+                <th>Increase</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Literatures</td>
+                <td>636</td>
+                <td>744</td>
+                <td>108</td>
+              </tr>
+              <tr>
+                <td>PTM events</td>
+                <td>11,482,553</td>
+                <td>14,183,172</td>
+                <td>2,700,619</td>
+              </tr>
+              <tr>
+                <td>PTM sites</td>
+                <td>660,030</td>
+                <td>796,337</td>
+                <td>136,307</td>
+              </tr>
+              <tr>
+                <td>Proteins</td>
+                <td>40,728</td>
+                <td>73,783</td>
+                <td>33,055</td>
+              </tr>
+              <tr>
+                <td>Conditions</td>
+                <td>2,596</td>
+                <td>3,391</td>
+                <td>795</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="lp-panel help-section" id="help-usage">
+    <div class="lp-panel-header"><i class="ri-book-open-line mr-2"></i>Usage</div>
+    <div class="lp-panel-body">
+
+      <div class="help-summary-section help-section" id="help-home">
+        <h3 class="help-summary-title">Home (Quick Search)</h3>
+        <p class="text-des">On the home page of qPTM, users can specify one field or all fields to perform a quick search with keyword(s) in the selected field(s). Users can simply click the example and search buttons to perform an example search.</p>
+        <figure class="help-figure">
+          <img src="assets/img/search.png" alt="qPTM quick search on the home page" class="help-figure-img">
+          <figcaption class="help-figure-caption">Quick search on the home page</figcaption>
+        </figure>
+      </div>
+
+      <div class="help-summary-section help-section" id="help-advanced">
+        <h3 class="help-summary-title">Advanced Search</h3>
+        <p class="text-des">Users can click the <strong>Advanced</strong> button to open the advanced search panel, add more keyword boxes, and choose <strong>AND</strong>, <strong>OR</strong>, or <strong>NOT</strong> to perform a more accurate multiple-keyword search. Users can simply click the example and search buttons to perform an example search.</p>
+        <figure class="help-figure">
+          <img src="assets/img/advanced_search.png" alt="qPTM advanced search panel" class="help-figure-img">
+          <figcaption class="help-figure-caption">Advanced search with Boolean operators</figcaption>
+        </figure>
+      </div>
+
+      <div class="help-summary-section help-section" id="help-browse">
+        <h3 class="help-summary-title">Browse</h3>
+        <p class="text-des">On the Browse page, users can click one term to search the specified data in qPTM. The data are first grouped by organisms and further grouped by PTM types. Detailed information is organized into three modules&mdash;conditions, samples, and genes&mdash;which are sorted alphabetically. Users can click an initial letter and select the term of interest.</p>
+        <figure class="help-figure">
+          <img src="assets/img/browse.png" alt="qPTM browse page" class="help-figure-img">
+          <figcaption class="help-figure-caption">Browse data by organism, PTM type, and term</figcaption>
+        </figure>
+      </div>
+
+      <div class="help-summary-section help-section" id="help-results">
+        <h3 class="help-summary-title">Results</h3>
+        <p class="text-des">On the Results page, users can view search or browse results and further filter them using the options provided. More information about the experiment and protein is displayed when users click the <i class="ri-add-circle-fill" style="color: var(--primary);"></i> button.</p>
+        <figure class="help-figure">
+          <img src="assets/img/result.png" alt="qPTM search results page" class="help-figure-img">
+          <figcaption class="help-figure-caption">Search results</figcaption>
+        </figure>
+        <div class="help-figure-grid">
+          <figure class="help-figure">
+            <img src="assets/img/detail1.png" alt="About experiment detail view" class="help-figure-img">
+            <figcaption class="help-figure-caption">About experiment</figcaption>
+          </figure>
+          <figure class="help-figure">
+            <img src="assets/img/detail2.png" alt="About protein detail view" class="help-figure-img">
+            <figcaption class="help-figure-caption">About protein</figcaption>
+          </figure>
+          <figure class="help-figure">
+            <img src="assets/img/detail3.png" alt="Potential kinases and inhibitors detail view" class="help-figure-img">
+            <figcaption class="help-figure-caption">Potential kinases and their inhibitors</figcaption>
+          </figure>
+          <figure class="help-figure">
+            <img src="assets/img/detail4.png" alt="Sequence and structure detail view" class="help-figure-img">
+            <figcaption class="help-figure-caption">Sequence and structure</figcaption>
+          </figure>
+        </div>
+      </div>
+
+      <div class="help-summary-section help-section" id="help-download">
+        <h3 class="help-summary-title">Download</h3>
+        <p class="text-des">qPTM provides two ways to download data. On the Results page, users can click the <strong>Download</strong> button to export the current search or browse results (including applied filters) as a tab-delimited text file.</p>
+        <p class="text-des">The complete qPTM dataset is also available from the <strong>Download</strong> page. Users should fill in the request form with their name, affiliation, country, and email address, complete the verification, and submit the request. A download link will be sent to the provided email address.</p>
+        <figure class="help-figure">
+          <img src="assets/img/download.png" alt="qPTM dataset download request form" class="help-figure-img">
+          <figcaption class="help-figure-caption">Request access to the complete qPTM dataset</figcaption>
+        </figure>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="lp-panel help-section" id="help-reliability">
+    <div class="lp-panel-header"><i class="ri-star-line mr-2"></i>Reliability</div>
+    <div class="lp-panel-body">
+      <p class="text-des">To assess the reliability of PTM sites, we developed a five-star scoring system by integrating raw MS data-based FDR control and the recurrences of identification among datasets.</p>
+      <p class="text-des">We performed MS searching using MaxQuant 2.7.5.0 against the UniProt database (Release 2026_01). Default values were used for all parameters unless stated otherwise, including 1% PSM FDR and 1% site-level FDR. The identified PTMs and relevant site-level FDRs were annotated to the curated data as re-identified FDR to enhance the reliability of qPTM.</p>
+      <p class="text-des">For datasets without raw MS data, the reliability of PTM sites was assessed through the recurrences of identification among datasets, characterized by three major standards in the five-star scoring system as follows:</p>
+      <ul class="help-list text-des">
+        <li><strong>Occurrences in qPTM.</strong> We counted the number of times each modified site was identified across all datasets. Because sites were filtered through a cutoff of site-level FDR &lt; 1% according to the literature, the more frequently a site was identified, the more reliable it was considered. Modified sites were given zero points when identified once, one point when identified twice, and so on, with a maximum identified score of 4 for each site.</li>
+        <li><strong>Data reliability in the proteomics study.</strong> The posterior error probability (PEP) and localization probability of each modified site were curated from the datasets when available. PEP, the probability that an observed PSM is incorrect, was required to be under 1%, and localization probability higher than 75% was considered indicative of high-confidence sites. PTM sites meeting this criterion were given one point.</li>
+        <li><strong>Occurrences in other classical PTM databases.</strong> Modified sites collected in dbPTM or PhosphoSitePlus were also given one point.</li>
+      </ul>
+      <p class="text-des">Taken together, the five-star scoring system assigned each PTM site a reliability score of 0&ndash;5 bright star(s) according to its recurrences of identification among datasets, and red-bordered the bright star(s) if the site had a site-level FDR &lt; 0.01 according to raw MS data-based re-identification.</p>
+    </div>
+  </div>
+
+  <div class="lp-panel help-section" id="help-curated">
+    <div class="lp-panel-header"><i class="ri-database-2-line mr-2"></i>Curated Data Summary</div>
+    <div class="lp-panel-body">
+      <div class="help-summary-section help-section" id="help-datasets">
+        <h3 class="help-summary-title">Summary of curated datasets</h3>
+        <div class="help-table-scroll">
+          <table class="lp-table">
+            <thead>
+              <tr>
+                <th>PMID</th>
+                <th>Number of events</th>
+                <th>Number of unique sites</th>
+                <th>Number of unique proteins</th>
+              </tr>
+            </thead>
+            <tbody id="curated-datasets-body">
+              <tr><td colspan="4" class="text-muted">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="help-summary-section help-section" id="help-literatures">
+        <h3 class="help-summary-title">Summary of curated literatures</h3>
+        <div class="help-table-scroll">
+          <table class="lp-table">
+            <thead>
+              <tr>
+                <th>PMID</th>
+                <th>Sample</th>
+                <th>PTMs</th>
+                <th>Quantification method</th>
+                <th>Condition</th>
+                <th>Enrichment method</th>
+                <th>Mass Spec</th>
+              </tr>
+            </thead>
+            <tbody id="curated-literatures-body">
+              <tr><td colspan="7" class="text-muted">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="lp-panel help-section" id="help-contact">
+    <div class="lp-panel-header"><i class="ri-team-line mr-2"></i>Contact</div>
+    <div class="lp-panel-body">
+      <p class="text-des">This study was performed by Jiamin Hu, Jun Wu, Dong Zhang, Yijin Wu and Ze-Xian Liu.</p>
+      <p class="text-des">Jiamin Hu, Jun Wu, Dong Zhang, Yijin Wu and Ze-Xian Liu are from</p>
+      <p class="text-des">Sun Yat-sen University Cancer Center,<br>Building 2#, 651 Dongfeng East Road,<br>Guangzhou 510060, P. R. China</p>
+      <p class="text-des">For questions or suggestions, please contact:</p>
+      <p class="text-des">Dr. Ze-Xian Liu<br>Sun Yat-sen University Cancer Center<br>Email: liuzx AT sysucc.org.cn</p>
+    </div>
+  </div>
+
+    </div>
+  </div>
+
+  
+</section>
+
+<div id="site-footer"></div>
+
+<a href="#" class="back-to-top"><i class="ri-arrow-up-line"></i></a>
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jquery.easing@1.4.1/jquery.easing.min.js"></script>
+<script src="assets/js/main.js"></script>
+<script src="assets/js/help.js"></script>
+</body>
+</html>

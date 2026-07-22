@@ -1,0 +1,724 @@
+DB00002	Cetuximab
+DB00030	Insulin Human
+DB00039	Palifermin
+DB00046	Insulin Lispro
+DB00047	Insulin Glargine
+DB00071	Insulin Pork
+DB00072	Trastuzumab
+DB00102	Becaplermin
+DB00117	Histidine
+DB00118	Ademetionine
+DB00131	Adenosine monophosphate
+DB00144	Phosphatidyl serine
+DB00163	Vitamin E
+DB00171	ATP
+DB00201	Caffeine
+DB00233	Aminosalicylic Acid
+DB00244	Mesalazine
+DB00281	Lidocaine
+DB00316	Acetaminophen
+DB00317	Gefitinib
+DB00321	Amitriptyline
+DB00325	Nitroprusside
+DB00331	Metformin
+DB00337	Pimecrolimus
+DB00398	Sorafenib
+DB00415	Ampicillin
+DB00482	Celecoxib
+DB00515	Cisplatin
+DB00526	Oxaliplatin
+DB00530	Erlotinib
+DB00605	Sulindac
+DB00619	Imatinib
+DB00675	Tamoxifen
+DB00727	Nitroglycerin
+DB00755	Tretinoin
+DB00795	Sulfasalazine
+DB00877	Sirolimus
+DB00883	Isosorbide Dinitrate
+DB00914	Phenformin
+DB00945	Acetylsalicylic acid
+DB00958	Carboplatin
+DB00995	Auranofin
+DB01041	Thalidomide
+DB01064	Isoprenaline
+DB01097	Leflunomide
+DB01109	Heparin
+DB01169	Arsenic trioxide
+DB01176	Cyclizine
+DB01254	Dasatinib
+DB01259	Lapatinib
+DB01268	Sunitinib
+DB01269	Panitumumab
+DB01277	Mecasermin
+DB01306	Insulin Aspart
+DB01307	Insulin Detemir
+DB01309	Insulin Glulisine
+DB01356	Lithium
+DB01590	Everolimus
+DB01612	Amyl Nitrite
+DB01613	Erythrityl Tetranitrate
+DB01645	Genistein
+DB01678	RU84687
+DB01738	Phosphorylcolamine
+DB01754	3,4-Dihydroxy-1-Methylquinolin-2(1h)-One
+DB01761	4-[5-[2-(1-Phenyl-Ethylamino)-Pyrimidin-4-Yl]-1-Methyl-4-(3-Trifluoromethylphenyl)-1h-Imidazol-2-Yl]-Piperidine
+DB01765	(5-Oxo-5,6-Dihydro-Indolo[1,2-a]Quinazolin-7-Yl)-Acetic Acid
+DB01772	3-[3-(2,3-Dihydroxy-Propylamino)-Phenyl]-4-(5-Fluoro-1-Methyl-1h-Indol-3-Yl)-Pyrrole-2,5-Dione
+DB01782	2,6-Dihydroanthra/1,9-Cd/Pyrazol-6-One
+DB01793	SB-409513
+DB01807	N-[(3z)-5-Tert-Butyl-2-Phenyl-1,2-Dihydro-3h-Pyrazol-3-Ylidene]-N'-(4-Chlorophenyl)Urea
+DB01809	1-Ter-Butyl-3-P-Tolyl-1h-Pyrazolo[3,4-D]Pyrimidin-4-Ylamine
+DB01812	Adenosine-3'-5'-Diphosphate
+DB01830	{4-[2-Acetylamino-2-(3-Carbamoyl-2-Cyclohexylmethoxy-6,7,8,9-Tetrahydro-5h-Benzocyclohepten-5ylcarbamoyl)-Ethyl]-2-Phosphono-Phenyl}-Phosphonic Acid
+DB01863	Inositol 1,3,4,5-Tetrakisphosphate
+DB01866	RU79256
+DB01888	4-[5-(Trans-4-Aminocyclohexylamino)-3-Isopropylpyrazolo[1,5-a]Pyrimidin-7-Ylamino]-N,N-Dimethylbenzenesulfonamide
+DB01893	N6-Benzyl Adenosine-5'-Diphosphate
+DB01901	Sucrosofate
+DB01908	RU85493
+DB01919	Pentanal
+DB01933	7-Hydroxystaurosporine
+DB01940	Balanol Analog 2
+DB01942	Formic Acid
+DB01946	3-[1-(3-Aminopropyl)-1h-Indol-3-Yl]-4-(1-Methyl-1h-Indol-3-Yl)-1h-Pyrrole-2,5-Dione
+DB01947	RU78262
+DB01948	1-(2,6-Dichlorophenyl)-5-(2,4-Difluorophenyl)-7-Piperidin-4-Yl-3,4-Dihydroquinolin-2(1h)-One
+DB01950	N-(4-Methoxybenzyl)-N'-(5-Nitro-1,3-Thiazol-2-Yl)Urea
+DB01953	Inhibitor of P38 Kinase
+DB01962	Phosphonotyrosine
+DB01988	6((S)-3-Benzylpiperazin-1-Yl)-3-(Naphthalen-2-Yl)-4-(Pyridin-4-Yl)Pyrazine
+DB02010	Staurosporine
+DB02052	Indirubin-3'-Monoxime
+DB02058	SU4984
+DB02078	Triglyme
+DB02091	4-(2,4-Dimethyl-Thiazol-5-Yl)-Pyrimidin-2-Ylamine
+DB02116	Olomoucine
+DB02152	K-252a
+DB02155	Balanol Analog 8
+DB02170	1,8-Di-Hydroxy-4-Nitro-Xanthen-9-One
+DB02175	Malonic acid
+DB02195	3-(4-Fluorophenyl)-1-Hydroxy-2-(Pyridin-4-Yl)-1h-Pyrrolo[3,2-B]Pyridine
+DB02197	4-[(4-Imidazo[1,2-a]Pyridin-3-Ylpyrimidin-2-Yl)Amino]Benzenesulfonamide
+DB02277	1-(5-Tert-Butyl-2-Methyl-2h-Pyrazol-3-Yl)-3-(4-Chloro-Phenyl)-Urea
+DB02297	2-Amino-6-Chloropyrazine
+DB02336	RU83876
+DB02352	3-(Benzyloxy)Pyridin-2-Amine
+DB02375	Myricetin
+DB02388	Cyclohexyl-{4-[5-(3,4-Dichlorophenyl)-2-Piperidin-4-Yl-3-Propyl-3h-Imidazol-4-Yl]-Pyrimidin-2-Yl}Amine
+DB02407	6-O-Cyclohexylmethyl Guanine
+DB02432	RU90395
+DB02482	Phosphonothreonine
+DB02491	4-[4-(1-Amino-1-Methylethyl)Phenyl]-5-Chloro-N-[4-(2-Morpholin-4-Ylethyl)Phenyl]Pyrimidin-2-Amine
+DB02538	N-[4-(2-Methylimidazo[1,2-a]Pyridin-3-Yl)-2-Pyrimidinyl]Acetamide
+DB02603	1-Amino-6-Cyclohex-3-Enylmethyloxypurine
+DB02611	Balanol Analog 1
+DB02647	N-(5-Cyclopropyl-1h-Pyrazol-3-Yl)Benzamide
+DB02656	LY-294002
+DB02709	Resveratrol
+DB02733	Purvalanol
+DB02762	RU79072
+DB02833	[4-(2-Amino-4-Methyl-Thiazol-5-Yl)-Pyrimidin-2-Yl]-(3-Nitro-Phenyl)-Amine
+DB02873	1-(2,6-Dichlorophenyl)-5-(2,4-Difluorophenyl)-7-Piperazin-1-Yl-3,4-Dihydroquinazolin-2(1h)-One
+DB02898	5-{[(2-Amino-9h-Purin-6-Yl)Oxy]Methyl}-2-Pyrrolidinone
+DB02902	3'-Phosphate-Adenosine-5'-Phosphate Sulfate
+DB02908	RU78783
+DB02915	4-(2,4-Dimethyl-1,3-thiazol-5-yl)-N-[4-(trifluoromethyl)phenyl]-2-pyrimidinamine
+DB02950	Hymenialdisine
+DB02963	(5-Chloropyrazolo[1,5-a]Pyrimidin-7-Yl)-(4-Methanesulfonylphenyl)Amine
+DB02973	4-(5-Bromo-2-Oxo-2h-Indol-3-Ylazo)-Benzenesulfonamide
+DB02984	4-[3-Methylsulfanylanilino]-6,7-Dimethoxyquinazoline
+DB03019	4-(2,5-Dichloro-Thiophen-3-Yl)-Pyrimidin-2-Ylamine
+DB03023	1-Tert-Butyl-3-(4-Chloro-Phenyl)-1h-Pyrazolo[3,4-D]Pyrimidin-4-Ylamine
+DB03035	1,8-Di-Hydroxy-4-Nitro-Anthraquinone
+DB03044	1-(5-Tert-Butyl-2-P-Tolyl-2h-Pyrazol-3-Yl)-3-[4-(2-Morpholin-4-Yl-Ethoxy)-Naphthalen-1-Yl]-Urea
+DB03078	PASBN
+DB03084	Cyclopropyl-{4-[5-(3,4-Dichlorophenyl)-2-[(1-Methyl)-Piperidin]-4-Yl-3-Propyl-3h-Imidazol-4-Yl]-Pyrimidin-2-Yl}Amine
+DB03104	RU82129
+DB03110	2-Chlorophenol
+DB03114	PAS219
+DB03115	5-Bromo-N-(2,3-Dihydroxypropoxy)-3,4-Difluoro-2-[(2-Fluoro-4-Iodophenyl)Amino]Benzamide
+DB03127	Benzamidine
+DB03217	DPI59
+DB03247	Flavin mononucleotide
+DB03268	RU82197
+DB03298	Phenylphosphate
+DB03306	RU78300
+DB03307	4-[(6-Amino-4-Pyrimidinyl)Amino]Benzenesulfonamide
+DB03346	3,5,3',5'-Tetrachloro-Biphenyl-4,4'-Diol
+DB03365	4-[3-Hydroxyanilino]-6,7-Dimethoxyquinazoline
+DB03366	Imidazole
+DB03374	3,5-Diiodotyrosine
+DB03428	SU9516
+DB03444	(3e)-6'-Bromo-2,3'-Biindole-2',3(1h,1'h)-Dione 3-Oxime
+DB03490	3-Pyridin-4-Yl-2,4-Dihydro-Indeno[1,2-.C.]Pyrazole
+DB03496	Alvocidib
+DB03525	RU79073
+DB03583	(2e,3s)-3-Hydroxy-5'-[(4-Hydroxypiperidin-1-Yl)Sulfonyl]-3-Methyl-1,3-Dihydro-2,3'-Biindol-2'(1'h)-One
+DB03591	RU82209
+DB03623	9-(4-Hydroxyphenyl)-2,7-Phenanthroline
+DB03628	ISO24
+DB03650	(3e)-3-[(4-Hydroxyphenyl)Imino]-1h-Indol-2(3h)-One
+DB03663	1-[(2-Amino-6,9-Dihydro-1h-Purin-6-Yl)Oxy]-3-Methyl-2-Butanol
+DB03712	RU85053
+DB03737	4-((3r,4s,5r)-4-Amino-3,5-Dihydroxy-Hex-1-Ynyl)-5-Fluoro-3-[1-(3-Methoxy-1h-Pyrrol-2-Yl)-Meth-(Z)-Ylidene]-1,3-Dihydro-Indol-2-One
+DB03758	Radicicol
+DB03760	Dihydrolipoic Acid
+DB03777	Rbt205 Inhibitor
+DB03801	Lysine Nz-Carboxylic Acid
+DB03828	RU78299
+DB03878	N-[4-Methyl-3-[[4-(3-Pyridinyl)-2-Pyrimidinyl]Amino]Phenyl]-3-Pyridinecarboxamide
+DB03902	Oxalic Acid
+DB03909	Adenosine-5'-[Beta, Gamma-Methylene]Triphosphate
+DB03921	4-(3-Pyridin-2-Yl-1h-Pyrazol-4-Yl)Quinoline
+DB03924	5,8-Di-Amino-1,4-Dihydroxy-Anthraquinone
+DB03980	4-(Fluorophenyl)-1-Cyclopropylmethyl-5-(2-Amino-4-Pyrimidinyl)Imidazole
+DB04003	{4-[(2S)-2-Acetamido-3-({(1S)-1-[3-carbamoyl-4-(cyclohexylmethoxy)phenyl]ethyl}amino)-3-oxopropyl]-2-phosphonophenoxy}acetic acid
+DB04006	[2-Amino-6-(2,6-Difluoro-Benzoyl)-Imidazo[1,2-a]Pyridin-3-Yl]-Phenyl-Methanone
+DB04014	Alsterpaullone
+DB04069	5,6-Dihydro-Benzo[H]Cinnolin-3-Ylamine
+DB04080	RU78191
+DB04098	Balanol
+DB04101	N-[4-(2,4-Dimethyl-1,3-Thiazol-5-Yl)Pyrimidin-2-Yl]-N'-Hydroxyimidoformamide
+DB04119	Hexatantalum Dodecabromide
+DB04186	N'-(Pyrrolidino[2,1-B]Isoindolin-4-On-8-Yl)-N-(Pyridin-2-Yl)Urea
+DB04216	Quercetin
+DB04272	Citric Acid
+DB04288	2-[Trans-(4-Aminocyclohexyl)Amino]-6-(Benzyl-Amino)-9-Cyclopentylpurine
+DB04338	SB220025
+DB04367	Debromohymenialdisine
+DB04376	13-Acetylphorbol
+DB04395	Phosphoaminophosphonic Acid-Adenylate Ester
+DB04407	4-[4-(4-Methyl-2-Methylamino-Thiazol-5-Yl)-Pyrimidin-2-Ylamino]-Phenol
+DB04434	Naphthyridine Inhibitor
+DB04447	1,4-Dithiothreitol
+DB04462	Tetrabromo-2-Benzotriazole
+DB04480	3-(4-Fluorophenyl)-2-(6-Methylpyridin-2-Yl)-5,6-Dihydro-4h-Pyrrolo[1,2-B]Pyrazole
+DB04495	RU81843
+DB04518	3-[4-(2,4-Dimethyl-Thiazol-5-Yl)-Pyrimidin-2-Ylamino]-Phenol
+DB04522	Dexfosfoserine
+DB04530	S,S-(2-Hydroxyethyl)Thiocysteine
+DB04604	5-iodotubercidin
+DB04607	PHENYLAMINOIMIDAZO(1,2-ALPHA)PYRIDINE
+DB04608	9-HYDROXY-4-PHENYL-6H-PYRROLO[3,4-C]CARBAZOLE-1,3-DIONE
+DB04632	4-(2-HYDROXYBENZYLAMINO)-N-(3-(4-FLUOROPHENOXY)PHENYL)PIPERIDINE-1-SULFONAMIDE
+DB04662	OLOMOUCINE II
+DB04669	TRIAZOLOPYRIMIDINE
+DB04703	HESPERIDIN
+DB04707	Hydroxyfasudil
+DB04715	IMIDAZOPYRIDAZIN 1
+DB04716	2-(1,1-DIMETHYLETHYL)9-FLUORO-3,6-DIHYDRO-7H-BENZ[H]-IMIDAZ[4,5-F]ISOQUINOLIN-7-ONE
+DB04719	DIMETHYL-(4,5,6,7-TETRABROMO-1H-BENZOIMIDAZOL-2-YL)-AMINE
+DB04720	S-METHYL-4,5,6,7-TETRABROMO-BENZIMIDAZOLE
+DB04721	N1,N2-ETHYLENE-2-METHYLAMINO-4,5,6,7-TETRABROMO-BENZIMIDAZOLE
+DB04727	N-(4-{4-AMINO-6-[4-(METHYLOXY)PHENYL]FURO[2,3-D]PYRIMIDIN-5-YL}PHENYL)-N'-[2-FLUORO-5-(TRIFLUOROMETHYL)PHENYL]UREA
+DB04739	4-[(4-METHYL-1-PIPERAZINYL)METHYL]-N-[3-[[4-(3-PYRIDINYL)-2-PYRIMIDINYL]AMINO]PHENYL]-BENZAMIDE
+DB04751	Purvalanol A
+DB04797	Triazolopyridine
+DB04849	Cediranib
+DB04868	Nilotinib
+DB04879	Vatalanib
+DB04899	Nesiritide
+DB04973	LErafAON
+DB04974	AP1903
+DB04988	IGN311
+DB05013	Ingenol Mebutate
+DB05014	XL999
+DB05023	ATL1101
+DB05034	Ularitide
+DB05037	AT7519
+DB05075	TG-100801
+DB05101	Matuzumab
+DB05115	NN344
+DB05120	AT1391
+DB05146	XL820
+DB05149	XL844
+DB05157	KC706
+DB05169	AT9283
+DB05183	MLN0415
+DB05184	XL228
+DB05190	XL281
+DB05198	CYC116
+DB05204	XL418
+DB05210	SF1126
+DB05220	Alisertib
+DB05239	Cobimetinib
+DB05241	XL765
+DB05243	XL019
+DB05268	iCo-007
+DB05294	Vandetanib
+DB05374	Rindopepimut
+DB05403	CEP-1347
+DB05412	Talmapimod
+DB05424	Canertinib
+DB05465	Tandutinib
+DB05470	VX-702
+DB05524	Pelitinib
+DB05578	Ramucirumab
+DB05773	Trastuzumab emtansine
+DB05897	rhIGFBP-3
+DB05913	OSI-930
+DB05931	Pegdinetanib
+DB05932	Denibulin
+DB05944	Varlitinib
+DB05945	MDX-1303
+DB05969	SNS-032
+DB05971	Archexin
+DB05984	RAF-265
+DB06021	AV-412
+DB06043	Olaratumab
+DB06061	AZD-8330
+DB06064	KAI-1455
+DB06075	Linsitinib
+DB06080	ABT-869
+DB06101	IMC-1C11
+DB06134	SNS-314
+DB06137	KX-01
+DB06151	Acetylcysteine
+DB06195	Seliciclib
+DB06233	Ridaforolimus
+DB06287	Temsirolimus
+DB06366	Pertuzumab
+DB06376	CHGN111
+DB06436	Semaxanib
+DB06451	Aprinocarsen
+DB06469	Lestaurtinib
+DB06486	Enzastaurin
+DB06521	Ertiprotafib
+DB06589	Pazopanib
+DB06595	Midostaurin
+DB06616	Bosutinib
+DB06626	Axitinib
+DB06641	Perifosine
+DB06834	N-(2-hydroxy-1,1-dimethylethyl)-1-methyl-3-(1H-pyrrolo[2,3-b]pyridin-2-yl)-1H-indole-5-carboxamide
+DB06844	4-[(7-OXO-7H-THIAZOLO[5,4-E]INDOL-8-YLMETHYL)-AMINO]-N-PYRIDIN-2-YL-BENZENESULFONAMIDE
+DB06852	4-[(3S)-1-AZABICYCLO[2.2.2]OCT-3-YLAMINO]-3-(1H-BENZIMIDAZOL-2-YL)-6-CHLOROQUINOLIN-2(1H)-ONE
+DB06876	N-{5-[4-(4-METHYLPIPERAZIN-1-YL)PHENYL]-1H-PYRROLO[2,3-B]PYRIDIN-3-YL}NICOTINAMIDE
+DB06877	N,N-DIMETHYL-4-(4-PHENYL-1H-PYRAZOL-3-YL)-1H-PYRROLE-2-CARBOXAMIDE
+DB06882	1-[1-(3-aminophenyl)-3-tert-butyl-1H-pyrazol-5-yl]-3-naphthalen-1-ylurea
+DB06883	1-[1-(3-aminophenyl)-3-tert-butyl-1H-pyrazol-5-yl]-3-phenylurea
+DB06888	(13R,15S)-13-METHYL-16-OXA-8,9,12,22,24-PENTAAZAHEXACYCLO[15.6.2.16,9.1,12,15.0,2,7.0,21,25]HEPTACOSA-1(24),2,4,6,17(25),18,20-HEPTAENE-23,26-DIONE
+DB06892	(5S)-4,5-difluoro-6-[(2-fluoro-4-iodophenyl)imino]-N-(2-hydroxyethoxy)cyclohexa-1,3-diene-1-carboxamide
+DB06896	1-(4-fluorophenyl)-N-[3-fluoro-4-(1H-pyrrolo[2,3-b]pyridin-4-yloxy)phenyl]-2-oxo-1,2-dihydropyridine-3-carboxamide
+DB06897	3-[3-chloro-5-(5-{[(1S)-1-phenylethyl]amino}isoxazolo[5,4-c]pyridin-3-yl)phenyl]propan-1-ol
+DB06925	3-(2-AMINOQUINAZOLIN-6-YL)-4-METHYL-N-[3-(TRIFLUOROMETHYL)PHENYL]BENZAMIDE
+DB06932	10,11-dimethoxy-4-methyldibenzo[c,f]-2,7-naphthyridine-3,6-diamine
+DB06933	N-(tert-butyl)-4-[5-(pyridin-2-ylamino)quinolin-3-yl]benzenesulfonamide
+DB06938	4-[[2-[[4-chloro-3-(trifluoromethyl)phenyl]amino]-3H-benzimidazol-5-yl]oxy]-N-methyl-pyridine-2-carboxamide
+DB06940	N-ethyl-4-{[5-(methoxycarbamoyl)-2-methylphenyl]amino}-5-methylpyrrolo[2,1-f][1,2,4]triazine-6-carboxamide
+DB06944	N-(3-cyclopropyl-1H-pyrazol-5-yl)-2-(2-naphthyl)acetamide
+DB06948	2-ANILINO-6-CYCLOHEXYLMETHOXYPURINE
+DB06959	(2S)-1-(3H-Indol-3-yl)-3-{[5-(6-isoquinolinyl)-3-pyridinyl]oxy}-2-propanamine
+DB06963	3-[3-(3-methyl-6-{[(1S)-1-phenylethyl]amino}-1H-pyrazolo[4,3-c]pyridin-1-yl)phenyl]propanamide
+DB06976	1-(5-OXO-2,3,5,9B-TETRAHYDRO-1H-PYRROLO[2,1-A]ISOINDOL-9-YL)-3-(5-PYRROLIDIN-2-YL-1H-PYRAZOL-3-YL)-UREA
+DB06977	(2S)-1-{[5-(1H-Indazol-5-yl)-3-pyridinyl]oxy}-3-(7aH-indol-3-yl)-2-propanamine
+DB06983	(5-phenyl-7-(pyridin-3-ylmethylamino)pyrazolo[1,5-a]pyrimidin-3-yl)methanol
+DB06991	N-[2-methyl-5-(methylcarbamoyl)phenyl]-2-{[(1R)-1-methylpropyl]amino}-1,3-thiazole-5-carboxamide
+DB06995	N-({4-[(2-aminopyridin-4-yl)oxy]-3-fluorophenyl}carbamoyl)-2-(4-fluorophenyl)acetamide
+DB06997	2-(4-fluorophenyl)-N-{[3-fluoro-4-(1H-pyrrolo[2,3-b]pyridin-4-yloxy)phenyl]carbamoyl}acetamide
+DB06999	N-{3-[(5-chloro-1H-pyrrolo[2,3-b]pyridin-3-yl)carbonyl]-2,4-difluorophenyl}propane-1-sulfonamide
+DB07000	N-{2,4-difluoro-3-[(5-pyridin-3-yl-1H-pyrrolo[2,3-b]pyridin-3-yl)carbonyl]phenyl}ethanesulfonamide
+DB07006	9-HYDROXY-6-(3-HYDROXYPROPYL)-4-(2-METHOXYPHENYL)PYRROLO[3,4-C]CARBAZOLE-1,3(2H,6H)-DIONE
+DB07010	N-BENZYL-4-[4-(3-CHLOROPHENYL)-1H-PYRAZOL-3-YL]-1H-PYRROLE-2-CARBOXAMIDE
+DB07014	2-(1,3-benzodioxol-5-yl)-5-[(3-fluoro-4-methoxybenzyl)sulfanyl]-1,3,4-oxadiazole
+DB07020	N-{3-[5-(1H-1,2,4-triazol-3-yl)-1H-indazol-3-yl]phenyl}furan-2-carboxamide
+DB07024	2-(3,4-DIHYDROXYPHENYL)-8-(1,1-DIOXIDOISOTHIAZOLIDIN-2-YL)-3-HYDROXY-6-METHYL-4H-CHROMEN-4-ONE
+DB07025	3-(5-{[4-(AMINOMETHYL)PIPERIDIN-1-YL]METHYL}-1H-INDOL-2-YL)QUINOLIN-2(1H)-ONE
+DB07033	5-HYDROXY-3-[(1R)-1-(1H-PYRROL-2-YL)ETHYL]-2H-INDOL-2-ONE
+DB07034	2,2'-{[9-(HYDROXYIMINO)-9H-FLUORENE-2,7-DIYL]BIS(OXY)}DIACETIC ACID
+DB07037	(2S)-1-AMINO-3-[(5-NITROQUINOLIN-8-YL)AMINO]PROPAN-2-OL
+DB07038	2-(cyclohexylamino)benzoic acid
+DB07046	2-[(2-chloro-4-iodophenyl)amino]-N-{[(2R)-2,3-dihydroxypropyl]oxy}-3,4-difluorobenzamide
+DB07054	(2R)-1-(DIMETHYLAMINO)-3-{4-[(6-{[2-FLUORO-5-(TRIFLUOROMETHYL)PHENYL]AMINO}PYRIMIDIN-4-YL)AMINO]PHENOXY}PROPAN-2-OL
+DB07058	5-[1-(4-methoxyphenyl)-1H-benzimidazol-6-yl]-1,3,4-oxadiazole-2(3H)-thione
+DB07065	5-(2,3-dichlorophenyl)-N-(pyridin-4-ylmethyl)-3-thiocyanatopyrazolo[1,5-a]pyrimidin-7-amine
+DB07075	3-(5-{[4-(AMINOMETHYL)PIPERIDIN-1-YL]METHYL}-1H-INDOL-2-YL)-1H-INDAZOLE-6-CARBONITRILE
+DB07078	(3Z)-6-(4-HYDROXY-3-METHOXYPHENYL)-3-(1H-PYRROL-2-YLMETHYLENE)-1,3-DIHYDRO-2H-INDOL-2-ONE
+DB07101	PD-0325901
+DB07107	(1S)-2-(1H-INDOL-3-YL)-1-[({5-[(E)-2-PYRIDIN-4-YLVINYL]PYRIDIN-3-YL}OXY)METHYL]ETHYLAMINE
+DB07124	(2S)-1-(6H-INDOL-3-YL)-3-{[5-(7H-PYRAZOLO[3,4-C]PYRIDIN-5-YL)PYRIDIN-3-YL]OXY}PROPAN-2-AMINE
+DB07125	4-(6-{[(1R)-1-(hydroxymethyl)propyl]amino}imidazo[1,2-b]pyridazin-3-yl)benzoic acid
+DB07126	O6-CYCLOHEXYLMETHOXY-2-(4'-SULPHAMOYLANILINO) PURINE
+DB07132	1-{2-OXO-3-[(1R)-1-(1H-PYRROL-2-YL)ETHYL]-2H-INDOL-5-YL}UREA
+DB07137	(2S)-N-[(3Z)-5-CYCLOPROPYL-3H-PYRAZOL-3-YLIDENE]-2-[4-(2-OXOIMIDAZOLIDIN-1-YL)PHENYL]PROPANAMIDE
+DB07138	Neflamapimod
+DB07146	2,3-DIPHENYL-N-(2-PIPERAZIN-1-YLETHYL)FURO[2,3-B]PYRIDIN-4-AMINE
+DB07149	(7S)-2-(2-aminopyrimidin-4-yl)-7-(2-fluoroethyl)-1,5,6,7-tetrahydro-4H-pyrrolo[3,2-c]pyridin-4-one
+DB07151	4-(4-hydroxy-3-methylphenyl)-6-phenylpyrimidin-2(5H)-one
+DB07152	N-[4-(5-fluoro-6-methylpyridin-2-yl)-5-quinoxalin-6-yl-1H-imidazol-2-yl]acetamide
+DB07156	(4Z)-6-bromo-4-({[4-(pyrrolidin-1-ylmethyl)phenyl]amino}methylidene)isoquinoline-1,3(2H,4H)-dione
+DB07158	5-ETHYL-3-METHYL-1,5-DIHYDRO-4H-PYRAZOLO[4,3-C]QUINOLIN-4-ONE
+DB07159	6-({5-fluoro-2-[(3,4,5-trimethoxyphenyl)amino]pyrimidin-4-yl}amino)-2,2-dimethyl-2H-pyrido[3,2-b][1,4]oxazin-3(4H)-one
+DB07161	5-phenyl-1H-indazol-3-amine
+DB07162	4-(3-amino-1H-indazol-5-yl)-N-tert-butylbenzenesulfonamide
+DB07163	5-[(2-AMINOETHYL)AMINO]-6-FLUORO-3-(1H-PYRROL-2-YL)BENZO[CD]INDOL-2(1H)-ONE
+DB07164	N-cyclopropyl-4-pyrazolo[1,5-b]pyridazin-3-ylpyrimidin-2-amine
+DB07167	5-CYANO-FURAN-2-CARBOXYLIC ACID [5-HYDROXYMETHYL-2-(4-METHYL-PIPERIDIN-1-YL)-PHENYL]-AMIDE
+DB07168	[4-({4-[(5-cyclopropyl-1H-pyrazol-3-yl)amino]-6-(methylamino)pyrimidin-2-yl}amino)phenyl]acetonitrile
+DB07179	3-((3-bromo-5-o-tolylpyrazolo[1,5-a]pyrimidin-7-ylamino)methyl)pyridine 1-oxide
+DB07180	5-[(Z)-(5-Chloro-2-oxo-1,2-dihydro-3H-indol-3-ylidene)methyl]-N,2,4-trimethyl-1H-pyrrole-3-carboxamide
+DB07183	N-(4-phenoxyphenyl)-2-[(pyridin-4-ylmethyl)amino]nicotinamide
+DB07186	4-(4-METHYLPIPERAZIN-1-YL)-N-[5-(2-THIENYLACETYL)-1,5-DIHYDROPYRROLO[3,4-C]PYRAZOL-3-YL]BENZAMIDE
+DB07194	2-{2-[(3,5-dimethylphenyl)amino]pyrimidin-4-yl}-N-[(1S)-2-hydroxy-1-methylethyl]-4-methyl-1,3-thiazole-5-carboxamide
+DB07202	6-CHLORO-3-(3-METHYLISOXAZOL-5-YL)-4-PHENYLQUINOLIN-2(1H)-ONE
+DB07203	6-CYCLOHEXYLMETHOXY-2-(3'-CHLOROANILINO) PURINE
+DB07204	(1S)-1-(1H-INDOL-3-YLMETHYL)-2-(2-PYRIDIN-4-YL-[1,7]NAPHTYRIDIN-5-YLOXY)-EHYLAMINE
+DB07210	3-bromo-5-phenyl-N-(pyridin-4-ylmethyl)pyrazolo[1,5-a]pyrimidin-7-amine
+DB07213	(5-{3-[5-(PIPERIDIN-1-YLMETHYL)-1H-INDOL-2-YL]-1H-INDAZOL-6-YL}-2H-1,2,3-TRIAZOL-4-YL)METHANOL
+DB07217	N-(3-cyano-4,5,6,7-tetrahydro-1-benzothien-2-yl)-2-fluorobenzamide
+DB07218	6-CHLORO-9-HYDROXY-1,3-DIMETHYL-1,9-DIHYDRO-4H-PYRAZOLO[3,4-B]QUINOLIN-4-ONE
+DB07220	N-[5-(1,1-DIOXIDOISOTHIAZOLIDIN-2-YL)-1H-INDAZOL-3-YL]-2-(4-PIPERIDIN-1-YLPHENYL)ACETAMIDE
+DB07226	N-[4-(2-CHLOROPHENYL)-1,3-DIOXO-1,2,3,6-TETRAHYDROPYRROLO[3,4-C]CARBAZOL-9-YL]FORMAMIDE
+DB07228	1-(5-CHLORO-2-METHOXYPHENYL)-3-{6-[2-(DIMETHYLAMINO)-1-METHYLETHOXY]PYRAZIN-2-YL}UREA
+DB07234	3-{[(1R)-1-phenylethyl]amino}-4-(pyridin-4-ylamino)cyclobut-3-ene-1,2-dione
+DB07235	N-[(1S)-2-AMINO-1-(2,4-DICHLOROBENZYL)ETHYL]-5-[2-(METHYLAMINO)PYRIMIDIN-4-YL]THIOPHENE-2-CARBOXAMIDE
+DB07242	(4R)-7,8-dichloro-1',9-dimethyl-1-oxo-1,2,4,9-tetrahydrospiro[beta-carboline-3,4'-piperidine]-4-carbonitrile
+DB07243	(3-ENDO)-8-METHYL-8-AZABICYCLO[3.2.1]OCT-3-YL 1H-PYRROLO[2,3-B]PYRIDINE-3-CARBOXYLATE
+DB07248	7-PYRIDIN-2-YL-N-(3,4,5-TRIMETHOXYPHENYL)-7H-PYRROLO[2,3-D]PYRIMIDIN-2-AMINE
+DB07257	4-(2-chlorophenyl)-8-(2-hydroxyethyl)-6-methylpyrrolo[3,4-e]indole-1,3(2H,6H)-dione
+DB07264	(S)-N-(1-(3-CHLORO-4-FLUOROPHENYL)-2-HYDROXYETHYL)-4-(4-(3-CHLOROPHENYL)-1H-PYRAZOL-3-YL)-1H-PYRROLE-2-CARBOXAMIDE
+DB07265	3-(9-HYDROXY-1,3-DIOXO-4-PHENYL-2,3-DIHYDROPYRROLO[3,4-C]CARBAZOL-6(1H)-YL)PROPANOIC ACID
+DB07266	8-ethyl-3,10,10-trimethyl-4,5,6,8,10,12-hexahydropyrazolo[4',3':6,7]cyclohepta[1,2-b]pyrrolo[2,3-f]indol-9(1H)-one
+DB07267	2-(6-methylpyridin-2-yl)-N-pyridin-4-ylquinazolin-4-amine
+DB07268	2-({2-[(3-HYDROXYPHENYL)AMINO]PYRIMIDIN-4-YL}AMINO)BENZAMIDE
+DB07272	N-(4-AMINO-5-CYANO-6-ETHOXYPYRIDIN-2-YL)-2-(4-BROMO-2,5-DIMETHOXYPHENYL)ACETAMIDE
+DB07274	N-cyclopropyl-6-[(6,7-dimethoxyquinolin-4-yl)oxy]naphthalene-1-carboxamide
+DB07276	5-CYANO-N-(2,5-DIMETHOXYBENZYL)-6-ETHOXYPYRIDINE-2-CARBOXAMIDE
+DB07288	N-(4-chlorophenyl)-2-[(pyridin-4-ylmethyl)amino]benzamide
+DB07297	5,6-DIPHENYL-N-(2-PIPERAZIN-1-YLETHYL)FURO[2,3-D]PYRIMIDIN-4-AMINE
+DB07300	2-(1H-imidazol-1-yl)-9-methoxy-8-(2-methoxyethoxy)benzo[c][2,7]naphthyridin-4-amine
+DB07307	N-cyclopropyl-4-methyl-3-[1-(2-methylphenyl)phthalazin-6-yl]benzamide
+DB07311	18-CHLORO-11,12,13,14-TETRAHYDRO-1H,10H-8,4-(AZENO)-9,15,1,3,6-BENZODIOXATRIAZACYCLOHEPTADECIN-2-ONE
+DB07314	1-(5-CHLORO-2,4-DIMETHOXYPHENYL)-3-(5-CYANOPYRAZIN-2-YL)UREA
+DB07320	4-(6-{[(4-METHYLCYCLOHEXYL)AMINO]METHYL}-1,4-DIHYDROINDENO[1,2-C]PYRAZOL-3-YL)BENZOIC ACID
+DB07326	6-chloro-N-pyrimidin-5-yl-3-{[3-(trifluoromethyl)phenyl]amino}-1,2-benzisoxazole-7-carboxamide
+DB07333	N-(CYCLOPROPYLMETHYL)-4-(METHYLOXY)-3-({5-[3-(3-PYRIDINYL)PHENYL]-1,3-OXAZOL-2-YL}AMINO)BENZENESULFONAMIDE
+DB07334	N-[5-(ETHYLSULFONYL)-2-METHOXYPHENYL]-5-[3-(2-PYRIDINYL)PHENYL]-1,3-OXAZOL-2-AMINE
+DB07335	3-[4-AMINO-1-(1-METHYLETHYL)-1H-PYRAZOLO[3,4-D]PYRIMIDIN-3-YL]PHENOL
+DB07336	4-[3-(1H-BENZIMIDAZOL-2-YL)-1H-INDAZOL-6-YL]-2-METHOXYPHENOL
+DB07340	N~6~-cyclohexyl-N~2~-(4-morpholin-4-ylphenyl)-9H-purine-2,6-diamine
+DB07360	1-{5-[2-(thieno[3,2-d]pyrimidin-4-ylamino)ethyl]-1,3-thiazol-2-yl}-3-[3-(trifluoromethyl)phenyl]urea
+DB07362	1-(5-{2-[(1-methyl-1H-pyrazolo[4,3-d]pyrimidin-7-yl)amino]ethyl}-1,3-thiazol-2-yl)-3-[3-(trifluoromethyl)phenyl]urea
+DB07364	6-PHENYL[5H]PYRROLO[2,3-B]PYRAZINE
+DB07369	N-(3-chlorophenyl)-N-methyl-2-oxo-3-[(3,4,5-trimethyl-1H-pyrrol-2-yl)methyl]-2H-indole-5-sulfonamide
+DB07379	(2S)-2-({6-[(3-amino-5-chlorophenyl)amino]-9-isopropyl-9H-purin-2-yl}amino)-3-methylbutan-1-ol
+DB07406	(4R)-N-[4-({[2-(DIMETHYLAMINO)ETHYL]AMINO}CARBONYL)-1,3-THIAZOL-2-YL]-4-METHYL-1-OXO-2,3,4,9-TETRAHYDRO-1H-BETA-CARBOLINE-6-CARBOXAMIDE
+DB07430	(10R)-10-methyl-3-(6-methylpyridin-3-yl)-9,10,11,12-tetrahydro-8H-[1,4]diazepino[5',6':4,5]thieno[3,2-f]quinolin-8-one
+DB07431	(3R)-3-(aminomethyl)-9-methoxy-1,2,3,4-tetrahydro-5H-[1]benzothieno[3,2-e][1,4]diazepin-5-one
+DB07444	6-(3-AMINOPROPYL)-4,9-DIMETHYLPYRROLO[3,4-C]CARBAZOLE-1,3(2H,6H)-DIONE
+DB07456	3-(1H-indol-3-yl)-4-(1-{2-[(2S)-1-methylpyrrolidinyl]ethyl}-1H-indol-3-yl)-1H-pyrrole-2,5-dione
+DB07457	3-[1-(3-AMINOPROPYL)-1H-INDOL-3-YL]-4-(1H-INDOL-3-YL)-1H-PYRROLE-2,5-DIONE
+DB07458	3-(1H-indol-3-yl)-4-{1-[2-(1-methylpyrrolidin-2-yl)ethyl]-1H-indol-3-yl}-1H-pyrrole-2,5-dione
+DB07459	4-PHENOXY-N-(PYRIDIN-2-YLMETHYL)BENZAMIDE
+DB07460	2-({5-CHLORO-2-[(2-METHOXY-4-MORPHOLIN-4-YLPHENYL)AMINO]PYRIMIDIN-4-YL}AMINO)-N-METHYLBENZAMIDE
+DB07471	5-[5,6-BIS(METHYLOXY)-1H-BENZIMIDAZOL-1-YL]-3-{[1-(2-CHLOROPHENYL)ETHYL]OXY}-2-THIOPHENECARBOXAMIDE
+DB07474	3-[5-(1H-IMIDAZOL-1-YL)-7-METHYL-1H-BENZIMIDAZOL-2-YL]-4-[(PYRIDIN-2-YLMETHYL)AMINO]PYRIDIN-2(1H)-ONE
+DB07493	(2Z)-5'-BROMO-2,3'-BIINDOLE-2',3(1H,1'H)-DIONE AMMONIATE
+DB07501	(2S)-1-{4-[(4-Anilino-5-bromo-2-pyrimidinyl)amino]phenoxy}-3-(dimethylamino)-2-propanol
+DB07504	(2R)-1-{4-[(4-Anilino-5-bromo-2-pyrimidinyl)amino]phenoxy}-3-(dimethylamino)-2-propanol
+DB07514	3-(2-aminoquinazolin-6-yl)-1-(3,3-dimethylindolin-6-yl)-4-methylpyridin-2(1H)-one
+DB07524	N-phenyl-1H-pyrrolo[2,3-b]pyridin-3-amine
+DB07525	3-(3-methoxybenzyl)-1H-pyrrolo[2,3-b]pyridine
+DB07528	3-(2-aminoquinazolin-6-yl)-4-methyl-1-[3-(trifluoromethyl)phenyl]pyridin-2(1H)-one
+DB07529	2-IMINO-5-(1-PYRIDIN-2-YL-METH-(E)-YLIDENE)-1,3-THIAZOLIDIN-4-ONE
+DB07531	4-{5-[(Z)-(2,4-DIOXO-1,3-THIAZOLIDIN-5-YLIDENE)METHYL]FURAN-2-YL}BENZENESULFONAMIDE
+DB07533	4-{5-[(Z)-(2-IMINO-4-OXO-1,3-THIAZOLIDIN-5-YLIDENE)METHYL]-2-FURYL}-N-METHYLBENZENESULFONAMIDE
+DB07534	4-{5-[(Z)-(2-IMINO-4-OXO-1,3-THIAZOLIDIN-5-YLIDENE)METHYL]FURAN-2-YL}BENZENESULFONAMIDE
+DB07537	N'-(6-aminopyridin-3-yl)-N-(2-cyclopentylethyl)-4-methyl-benzene-1,3-dicarboxamide
+DB07538	4-{5-[(Z)-(2-IMINO-4-OXO-1,3-THIAZOLIDIN-5-YLIDENE)METHYL]FURAN-2-YL}-2-(TRIFLUOROMETHYL)BENZENESULFONAMIDE
+DB07539	4-{5-[(Z)-(2-IMINO-4-OXO-1,3-THIAZOLIDIN-5-YLIDENE)METHYL]FURAN-2-YL}BENZOIC ACID
+DB07540	4-{5-[(1Z)-1-(2-IMINO-4-OXO-1,3-THIAZOLIDIN-5-YLIDENE)ETHYL]-2-FURYL}BENZENESULFONAMIDE
+DB07545	N-{3-[(4-{[3-(TRIFLUOROMETHYL)PHENYL]AMINO}PYRIMIDIN-2-YL)AMINO]PHENYL}CYCLOPROPANECARBOXAMIDE
+DB07562	N-[4-(2,4-DIMETHYL-THIAZOL-5-YL)-PYRIMIDIN-2-YL]-N',N'-DIMETHYL-BENZENE-1,4-DIAMINE
+DB07583	(4R,2S)-5'-(4-(4-CHLOROBENZYLOXY)PYRROLIDIN-2-YLMETHANESULFONYL)ISOQUINOLINE
+DB07584	N-[2-(5-methyl-4H-1,2,4-triazol-3-yl)phenyl]-7H-pyrrolo[2,3-d]pyrimidin-4-amine
+DB07585	5-(5-chloro-7H-pyrrolo[2,3-d]pyrimidin-4-yl)-4,5,6,7-tetrahydro-1H-imidazo[4,5-c]pyridine
+DB07595	(5Z)-5-(3-BROMOCYCLOHEXA-2,5-DIEN-1-YLIDENE)-N-(PYRIDIN-4-YLMETHYL)-1,5-DIHYDROPYRAZOLO[1,5-A]PYRIMIDIN-7-AMINE
+DB07602	S-{3-[(4-ANILINOQUINAZOLIN-6-YL)AMINO]-3-OXOPROPYL}-L-CYSTEINE
+DB07606	6-(3,4-DIHYDROXYBENZYL)-3-ETHYL-1-(2,4,6-TRICHLOROPHENYL)-1H-PYRAZOLO[3,4-D]PYRIMIDIN-4(5H)-ONE
+DB07607	4-[5-(3-IODO-PHENYL)-2-(4-METHANESULFINYL-PHENYL)-1H-IMIDAZOL-4-YL]-PYRIDINE
+DB07608	N-(5-{[(2S)-4-amino-2-(3-chlorophenyl)butanoyl]amino}-1H-indazol-3-yl)benzamide
+DB07612	6-(3-AMINOPHENYL)-N-(TERT-BUTYL)-2-(TRIFLUOROMETHYL)QUINAZOLIN-4-AMINE
+DB07618	2-(4-(AMINOMETHYL)PIPERIDIN-1-YL)-N-(3_CYCLOHEXYL-4-OXO-2,4-DIHYDROINDENO[1,2-C]PYRAZOL-5-YL)ACETAMIDE
+DB07622	1-(3-(2,4-DIMETHYLTHIAZOL-5-YL)-4-OXO-2,4-DIHYDROINDENO[1,2-C]PYRAZOL-5-YL)-3-(4-METHYLPIPERAZIN-1-YL)UREA
+DB07647	(2R)-1-[(5,6-DIPHENYL-7H-PYRROLO[2,3-D]PYRIMIDIN-4-YL)AMINO]PROPAN-2-OL
+DB07648	(2R)-3-{[(4Z)-5,6-DIPHENYL-6,7-DIHYDRO-4H-PYRROLO[2,3-D]PYRIMIDIN-4-YLIDENE]AMINO}PROPANE-1,2-DIOL
+DB07653	N-(5,6-DIPHENYLFURO[2,3-D]PYRIMIDIN-4-YL)GLYCINE
+DB07654	(5,6-DIPHENYL-FURO[2,3-D]PYRIMIDIN-4-YLAMINO)-ACETIC
+DB07655	3-AMINO-3-BENZYL-[4.3.0]BICYCLO-1,6-DIAZANONAN-2-ONE
+DB07662	N-[4-(3-BROMO-PHENYLAMINO)-QUINAZOLIN-6-YL]-ACRYLAMIDE
+DB07664	5-AMINO-3-{[4-(AMINOSULFONYL)PHENYL]AMINO}-N-(2,6-DIFLUOROPHENYL)-1H-1,2,4-TRIAZOLE-1-CARBOTHIOAMIDE
+DB07676	3-({[(3S)-3,4-dihydroxybutyl]oxy}amino)-1H,2'H-2,3'-biindol-2'-one
+DB07685	4-{[5-(CYCLOHEXYLMETHOXY)[1,2,4]TRIAZOLO[1,5-A]PYRIMIDIN-7-YL]AMINO}BENZENESULFONAMIDE
+DB07686	4-{[5-(CYCLOHEXYLAMINO)[1,2,4]TRIAZOLO[1,5-A]PYRIMIDIN-7-YL]AMINO}BENZENESULFONAMIDE
+DB07687	4-({5-[(4-AMINOCYCLOHEXYL)AMINO][1,2,4]TRIAZOLO[1,5-A]PYRIMIDIN-7-YL}AMINO)BENZENESULFONAMIDE
+DB07688	4-{[5-(CYCLOHEXYLOXY)[1,2,4]TRIAZOLO[1,5-A]PYRIMIDIN-7-YL]AMINO}BENZENESULFONAMIDE
+DB07698	3-(3-aminophenyl)-N-(3-chlorophenyl)pyrazolo[1,5-a]pyrimidin-5-amine
+DB07715	Emodin
+DB07728	2-[2-(2-FLUOROPHENYL)PYRIDIN-4-YL]-1,5,6,7-TETRAHYDRO-4H-PYRROLO[3,2-C]PYRIDIN-4-ONE
+DB07731	4-[(E)-(3,5-DIAMINO-1H-PYRAZOL-4-YL)DIAZENYL]PHENOL
+DB07750	(2R)-1-[4-({4-[(2,5-Dichlorophenyl)amino]-2-pyrimidinyl}amino)phenoxy]-3-(dimethylamino)-2-propanol
+DB07751	(2S)-1-[4-({6-[(2,6-Difluorophenyl)amino]-4-pyrimidinyl}amino)phenoxy]-3-(dimethylamino)-2-propanol
+DB07755	(2S)-1-[4-({4-[(2,5-Dichlorophenyl)amino]-2-pyrimidinyl}amino)phenoxy]-3-(dimethylamino)-2-propanol
+DB07761	(2R)-1-[4-({6-[(2,6-Difluorophenyl)amino]-4-pyrimidinyl}amino)phenoxy]-3-(dimethylamino)-2-propanol
+DB07766	(2Z,3E)-2,3'-BIINDOLE-2',3(1H,1'H)-DIONE 3-{O-[(3R)-3,4-DIHYDROXYBUTYL]OXIME}
+DB07788	(3R,5Z,8S,9S,11E)-8,9,16-TRIHYDROXY-14-METHOXY-3-METHYL-3,4,9,10-TETRAHYDRO-1H-2-BENZOXACYCLOTETRADECINE-1,7(8H)-DIONE
+DB07789	1-[5-methyl-2-(trifluoromethyl)furan-3-yl]-3-[(2Z)-5-(2-{[6-(1H-1,2,4-triazol-3-ylamino)pyrimidin-4-yl]amino}ethyl)-1,3-thiazol-2(3H)-ylidene]urea
+DB07790	N-(2-METHOXYETHYL)-4-({4-[2-METHYL-1-(1-METHYLETHYL)-1H-IMIDAZOL-5-YL]PYRIMIDIN-2-YL}AMINO)BENZENESULFONAMIDE
+DB07791	4-{[4-(1-CYCLOPROPYL-2-METHYL-1H-IMIDAZOL-5-YL)PYRIMIDIN-2-YL]AMINO}-N-METHYLBENZENESULFONAMIDE
+DB07794	5-(2-PHENYLPYRAZOLO[1,5-A]PYRIDIN-3-YL)-1H-PYRAZOLO[3,4-C]PYRIDAZIN-3-AMINE
+DB07795	3,7,3',4'-TETRAHYDROXYFLAVONE
+DB07801	N-butyl-3-{[6-(9H-purin-6-ylamino)hexanoyl]amino}benzamide
+DB07802	3,8-DIBROMO-7-HYDROXY-4-METHYL-2H-CHROMEN-2-ONE
+DB07811	N-cyclopropyl-2',6-dimethyl-4'-(5-methyl-1,3,4-oxadiazol-2-yl)biphenyl-3-carboxamide
+DB07812	N-[(1S)-2-amino-1-phenylethyl]-5-(1H-pyrrolo[2,3-b]pyridin-4-yl)thiophene-2-carboxamide
+DB07829	4-[3-(4-FLUOROPHENYL)-1H-PYRAZOL-4-YL]PYRIDINE
+DB07831	2-{[(6-OXO-1,6-DIHYDROPYRIDIN-3-YL)METHYL]AMINO}-N-[4-PROPYL-3-(TRIFLUOROMETHYL)PHENYL]BENZAMIDE
+DB07832	4-{4-[(5-hydroxy-2-methylphenyl)amino]quinolin-7-yl}-1,3-thiazole-2-carbaldehyde
+DB07833	N-(3-cyanophenyl)-2'-methyl-5'-(5-methyl-1,3,4-oxadiazol-2-yl)-4-biphenylcarboxamide
+DB07834	N-(cyclopropylmethyl)-2'-methyl-5'-(5-methyl-1,3,4-oxadiazol-2-yl)biphenyl-4-carboxamide
+DB07835	N~3~-cyclopropyl-N~4~'-(cyclopropylmethyl)-6-methylbiphenyl-3,4'-dicarboxamide
+DB07837	[4-(5-naphthalen-2-yl-1H-pyrrolo[2,3-b]pyridin-3-yl)phenyl]acetic acid
+DB07840	(E)-[4-(3,5-difluorophenyl)-3H-pyrrolo[2,3-b]pyridin-3-ylidene](3-methoxyphenyl)methanol
+DB07845	2-fluoro-6-{[2-({2-methoxy-4-[(methylsulfonyl)methyl]phenyl}amino)-7H-pyrrolo[2,3-d]pyrimidin-4-yl]amino}benzamide
+DB07852	1-(3,5-DICHLOROPHENYL)-5-METHYL-1H-1,2,4-TRIAZOLE-3-CARBOXYLIC ACID
+DB07853	[4-({4-[(5-CYCLOPROPYL-1H-PYRAZOL-3-YL)AMINO]QUINAZOLIN-2-YL}IMINO)CYCLOHEXA-2,5-DIEN-1-YL]ACETONITRILE
+DB07854	N-METHYL-1-[4-(9H-PURIN-6-YL)PHENYL]METHANAMINE
+DB07855	(S)-1-PHENYL-1-[4-(9H-PURIN-6-YL)PHENYL]METHANAMINE
+DB07856	6-{4-[4-(4-CHLOROPHENYL)PIPERIDIN-4-YL]PHENYL}-9H-PURINE
+DB07857	(2R)-2-(4-chlorophenyl)-2-[4-(1H-pyrazol-4-yl)phenyl]ethanamine
+DB07858	(2S)-2-(4-chlorophenyl)-2-[4-(1H-pyrazol-4-yl)phenyl]ethanamine
+DB07859	4-(4-CHLOROPHENYL)-4-[4-(1H-PYRAZOL-4-YL)PHENYL]PIPERIDINE
+DB07860	(2R)-2-(4-CHLOROPHENYL)-2-PHENYLETHANAMINE
+DB07876	(S)-2-METHYL-1-[(4-METHYL-5-ISOQUINOLINE)SULFONYL]-HOMOPIPERAZINE
+DB07889	(2S)-1-(Dimethylamino)-3-(4-{[4-(2-methylimidazo[1,2-a]pyridin-3-yl)-2-pyrimidinyl]amino}phenoxy)-2-propanol
+DB07905	(1aR,8S,13S,14S,15aR)-5,13,14-trihydroxy-3-methoxy-8-methyl-8,9,13,14,15,15a-hexahydro-6H-oxireno[k][2]benzoxacyclotetradecine-6,12(1aH)-dione
+DB07936	N-(4-{[(3S)-3-(dimethylamino)pyrrolidin-1-yl]carbonyl}phenyl)-5-fluoro-4-[2-methyl-1-(1-methylethyl)-1H-imidazol-5-yl]pyrimidin-2-amine
+DB07941	PH-797804
+DB07942	2-fluoro-4-[4-(4-fluorophenyl)-1H-pyrazol-3-yl]pyridine
+DB07943	2-{4-[5-(4-chlorophenyl)-4-pyrimidin-4-yl-1H-pyrazol-3-yl]piperidin-1-yl}-2-oxoethanol
+DB07947	ISOQUINOLINE-5-SULFONIC ACID (2-(2-(4-CHLOROBENZYLOXY)ETHYLAMINO)ETHYL)AMIDE
+DB07959	3-(1H-BENZIMIDAZOL-2-YL)-1H-INDAZOLE
+DB07966	[4-({4-[(5-cyclopropyl-1H-pyrazol-3-yl)amino]quinazolin-2-yl}amino)phenyl]acetonitrile
+DB07969	3-[3-(4-methylpiperazin-1-yl)-7-(trifluoromethyl)quinoxalin-5-yl]phenol
+DB07982	2-{4-[4-({4-[2-methyl-1-(1-methylethyl)-1H-imidazol-5-yl]pyrimidin-2-yl}amino)phenyl]piperazin-1-yl}-2-oxoethanol
+DB07995	N-[2-(4-BROMOCINNAMYLAMINO)ETHYL]-5-ISOQUINOLINE SULFONAMIDE
+DB07996	5-(2-methylpiperazine-1-sulfonyl)isoquinoline
+DB07997	N-[2-(METHYLAMINO)ETHYL]-5-ISOQUINOLINESULFONAMIDE
+DB08004	(2S)-2-{[3-(3-aminophenyl)imidazo[1,2-b]pyridazin-6-yl]amino}-3-methylbutan-1-ol
+DB08005	4-{[5-chloro-4-(1H-indol-3-yl)pyrimidin-2-yl]amino}-N-ethylpiperidine-1-carboxamide
+DB08010	(3Z)-1-[(6-fluoro-4H-1,3-benzodioxin-8-yl)methyl]-4-[(E)-2-phenylethenyl]-1H-indole-2,3-dione 3-oxime
+DB08011	(3E)-5-fluoro-1-[(6-fluoro-4H-1,3-benzodioxin-8-yl)methyl]-1H-indole-2,3-dione 3-oxime
+DB08015	(3Z)-1-[(6-fluoro-4H-1,3-benzodioxin-8-yl)methyl]-4-phenyl-1H-indole-2,3-dione 3-oxime
+DB08021	5-bromo-N-(3-chloro-2-(4-(prop-2-ynyl)piperazin-1-yl)phenyl)furan-2-carboxamide
+DB08022	(2S)-1,3-benzothiazol-2-yl{2-[(2-pyridin-3-ylethyl)amino]pyrimidin-4-yl}ethanenitrile
+DB08023	N-cyclohexyl-4-imidazo[1,2-a]pyridin-3-yl-N-methylpyrimidin-2-amine
+DB08025	N-{2'-[(4-FLUOROPHENYL)AMINO]-4,4'-BIPYRIDIN-2-YL}-4-METHOXYCYCLOHEXANECARBOXAMIDE
+DB08026	2-{4-[(4-imidazo[1,2-a]pyridin-3-ylpyrimidin-2-yl)amino]piperidin-1-yl}-N-methylacetamide
+DB08039	(3Z)-N,N-DIMETHYL-2-OXO-3-(4,5,6,7-TETRAHYDRO-1H-INDOL-2-YLMETHYLIDENE)-2,3-DIHYDRO-1H-INDOLE-5-SULFONAMIDE
+DB08042	N~4~-methyl-N~4~-(3-methyl-1H-indazol-6-yl)-N~2~-(3,4,5-trimethoxyphenyl)pyrimidine-2,4-diamine
+DB08043	1-[4-(PYRIDIN-4-YLOXY)PHENYL]-3-[3-(TRIFLUOROMETHYL)PHENYL]UREA
+DB08052	1-cyclopentyl-3-(1H-pyrrolo[2,3-b]pyridin-5-yl)-1H-pyrazolo[3,4-d]pyrimidin-4-amine
+DB08053	1-cyclobutyl-3-(3,4-dimethoxyphenyl)-1H-pyrazolo[3,4-d]pyrimidin-4-amine
+DB08054	1-(1-methylethyl)-3-quinolin-6-yl-1H-pyrazolo[3,4-d]pyrimidin-4-amine
+DB08055	N-(2-chlorophenyl)-5-phenylimidazo[1,5-a]pyrazin-8-amine
+DB08056	N-(2,6-dimethylphenyl)-5-phenylimidazo[1,5-a]pyrazin-8-amine
+DB08057	N-(2-chloro-6-methylphenyl)-8-[(3S)-3-methylpiperazin-1-yl]imidazo[1,5-a]quinoxalin-4-amine
+DB08059	Wortmannin
+DB08064	N-(3-TERT-BUTYL-1H-PYRAZOL-5-YL)-N'-{4-CHLORO-3-[(PYRIDIN-3-YLOXY)METHYL]PHENYL}UREA
+DB08065	2-(1H-pyrazol-3-yl)-1H-benzimidazole
+DB08066	N-[3-(1H-BENZIMIDAZOL-2-YL)-1H-PYRAZOL-4-YL]BENZAMIDE
+DB08067	4-[(2-{4-[(CYCLOPROPYLCARBAMOYL)AMINO]-1H-PYRAZOL-3-YL}-1H-BENZIMIDAZOL-6-YL)METHYL]MORPHOLIN-4-IUM
+DB08068	N-[4-CHLORO-3-(PYRIDIN-3-YLOXYMETHYL)-PHENYL]-3-FLUORO-
+DB08070	2-[4-(3-METHYL-1H-PYRAZOL-4-YL)PHENYL]ETHANAMINE
+DB08073	(2S)-1-(1H-INDOL-3-YL)-3-{[5-(3-METHYL-1H-INDAZOL-5-YL)PYRIDIN-3-YL]OXY}PROPAN-2-AMINE
+DB08091	3-FLUORO-5-MORPHOLIN-4-YL-N-[3-(2-PYRIDIN-4-YLETHYL)-1H-INDOL-5-YL]BENZAMIDE
+DB08092	3-fluoro-N-1H-indol-5-yl-5-morpholin-4-ylbenzamide
+DB08093	3-(1-NAPHTHYLMETHOXY)PYRIDIN-2-AMINE
+DB08094	(4-AMINO-2-{[1-(METHYLSULFONYL)PIPERIDIN-4-YL]AMINO}PYRIMIDIN-5-YL)(2,3-DIFLUORO-6-METHOXYPHENYL)METHANONE
+DB08095	3-(2-CHLOROPHENYL)-1-(2-{[(1S)-2-HYDROXY-1,2-DIMETHYLPROPYL]AMINO}PYRIMIDIN-4-YL)-1-(4-METHOXYPHENYL)UREA
+DB08096	8-(2-CHLOROPHENYLAMINO)-2-(2,6-DIFLUOROPHENYLAMINO)-9-ETHYL-9H-PURINE-1,7-DIIUM
+DB08097	2-(2,6-DIFLUOROPHENOXY)-N-(2-FLUOROPHENYL)-9-ISOPROPYL-9H-PURIN-8-AMINE
+DB08113	3-pyridin-4-yl-1H-indazole
+DB08114	5-benzyl-1,3-thiazol-2-amine
+DB08122	N-METHYL-4-{[(2-OXO-1,2-DIHYDRO-3H-INDOL-3-YLIDENE)METHYL]AMINO}BENZENESULFONAMIDE
+DB08123	N-METHYL-{4-[2-(7-OXO-6,7-DIHYDRO-8H-[1,3]THIAZOLO[5,4-E]INDOL-8-YLIDENE)HYDRAZINO]PHENYL}METHANESULFONAMIDE
+DB08124	3-{[(2,2-DIOXIDO-1,3-DIHYDRO-2-BENZOTHIEN-5-YL)AMINO]METHYLENE}-5-(1,3-OXAZOL-5-YL)-1,3-DIHYDRO-2H-INDOL-2-ONE
+DB08125	4-{[(2-OXO-1,2-DIHYDRO-3H-INDOL-3-YLIDENE)METHYL]AMINO}-N-(1,3-THIAZOL-2-YL)BENZENESULFONAMIDE
+DB08126	3-{[4-([AMINO(IMINO)METHYL]AMINOSULFONYL)ANILINO]METHYLENE}-2-OXO-2,3-DIHYDRO-1H-INDOLE
+DB08130	N-(5-{3,4-difluoro-2-[(2-fluoro-4-iodophenyl)amino]phenyl}-1,3,4-oxadiazol-2-yl)ethane-1,2-diamine
+DB08132	5-hydroxynaphthalene-1-sulfonamide
+DB08133	N-(4-sulfamoylphenyl)-1H-indazole-3-carboxamide
+DB08134	4-[(6-chloropyrazin-2-yl)amino]benzenesulfonamide
+DB08135	N-phenyl-1H-pyrazole-3-carboxamide
+DB08136	4-(acetylamino)-N-(4-fluorophenyl)-1H-pyrazole-3-carboxamide
+DB08137	(4E)-N-(4-fluorophenyl)-4-[(phenylcarbonyl)imino]-4H-pyrazole-3-carboxamide
+DB08138	{[(2,6-difluorophenyl)carbonyl]amino}-N-(4-fluorophenyl)-1H-pyrazole-3-carboxamide
+DB08139	5-chloro-7-[(1-methylethyl)amino]pyrazolo[1,5-a]pyrimidine-3-carbonitrile
+DB08140	5-[(4-AMINOCYCLOHEXYL)AMINO]-7-(PROPAN-2-YLAMINO)PYRAZOLO[1,5-A]PYRIMIDINE-3-CARBONITRILE
+DB08141	4-{[(2,6-difluorophenyl)carbonyl]amino}-N-[(3S)-piperidin-3-yl]-1H-pyrazole-3-carboxamide
+DB08142	4-{[(2,6-dichlorophenyl)carbonyl]amino}-N-piperidin-4-yl-1H-pyrazole-3-carboxamide
+DB08148	1-[4-(4-chlorophenyl)-1-(7H-pyrrolo[2,3-d]pyrimidin-4-yl)piperidin-4-yl]methanamine
+DB08149	1-[4-(4-chlorobenzyl)-1-(7H-pyrrolo[2,3-d]pyrimidin-4-yl)piperidin-4-yl]methanamine
+DB08150	4-(4-chlorobenzyl)-1-(7H-pyrrolo[2,3-d]pyrimidin-4-yl)piperidin-4-aminium
+DB08162	Fasudil
+DB08166	(4R)-7-chloro-9-methyl-1-oxo-1,2,4,9-tetrahydrospiro[beta-carboline-3,4'-piperidine]-4-carbonitrile
+DB08178	4-(4-methoxy-1H-pyrrolo[2,3-b]pyridin-3-yl)pyrimidin-2-amine
+DB08182	4-(4-propoxy-1H-pyrrolo[2,3-b]pyridin-3-yl)pyrimidin-2-amine
+DB08191	4-(5-phenyl-1H-pyrrolo[2,3-b]pyridin-3-yl)benzoic acid
+DB08192	2-(4-CARCOXY-5-ISOPROPYLTHIAZOLYL)BENZOPIPERIDINE
+DB08208	2-[(4-ETHYNYL-2-FLUOROPHENYL)AMINO]-3,4-DIFLUORO-N-(2-HYDROXYETHOXY)BENZAMIDE
+DB08218	HYDROXY(OXO)(3-{[(2Z)-4-[3-(1H-1,2,4-TRIAZOL-1-YLMETHYL)PHENYL]PYRIMIDIN-2(5H)-YLIDENE]AMINO}PHENYL)AMMONIUM
+DB08219	4-METHYL-5-{(2E)-2-[(4-MORPHOLIN-4-YLPHENYL)IMINO]-2,5-DIHYDROPYRIMIDIN-4-YL}-1,3-THIAZOL-2-AMINE
+DB08221	N-{4-METHYL-3-[(3-PYRIMIDIN-4-YLPYRIDIN-2-YL)AMINO]PHENYL}-3-(TRIFLUOROMETHYL)BENZAMIDE
+DB08230	5,7-DIHYDROXY-2-(3,4,5-TRIHYDROXYPHENYL)-4H-CHROMEN-4-ONE
+DB08231	Myristic acid
+DB08233	6-CYCLOHEXYLMETHYLOXY-2-(4'-HYDROXYANILINO)PURINE
+DB08241	4-(6-CYCLOHEXYLMETHOXY-9H-PURIN-2-YLAMINO)--BENZAMIDE
+DB08242	N,4-dimethyl-3-[(1-phenyl-1H-pyrazolo[3,4-d]pyrimidin-4-yl)amino]benzamide
+DB08247	6-(CYCLOHEXYLMETHOXY)-8-ISOPROPYL-9H-PURIN-2-AMINE
+DB08248	3-(6-CYCLOHEXYLMETHOXY-9H-PURIN-2-YLAMINO)-BENZENESULFONAMIDE
+DB08285	(2R)-2-{[4-(benzylamino)-8-(1-methylethyl)pyrazolo[1,5-a][1,3,5]triazin-2-yl]amino}butan-1-ol
+DB08309	3-({2-[(4-{[6-(CYCLOHEXYLMETHOXY)-9H-PURIN-2-YL]AMINO}PHENYL)SULFONYL]ETHYL}AMINO)PROPAN-1-OL
+DB08312	6-CYCLOHEXYLMETHYLOXY-5-NITROSO-PYRIMIDINE-2,4-DIAMINE
+DB08325	2-(2-HYDROXYETHYLAMINO)-6-(3-CHLOROANILINO)-9-ISOPROPYLPURINE
+DB08338	19-(cyclopropylamino)-4,6,7,15-tetrahydro-5H-16,1-(azenometheno)-10,14-(metheno)pyrazolo[4,3-o][1,3,9]triazacyclohexadecin-8(9H)-one
+DB08339	6-(2,6-DICHLOROPHENYL)-2-{[3-(HYDROXYMETHYL)PHENYL]AMINO}-8-METHYLPYRIDO[2,3-D]PYRIMIDIN-7(8H)-ONE
+DB08340	N,N'-DIPHENYLPYRAZOLO[1,5-A][1,3,5]TRIAZINE-2,4-DIAMINE
+DB08341	4-{[4-{[(1R,2R)-2-(dimethylamino)cyclopentyl]amino}-5-(trifluoromethyl)pyrimidin-2-yl]amino}-N-methylbenzenesulfonamide
+DB08345	4-(2-(1H-IMIDAZOL-4-YL)ETHYLAMINO)-2-(PHENYLAMINO)PYRAZOLO[1,5-A][1,3,5]TRIAZINE-8-CARBONITRILE
+DB08349	N-cyclopropyl-3-{[1-(2,4-difluorophenyl)-7-methyl-6-oxo-6,7-dihydro-1H-pyrazolo[3,4-b]pyridin-4-yl]amino}-4-methylbenzamide
+DB08350	5-[3-(2-METHOXYPHENYL)-1H-PYRROLO[2,3-B]PYRIDIN-5-YL]-N,N-DIMETHYLPYRIDINE-3-CARBOXAMIDE
+DB08351	N-cyclopropyl-4-methyl-3-{2-[(2-morpholin-4-ylethyl)amino]quinazolin-6-yl}benzamide
+DB08352	6-[4-(2-fluorophenyl)-1,3-oxazol-5-yl]-N-(1-methylethyl)-1,3-benzothiazol-2-amine
+DB08353	2-(CYCLOHEXYLMETHYLAMINO)-4-(PHENYLAMINO)PYRAZOLO[1,5-A][1,3,5]TRIAZINE-8-CARBONITRILE
+DB08354	2-(4-CHLOROBENZYLAMINO)-4-(PHENYLAMINO)PYRAZOLO[1,5-A][1,3,5]TRIAZINE-8-CARBONITRILE
+DB08355	1-methyl-8-(phenylamino)-4,5-dihydro-1H-pyrazolo[4,3-h]quinazoline-3-carboxylic acid
+DB08356	4-[4-(4-methoxyphenyl)-5-methyl-1H-pyrazol-3-yl]benzene-1,3-diol
+DB08358	2-(2-QUINOLIN-3-YLPYRIDIN-4-YL)-1,5,6,7-TETRAHYDRO-4H-PYRROLO[3,2-C]PYRIDIN-4-ONE
+DB08360	2-(4-ETHYLPIPERAZIN-1-YL)-4-(PHENYLAMINO)PYRAZOLO[1,5-A][1,3,5]TRIAZINE-8-CARBONITRILE
+DB08361	2-{[(1R,2S)-2-aminocyclohexyl]amino}-4-[(3-methylphenyl)amino]pyrimidine-5-carboxamide
+DB08362	N-(3-(8-CYANO-4-(PHENYLAMINO)PYRAZOLO[1,5-A][1,3,5]TRIAZIN-2-YLAMINO)PHENYL)ACETAMIDE
+DB08365	8-bromo-4-(2-chlorophenyl)-N-(2-hydroxyethyl)-6-methyl-1,3-dioxo-1,2,3,6-tetrahydropyrrolo[3,4-e]indole-7-carboxamide
+DB08392	2-[5,6-BIS-(4-METHOXY-PHENYL)-FURO[2,3-D]PYRIMIDIN-4-YLAMINO]-ETHANOL
+DB08393	2-[(5,6-DIPHENYLFURO[2,3-D]PYRIMIDIN-4-YL)AMINO]ETHANOL
+DB08395	2-(ETHOXYMETHYL)-4-(4-FLUOROPHENYL)-3-[2-(2-HYDROXYPHENOXY)PYRIMIDIN-4-YL]ISOXAZOL-5(2H)-ONE
+DB08423	[5-AMINO-1-(4-FLUOROPHENYL)-1H-PYRAZOL-4-YL][3-(PIPERIDIN-4-YLOXY)PHENYL]METHANONE
+DB08424	[5-AMINO-1-(4-FLUOROPHENYL)-1H-PYRAZOL-4-YL](3-{[(2R)-2,3-DIHYDROXYPROPYL]OXY}PHENYL)METHANONE
+DB08441	6-BROMO-13-THIA-2,4,8,12,19-PENTAAZATRICYCLO[12.3.1.1~3,7~]NONADECA-1(18),3(19),4,6,14,16-HEXAENE 13,13-DIOXIDE
+DB08450	N-1H-indazol-5-yl-2-(6-methylpyridin-2-yl)quinazolin-4-amine
+DB08462	N-(4-PHENYLAMINO-QUINAZOLIN-6-YL)-ACRYLAMIDE
+DB08463	(2R)-2-({9-(1-methylethyl)-6-[(4-pyridin-2-ylbenzyl)amino]-9H-purin-2-yl}amino)butan-1-ol
+DB08473	5,6-dichloro-1-beta-D-ribofuranosyl-1H-benzimidazole
+DB08513	[4-({5-(AMINOCARBONYL)-4-[(3-METHYLPHENYL)AMINO]PYRIMIDIN-2-YL}AMINO)PHENYL]ACETIC ACID
+DB08519	N~4~-(3-methyl-1H-indazol-6-yl)-N~2~-(3,4,5-trimethoxyphenyl)pyrimidine-2,4-diamine
+DB08521	4-[5-(4-FLUORO-PHENYL)-2-(4-METHANESULFINYL-PHENYL)-3H-IMIDAZOL-4-YL]-PYRIDINE
+DB08522	4-(4-FLUOROPHENYL)-1-CYCLOROPROPYLMETHYL-5-(4-PYRIDYL)-IMIDAZOLE
+DB08527	1-[4-(AMINOSULFONYL)PHENYL]-1,6-DIHYDROPYRAZOLO[3,4-E]INDAZOLE-3-CARBOXAMIDE
+DB08531	5-(2,3-dichlorophenyl)-N-(pyridin-4-ylmethyl)pyrazolo[1,5-a]pyrimidin-7-amine
+DB08532	6-(2-fluorophenyl)-N-(pyridin-3-ylmethyl)imidazo[1,2-a]pyrazin-8-amine
+DB08533	3-methyl-N-(pyridin-4-ylmethyl)imidazo[1,2-a]pyrazin-8-amine
+DB08534	5-(2-fluorophenyl)-N-(pyridin-4-ylmethyl)pyrazolo[1,5-a]pyrimidin-7-amine
+DB08535	3-bromo-5-phenyl-N-(pyridin-3-ylmethyl)pyrazolo[1,5-a]pyrimidin-7-amine
+DB08536	3-bromo-5-phenyl-N-(pyrimidin-5-ylmethyl)pyrazolo[1,5-a]pyridin-7-amine
+DB08537	3-bromo-6-phenyl-N-(pyrimidin-5-ylmethyl)imidazo[1,2-a]pyridin-8-amine
+DB08538	N-((2-aminopyrimidin-5-yl)methyl)-5-(2,6-difluorophenyl)-3-ethylpyrazolo[1,5-a]pyrimidin-7-amine
+DB08539	3-cyclopropyl-5-phenyl-N-(pyridin-3-ylmethyl)pyrazolo[1,5-a]pyrimidin-7-amine
+DB08553	(1E)-5-(1-piperidin-4-yl-3-pyridin-4-yl-1H-pyrazol-4-yl)-2,3-dihydro-1H-inden-1-one oxime
+DB08555	1-(3-bromophenyl)-7-chloro-6-methoxy-3,4-dihydroisoquinoline
+DB08564	(2E)-N-{4-[(3-bromophenyl)amino]quinazolin-6-yl}-4-(dimethylamino)but-2-enamide
+DB08568	(2S)-1-{[5-(3-METHYL-1H-INDAZOL-5-YL)PYRIDIN-3-YL]OXY}-3-PHENYLPROPAN-2-AMINE
+DB08569	3-PYRIDIN-4-YL-2,4-DIHYDRO-INDENO[1,2-.C.] PYRAZOLE
+DB08572	4-{[4-AMINO-6-(CYCLOHEXYLMETHOXY)-5-NITROSOPYRIMIDIN-2-YL]AMINO}BENZAMIDE
+DB08577	3-[(3-(2-CARBOXYETHYL)-4-METHYLPYRROL-2-YL)METHYLENE]-2-INDOLINONE
+DB08583	2-amino-5-[3-(1-ethyl-1H-pyrazol-5-yl)-1H-pyrrolo[2,3-b]pyridin-5-yl]-N,N-dimethylbenzamide
+DB08584	6-{[6-(1-methyl-1H-pyrazol-4-yl)[1,2,4]triazolo[4,3-b]pyridazin-3-yl]sulfanyl}quinoline
+DB08590	1-(3-HYDROXYPROPYL)-2-[(3-NITROBENZOYL)AMINO]-1H-BENZIMIDAZOL-5-YL PIVALATE
+DB08608	4-({(2R,5S)-2,5-DIMETHYL-4-[(2R)-3,3,3-TRIFLUORO-2-HYDROXY-2-METHYLPROPANOYL]PIPERAZIN-1-YL}CARBONYL)BENZONITRILE
+DB08609	(2R)-N-{4-[Ethyl(phenyl)sulfamoyl]-2-methylphenyl}-3,3,3-trifluoro-2-hydroxy-2-methylpropanamide
+DB08610	N-(2-AMINOETHYL)-2-{3-CHLORO-4-[(4-ISOPROPYLBENZYL)OXY]PHENYL} ACETAMIDE
+DB08660	1,2,5,8-tetrahydroxyanthracene-9,10-dione
+DB08673	4-[(5-ISOPROPYL-1,3-THIAZOL-2-YL)AMINO]BENZENESULFONAMIDE
+DB08677	N-(5-ISOPROPYL-THIAZOL-2-YL)-2-PYRIDIN-3-YL-ACETAMIDE
+DB08683	REL-(9R,12S)-9,10,11,12-TETRAHYDRO-9,12-EPOXY-1H-DIINDOLO[1,2,3-FG:3',2',1'-KL]PYRROLO[3,4-I][1,6]BENZODIAZOCINE-1,3(2H)-DIONE
+DB08691	ethyl 3-[(E)-2-amino-1-cyanoethenyl]-6,7-dichloro-1-methyl-1H-indole-2-carboxylate
+DB08694	9-amino-5-(2-aminopyrimidin-4-yl)pyrido[3',2':4,5]pyrrolo[1,2-c]pyrimidin-4-ol
+DB08699	1-tert-butyl-3-(3-methylbenzyl)-1H-pyrazolo[3,4-d]pyrimidin-4-amine
+DB08703	12-(2-hydroxyethyl)-2-(1-methylethoxy)-13,14-dihydronaphtho[2,1-a]pyrrolo[3,4-c]carbazol-5(12H)-one
+DB08705	6-(5-BROMO-2-HYDROXYPHENYL)-2-OXO-4-PHENYL-1,2-DIHYDROPYRIDINE-3-CARBONITRILE
+DB08707	4-[3-(4-chlorophenyl)-2,1-benzisoxazol-5-yl]pyrimidin-2-amine
+DB08708	N-cyclohexyl-3-[3-(trifluoromethyl)phenyl][1,2,4]triazolo[4,3-b]pyridazin-6-amine
+DB08709	2,3-diphenyl-1H-indole-7-carboxylic acid
+DB08730	3-FLUORO-5-MORPHOLIN-4-YL-N-[1-(2-PYRIDIN-4-YLETHYL)-1H-INDOL-6-YL]BENZAMIDE
+DB08756	(R)-TRANS-4-(1-AMINOETHYL)-N-(4-PYRIDYL) CYCLOHEXANECARBOXAMIDE
+DB08768	N-(3-METHYLBUT-2-EN-1-YL)-9H-PURIN-6-AMINE
+DB08774	1-[(2S)-4-(5-phenyl-1H-pyrazolo[3,4-b]pyridin-4-yl)morpholin-2-yl]methanamine
+DB08776	N-(4-OXO-5,6,7,8-TETRAHYDRO-4H-[1,3]THIAZOLO[5,4-C]AZEPIN-2-YL)ACETAMIDE
+DB08777	5,6,7,8-TETRAHYDRO[1]BENZOTHIENO[2,3-D]PYRIMIDIN-4(3H)-ONE
+DB08778	[4-amino-2-(tert-butylamino)-1,3-thiazol-5-yl](phenyl)methanone
+DB08779	2-(methylsulfanyl)-5-(thiophen-2-ylmethyl)-1H-imidazol-4-ol
+DB08780	6-MORPHOLIN-4-YL-9H-PURINE
+DB08781	1-[(2S)-4-(5-BROMO-1H-PYRAZOLO[3,4-B]PYRIDIN-4-YL)MORPHOLIN-2-YL]METHANAMINE
+DB08791	1-[(2-NITROPHENYL)SULFONYL]-1H-PYRROLO[3,2-B]PYRIDINE-6-CARBOXAMIDE
+DB08846	Ellagic Acid
+DB08862	Cholecystokinin
+DB08865	Crizotinib
+DB08875	Cabozantinib
+DB08877	Ruxolitinib
+DB08881	Vemurafenib
+DB08895	Tofacitinib
+DB08896	Regorafenib
+DB08901	Ponatinib
+DB08911	Trametinib
+DB08912	Dabrafenib
+DB08916	Afatinib
+DB09053	Ibrutinib
+DB09063	Ceritinib
+DB09073	Palbociclib
+DB09078	Lenvatinib
+DB09079	Nintedanib
+DB09098	Somatrem
+DB09103	Ancestim
+DB09129	Chromic chloride
+DB09130	Copper
+DB09221	Polaprezinc
+DB09330	Osimertinib
+DB09462	Glycerin
+DB09481	Magnesium carbonate
+DB09559	Necitumumab
+DB09564	Insulin Degludec
+DB10770	Foreskin fibroblast (neonatal)
+DB10772	Foreskin keratinocyte (neonatal)
+DB11120	Turpentine
+DB11363	Alectinib
+DB11652	Tucatinib
+DB11703	Acalabrutinib
+DB11730	Ribociclib
+DB11731	Depatuxizumab mafodotin
+DB11737	Icotinib
+DB11740	MK-1775
+DB11772	Pilaralisib
+DB11817	Baricitinib
+DB11828	Neratinib
+DB11967	Binimetinib
+DB11973	Tesevatinib
+DB12001	Abemaciclib
+DB12010	Fostamatinib
+DB12129	Tideglusib
+DB12200	Tivantinib
+DB12202	Zalutumumab
+DB12250	Cixutumumab
+DB12267	Brigatinib
+DB12307	Foretinib
+DB12323	Radotinib
+DB12483	Copanlisib
+DB12742	Amuvatinib
+DB12874	Quizartinib
+DB13061	MLN8054
+DB13164	Olmutinib
+DB13165	Ripasudil
+DB13749	Magnesium gluconate
+DB13930	Ulixertinib
+DB13931	Netarsudil
+DB14001	alpha-Tocopherol succinate
+DB14002	D-alpha-Tocopherol acetate

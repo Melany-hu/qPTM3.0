@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta content="width=device-width, initial-scale=1.0" name="viewport">
+  <title>qPTM | Browse</title>
+  <script src="assets/js/include.js"></script>
+</head>
+<body>
+  <div id="preloader">
+  <div class="preloader-inner">
+    <div class="preloader-spinner"></div>
+    <span class="preloader-text">Loading...</span>
+  </div>
+</div>
+
+<div id="site-header"></div>
+
+<section id="main">
+
+
+    <div class="page-hero">
+      <h1>Browse</h1>
+    </div>
+
+<div class="lp-panel">
+      <div class="lp-panel-body">
+        <div class="row mb-3">
+          <div class="col-md-3">
+            <span class="filter-label">Organism</span>
+            <select id="browse_org" class="form-control">
+              <option value="Human">Human</option>
+              <option value="Mouse">Mouse</option>
+              <option value="Rat">Rat</option>
+              <option value="Yeast">Yeast</option>
+            </select>
+          </div>
+          <div class="col-md-3">
+            <span class="filter-label">Modification</span>
+            <select id="browse_mod" class="form-control">
+              <option value="Phosphorylation">Phosphorylation</option>
+              <option value="Acetylation">Acetylation</option>
+              <option value="Ubiquitylation">Ubiquitylation</option>
+              <option value="Methylation">Methylation</option>
+              <option value="Glycosylation">Glycosylation</option>
+              <option value="SUMOylation">SUMOylation</option>
+            </select>
+          </div>
+          <div class="col-md-3">
+            <span class="filter-label">Browse by</span>
+            <select id="browse_type" class="form-control">
+              <option value="condition">Condition</option>
+              <option value="sample">Sample</option>
+            </select>
+          </div>
+          <div class="col-md-3 d-flex align-items-end">
+            <button class="btn btn-primary w-100" id="browse_load"><i class="ri-refresh-line"></i> Load</button>
+          </div>
+        </div>
+        <div id="browseContent">
+          <div id="firstWordFilter" class="mb-3"></div>
+          <div id="optionList" class="mb-3"></div>
+          <div id="optionNum"></div>
+          <div id="optionPage" class="mt-2"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div id="site-footer"></div>
+
+<a href="#" class="back-to-top"><i class="ri-arrow-up-line"></i></a>
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="assets/js/main.js"></script>
+  <script src="assets/js/mine.js"></script>
+  <script>
+    $(document).ready(function(){
+      var firstWord = '';
+
+      function loadFirstWords(){
+        var org = $('#browse_org').val();
+        var mod = $('#browse_mod').val();
+        var type = $('#browse_type').val();
+        $.post('./resource/functions.php', {type:'browseFword', org:org, mod:mod, btype:type, firstWord:''}, function(data){
+          var letters = data;
+          var html = '<span class="filter-label">First Letter</span><div>';
+          html += '<span class="filter-tag" data-letter="">All</span>';
+          for(var i=0;i<letters.length;i++){
+            html += '<span class="filter-tag" data-letter="'+letters[i]+'">'+letters[i]+'</span>';
+          }
+          html += '</div>';
+          $('#firstWordFilter').html(html);
+          $('#firstWordFilter .filter-tag').on('click', function(){
+            $('#firstWordFilter .filter-tag').removeClass('selected');
+            $(this).addClass('selected');
+            firstWord = $(this).attr('data-letter');
+            loadOptions(1);
+          });
+          $('#firstWordFilter .filter-tag:first').addClass('selected');
+          loadOptions(1);
+        }, 'json');
+      }
+
+      function loadOptions(page){
+        var org = $('#browse_org').val();
+        var mod = $('#browse_mod').val();
+        var type = $('#browse_type').val();
+        $.post('./resource/functions.php', {type:'browseOption', org:org, mod:mod, btype:type, firstWord:firstWord, nowPage:page, optionNumber:50}, function(data){
+          var html = '<span class="filter-label">'+type.charAt(0).toUpperCase()+type.slice(1)+'s ('+data.totalNum+' total)</span><div style="display:flex;flex-wrap:wrap;gap:4px">';
+          for(var i=0;i<data.nowList.length;i++){
+            var term = String(data.nowList[i]).trim();
+            html += '<span class="filter-tag" style="font-size:13px;padding:6px 12px;cursor:pointer" onclick="window.location=\'result.html?type=search&simple_search_tag0='+type+'&simple_search_input0='+encodeURIComponent(term)+'&simple_search_mod='+encodeURIComponent(mod)+'&simple_search_org='+encodeURIComponent(org)+'\'">'+term+'</span>';
+          }
+          html += '</div>';
+          $('#optionList').html(html);
+          $('#optionNum').html('<span class="text-muted">Showing '+(data.nowList.length)+' of '+data.totalNum+' entries</span>');
+          // pagination
+          var totalPages = Math.ceil(data.totalNum / 50);
+          if(totalPages > 1){
+            var phtml = '<ul class="pagination">';
+            phtml += '<li class="page-item'+(page<=1?' disabled':'')+'"><a class="page-link" href="javascript:void(0)" data-page="'+(page-1)+'">&laquo;</a></li>';
+            for(var p=1;p<=totalPages;p++){
+              if(p==1 || p==totalPages || Math.abs(p-page)<=2){
+                phtml += '<li class="page-item'+(p==page?' active':'')+'"><a class="page-link" href="javascript:void(0)" data-page="'+p+'">'+p+'</a></li>';
+              } else if(Math.abs(p-page)==3){
+                phtml += '<li class="page-item disabled"><a class="page-link">...</a></li>';
+              }
+            }
+            phtml += '<li class="page-item'+(page>=totalPages?' disabled':'')+'"><a class="page-link" href="javascript:void(0)" data-page="'+(page+1)+'">&raquo;</a></li>';
+            phtml += '</ul>';
+            $('#optionPage').html(phtml);
+            $('#optionPage .page-link').on('click', function(){
+              var p = parseInt($(this).attr('data-page'));
+              if(p) loadOptions(p);
+            });
+          } else {
+            $('#optionPage').html('');
+          }
+        }, 'json');
+      }
+
+      $('#browse_load').on('click', function(){ loadFirstWords(); });
+      loadFirstWords();
+    });
+  </script>
+</body>
+</html>
