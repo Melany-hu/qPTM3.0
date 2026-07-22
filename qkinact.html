@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta content="width=device-width, initial-scale=1.0" name="viewport">
+  <title>qPTM | qKinAct</title>
+  <script src="assets/js/include.js"></script>
+</head>
+<body>
+<div id="preloader">
+  <div class="preloader-inner">
+    <div class="preloader-spinner"></div>
+    <span class="preloader-text">Loading...</span>
+  </div>
+</div>
+
+<div id="site-header"></div>
+
+<section id="main">
+
+
+    <div class="page-hero">
+      <h1>qKinAct</h1>
+    </div>
+
+<div class="lp-panel">
+    <div class="lp-panel-header"><i class="ri-flask-line mr-2"></i>Kinase Activity Prediction</div>
+    <div class="lp-panel-body">
+      <p class="text-des">Analyze kinase activity based on phosphorylation data. Upload your data or use the mock example below.</p>
+    </div>
+  </div>
+  <div class="lp-panel">
+    <div class="lp-panel-header d-flex justify-content-between">
+      <span>Kinase-Substrate Pairs</span>
+      <span id="queryPageInfo" style="font-weight:400;font-size:12px">Loading...</span>
+    </div>
+    <span id="queryInfoFile" style="display:none">mock_data.txt</span>
+    <div class="lp-panel-body">
+      <div class="row mb-3">
+        <div class="col-md-8"></div>
+        <div class="col-md-4 text-right d-flex align-items-center justify-content-end gap-2">
+          <label class="mb-0" style="font-size:13px">Rows:</label>
+          <select id="selectRowNumber" class="form-control" style="width:70px">
+            <option value="10">10</option><option value="20" selected>20</option><option value="50">50</option>
+          </select>
+        </div>
+      </div>
+      <div id="queryTableChange">Loading...</div>
+      <div class="row mt-3">
+        <div class="col-md-6"></div>
+        <div class="col-md-6 text-right" id="queryPageButton"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div id="site-footer"></div>
+
+<a href="#" class="back-to-top"><i class="ri-arrow-up-line"></i></a>
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jquery.easing@1.4.1/jquery.easing.min.js"></script>
+<script src="assets/js/main.js"></script>
+<script src="assets/js/mine.js"></script>
+<script>
+  $(document).ready(function(){
+    changeQueryTable(1);
+  });
+</script>
+</body>
+</html>

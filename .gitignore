@@ -1,0 +1,16 @@
+resource/count/condition/
+resource/count/sample/
+resource/count/gene/
+resource/proinfo/
+resource/time_course_add
+resource/time_course_mat
+resource/tmp
+resource/hs.pkinase.protein.txt
+resource/hs.pkinase.txt
+resource/kinase_inhibitor_name.txt
+resource/proinfo.zip
+resource/2.qptm_all_pmid_info.txt
+resource/data
+resource/db_samples
+qPTM_all_data.zip
+resource/download

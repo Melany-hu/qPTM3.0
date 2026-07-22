@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta content="width=device-width, initial-scale=1.0" name="viewport">
+  <title>qPTM - Quantitative PTMs Database</title>
+  <script src="assets/js/include.js"></script>
+</head>
+<body>
+  <div id="preloader">
+    <div class="preloader-inner">
+      <div class="preloader-spinner"></div>
+      <span class="preloader-text">Loading...</span>
+    </div>
+  </div>
+
+  <div id="site-header"></div>
+
+  <section id="main">
+    <!-- Hero + Stats -->
+    <div class="home-top">
+    <div class="hero-section">
+
+      <img src="assets/img/logo.png" alt="qPTM Logo" class="hero-logo">
+      <p class="hero-desc"><span class="text-blue">qPTM 3.0</span>: the updated database of protein post-translational modification dynamics</p>
+      <form id="simple_search_form" action="result.html" method="get" onSubmit="return check_simple_search_form()">
+        <input type="hidden" name="type" value="search">
+        <div class="hero-search">
+          
+          <div class="hero-search-box">
+            <select name="simple_search_tag0" id="simple_search_tag0" aria-label="Search in">
+              <option value="Context">Any Field</option>
+              <option value="uniprotaccs">UniProt AC</option>
+              <option value="genename">Gene Name</option>
+              <option value="proteinname">Protein Name</option>
+              <option value="func">Function</option>
+              <option value="samdetail">Sample</option>
+              <option value="con condetail">Condition</option>
+            </select>
+            <div class="hero-search-input-wrap">
+              <input type="text" name="simple_search_input0" id="simple_search_input0" placeholder="" required>
+              <a href="#advanced" class="hero-search-advanced" id="open-advanced-search">Advanced</a>
+            </div>
+            <button type="submit"><i class="ri-search-line"></i> Search</button>
+          </div>
+
+          <!--div class="hero-search-filters">
+            <label>
+              <span class="filter-label">Organism</span>
+              <select name="simple_search_org" id="simple_search_org">
+                <option value="All">All organisms</option>
+                <option value="Human">Human</option>
+                <option value="Mouse">Mouse</option>
+                <option value="Rat">Rat</option>
+                <option value="Yeast">Yeast</option>
+              </select>
+            </label>
+            <label>
+              <span class="filter-label">Modification</span>
+              <select name="simple_search_mod" id="simple_search_mod">
+                <option value="All">All modifications</option>
+                <option value="Acetylation">Acetylation</option>
+                <option value="Glycosylation">Glycosylation</option>
+                <option value="Methylation">Methylation</option>
+                <option value="Phosphorylation">Phosphorylation</option>
+                <option value="SUMOylation">SUMOylation</option>
+                <option value="Ubiquitylation">Ubiquitylation</option>
+              </select>
+            </label>
+          </div-->
+
+          <div class="hero-examples">
+            <p class="input-example">
+              Examples:
+              <span value="genename:NPM1">NPM1,</span>
+              <span value="uniprotaccs:P06748">P06748,</span>
+              <span value="proteinname:Nucleophosmin">Nucleophosmin,</span>
+              <span value="samdetail:HeLa S3">HeLa</span>
+            </p>
+          </div>
+        </div>
+      </form>
+    </div>
+
+    <!-- Stats Cards -->
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-number">14,183,172</div>
+        <div class="stat-label">PTM events</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-number">796,337</div>
+        <div class="stat-label">PTM Sites</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-number">73,783</div>
+        <div class="stat-label">Proteins</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-number">3,391</div>
+        <div class="stat-label">Conditions</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-number">6</div>
+        <div class="stat-label">Modifications</div>
+      </div>
+    </div>
+    </div>
+
+    <!-- PTM Types Grid -->
+    <div class="section-title">Post-Translational Modifications</div>
+    <div class="ptm-grid">
+      <div class="ptm-card">
+        <div class="ptm-icon" style="background:#339af0"><span class="ptm-icon-letter">P</span></div>
+        <div class="ptm-info">
+          <div class="ptm-name">Phosphorylation</div>
+          <div class="ptm-count">12,706,789 events &middot; 524,041 sites</div>
+        </div>
+      </div>
+      <div class="ptm-card">
+        <div class="ptm-icon" style="background:#339af0"><span class="ptm-icon-letter">A</span></div>
+        <div class="ptm-info">
+          <div class="ptm-name">Acetylation</div>
+          <div class="ptm-count">423,015 events &middot; 78,324 sites</div>
+        </div>
+      </div>
+      <div class="ptm-card">
+        <div class="ptm-icon" style="background:#339af0"><span class="ptm-icon-letter">U</span></div>
+        <div class="ptm-info">
+          <div class="ptm-name">Ubiquitylation</div>
+          <div class="ptm-count">561,048 events &middot; 91,720 sites</div>
+        </div>
+      </div>
+      <div class="ptm-card">
+        <div class="ptm-icon" style="background:#339af0"><span class="ptm-icon-letter">M</span></div>
+        <div class="ptm-info">
+          <div class="ptm-name">Methylation</div>
+          <div class="ptm-count">160,426 events &middot; 122,601 sites</div>
+        </div>
+      </div>
+      <div class="ptm-card">
+        <div class="ptm-icon" style="background:#339af0"><span class="ptm-icon-letter">G</span></div>
+        <div class="ptm-info">
+          <div class="ptm-name">Glycosylation</div>
+          <div class="ptm-count">102,510 events &middot; 20,884 sites</div>
+        </div>
+      </div>
+      <div class="ptm-card">
+        <div class="ptm-icon" style="background:#3498db"><span class="ptm-icon-letter">S</span></div>
+        <div class="ptm-info">
+          <div class="ptm-name">SUMOylation</div>
+          <div class="ptm-count">229,384 events &middot; 49,004 sites</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Organisms Section -->
+    <div class="section-title">Organisms</div>
+    <div class="ptm-grid" style="grid-template-columns:repeat(4,1fr)">
+      <div class="ptm-card">
+        <div class="ptm-icon" style="background:#339af0"><span class="ptm-icon-letter">H</span></div>
+        <div class="ptm-info">
+          <div class="ptm-name">Human</div>
+          <div class="ptm-count">8,126,447 events &middot; 526,195 sites</div>
+        </div>
+      </div>
+      <div class="ptm-card">
+        <div class="ptm-icon" style="background:#339af0"><span class="ptm-icon-letter">M</span></div>
+        <div class="ptm-info">
+          <div class="ptm-name">Mouse</div>
+          <div class="ptm-count">3,122,492 events &middot; 184,831 sites</div>
+        </div>
+      </div>
+      <div class="ptm-card">
+        <div class="ptm-icon" style="background:#339af0"><span class="ptm-icon-letter">R</span></div>
+        <div class="ptm-info">
+          <div class="ptm-name">Rat</div>
+          <div class="ptm-count">177,497 events &middot; 25,718 sites</div>
+        </div>
+      </div>
+      <div class="ptm-card">
+        <div class="ptm-icon" style="background:#339af0"><span class="ptm-icon-letter">Y</span></div>
+        <div class="ptm-info">
+          <div class="ptm-name">Yeast</div>
+          <div class="ptm-count">2,756,736 events &middot; 71,232 sites</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div id="site-footer"></div>
+
+  <!-- Advanced Search Drawer -->
+  <div class="adv-search-overlay" id="adv-search-overlay"></div>
+  <aside class="adv-search-drawer" id="adv-search-drawer" aria-hidden="true">
+    <div class="adv-search-drawer-header">
+      <h2><i class="ri-search-eye-line"></i> Advanced Search</h2>
+      <button type="button" class="adv-search-drawer-close" id="adv-search-close" aria-label="Close"><i class="ri-close-line"></i></button>
+    </div>
+    <div class="adv-search-drawer-body">
+      <p class="text-des">Combine multiple keywords for precise search.</p>
+      <form id="advance_search_form" action="result.html" method="get" onSubmit="return check_advance_search_form()">
+        <input type="hidden" name="type" value="search">
+        <div class="adv-search-filters">
+          <label>
+            <span class="filter-label">Organism</span>
+            <select class="form-control" name="simple_search_org" id="adv_simple_search_org">
+              <option value="All" selected>All organisms</option>
+              <option value="Human">Human</option>
+              <option value="Mouse">Mouse</option>
+              <option value="Rat">Rat</option>
+              <option value="Yeast">Yeast</option>
+            </select>
+          </label>
+          <label>
+            <span class="filter-label">Modification</span>
+            <select class="form-control" name="simple_search_mod" id="adv_simple_search_mod">
+              <option value="All" selected>All modifications</option>
+              <option value="Acetylation">Acetylation</option>
+              <option value="Glycosylation">Glycosylation</option>
+              <option value="Methylation">Methylation</option>
+              <option value="Phosphorylation">Phosphorylation</option>
+              <option value="SUMOylation">SUMOylation</option>
+              <option value="Ubiquitylation">Ubiquitylation</option>
+            </select>
+          </label>
+        </div>
+
+        <div id="advance_search_rows"></div>
+
+        <div class="adv-search-actions">
+          <button type="button" class="btn btn-primary" id="adv-search-example"><i class="ri-lightbulb-flash-line"></i> Example</button>
+          <button type="reset" class="btn"><i class="ri-eraser-line"></i> Clear</button>
+          <button type="submit" class="btn btn-primary"><i class="ri-search-line"></i> Search</button>
+        </div>
+      </form>
+    </div>
+  </aside>
+
+  <a href="#" class="back-to-top"><i class="ri-arrow-up-line"></i></a>
+
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="assets/js/mine.js"></script>
+  <script src="assets/js/advance-search.js"></script>
+  <script>
+    $(document).ready(function(){
+      $('.input-example span').on('click',function(){
+        var info = $(this).attr('value').split(':');
+        $('#simple_search_tag0').val(info[0]);
+        $('#simple_search_input0').val(info[1]);
+      });
+      $(window).scroll(function(){
+        if($(this).scrollTop() > 300) $('.back-to-top').addClass('active');
+        else $('.back-to-top').removeClass('active');
+      });
+      $('.back-to-top').on('click',function(e){
+        e.preventDefault();
+        $('html, body').animate({scrollTop:0}, 300);
+      });
+    });
+  </script>
+</body>
+</html>
