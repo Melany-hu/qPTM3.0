@@ -1,0 +1,37 @@
+id: compartments
+name: COMPARTMENTS
+aspect: localization
+access: local
+
+description: >
+  COMPARTMENTS integrates evidence on protein subcellular localization from
+  manually curated literature, high-throughput screens, automatic text mining,
+  and sequence-based prediction methods. Evidence is mapped to common protein
+  identifiers and Gene Ontology cellular-component terms, with confidence
+  scores (typically 0–5) for comparison across evidence types. Weekly-updated
+  web resource: https://compartments.jensenlab.org/
+
+homepage: https://compartments.jensenlab.org/
+api_base: null
+api_docs: https://compartments.jensenlab.org/
+citation: >
+  Binder JX, et al. COMPARTMENTS: unification and visualization of protein
+  subcellular localization evidence. Database (Oxford).
+doi: 10.1093/database/bau012
+pmid: "24573882"
+license: See https://compartments.jensenlab.org/
+notes: >
+  tables/localizations.tsv — UniProt, ENSP, gene, GO, localization, confidence.
+  ~3.5M rows / ~14k proteins (human-focused download).
+  Build: `python -m app.sources.build_index compartments`
+
+tools:
+  - compartments_localization
+
+files:
+  - id: localizations
+    path: tables/localizations.tsv
+    description: Protein subcellular localization evidence with confidence scores
+    columns: [uniprot, ensp, gene, go, localization, confidence]
+    index_keys: [uniprot, gene, go, localization]
+    approx_rows: 3512545

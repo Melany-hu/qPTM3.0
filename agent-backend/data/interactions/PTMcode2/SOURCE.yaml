@@ -1,0 +1,47 @@
+id: ptmcode2
+name: PTMcode2
+aspect: interactions
+access: local
+
+description: >
+  PTMcode v2 predicts functional associations of PTM pairs within proteins and
+  between interacting proteins (coevolution, structure proximity, competition,
+  manual curation). For the qPTM agent we keep human / mouse / rat / yeast
+  associations with manual, structure-distance, or same-residue competition
+  evidence (discarding other species and coevolution-only noise).
+  Online: http://ptmcode.embl.de
+
+homepage: http://ptmcode.embl.de
+api_base: null
+api_docs: http://ptmcode.embl.de
+citation: >
+  PTMcode v2: a resource for functional associations of post-translational
+  modifications within and between proteins. Nucleic Acids Research (2015).
+doi: 10.1093/nar/gku1081
+pmid: "25361965"
+license: See http://ptmcode.embl.de
+notes: >
+  Raw dumps (*.txt.gz, ~35M rows) retained under this folder for provenance.
+  Working tables under tables/ are filtered extracts for:
+    human, mouse, rat, yeast.
+  Rebuild extracts + index:
+    python -m app.sources.prepare_ptmcode2
+    python -m app.sources.build_index ptmcode2
+
+tools:
+  - ptmcode_associations
+
+files:
+  - id: within
+    path: tables/within.tsv
+    description: Intra-protein PTM–PTM associations (human/mouse/rat/yeast; manual/structure/competition)
+    columns: [organism, species, gene, ptm1, residue1, position1, ptm2, residue2, position2, coevolution, same_residue, manual, structure]
+    index_keys: [organism, gene, position1, position2]
+    approx_rows: 45270
+
+  - id: between
+    path: tables/between.tsv
+    description: Inter-protein PTM–PTM associations on PPIs (human/mouse/rat/yeast; structure/manual)
+    columns: [organism, species, gene1, gene2, ptm1, residue1, position1, ptm2, residue2, position2, coevolution, manual, structure]
+    index_keys: [organism, gene1, gene2, position1, position2]
+    approx_rows: 4841

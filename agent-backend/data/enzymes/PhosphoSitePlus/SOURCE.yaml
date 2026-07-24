@@ -1,0 +1,36 @@
+id: psp_enzymes
+name: PhosphoSitePlus (kinases)
+aspect: enzymes
+access: local
+
+description: >
+  PhosphoSitePlus Kinase_Substrate_Dataset — literature-curated kinase→substrate
+  PTM site relationships with in vivo / in vitro evidence flags. Online:
+  https://www.phosphosite.org
+
+homepage: https://www.phosphosite.org
+api_base: null
+api_docs: https://www.phosphosite.org
+citation: >
+  PhosphoSitePlus, 2014: mutations, PTMs and recalibrations. Nucleic Acids Research.
+doi: 10.1093/nar/gky1159
+pmid: "30445427"
+license: CC BY-NC-SA 3.0 (Cell Signaling Technology)
+notes: >
+  Build: `python -m app.sources.build_index psp_enzymes`
+
+tools:
+  - psp_kinase_substrate
+
+files:
+  - id: kinase_substrate
+    path: Kinase_Substrate_Dataset
+    delimiter: "\t"
+    encoding: iso-8859-1
+    skip_until_header: true
+    header_startswith: GENE
+    derive_mod_position_from: SUB_MOD_RSD
+    description: Kinase–substrate site relationships (in vivo / in vitro)
+    columns: [GENE, KINASE, KIN_ACC_ID, SUB_GENE, SUB_ACC_ID, SUB_MOD_RSD, IN_VIVO_RXN, IN_VITRO_RXN]
+    index_keys: [gene, kinase, sub_gene, sub_uniprot, position]
+    approx_rows: 20000

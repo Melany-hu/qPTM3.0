@@ -1,0 +1,36 @@
+id: gpsuber
+name: GPS-Uber
+aspect: enzymes
+access: local
+
+description: >
+  GPS-Uber benchmark of experimentally identified site-specific E3–substrate
+  relations (ssESRs): 1,311 human ubiquitination sites linked to regulatory
+  E3 ligases (Wang et al., Brief Bioinform 2022). Used in Stage 1 WHO for
+  lysine-site E3 writers. Online predictor: http://gpsuber.biocuckoo.cn/
+
+homepage: http://gpsuber.biocuckoo.cn/
+api_base: null
+api_docs: http://gpsuber.biocuckoo.cn/userguide.php
+citation: >
+  Wang C, Tan X, Tang D, et al. GPS-Uber: a hybrid-learning framework for
+  prediction of general and E3-specific lysine ubiquitination sites.
+  Brief Bioinform. 2022 Mar 10;23(2):bbab574.
+doi: 10.1093/bib/bbab574
+pmid: "35037020"
+license: See http://gpsuber.biocuckoo.cn/
+notes: >
+  Local table from Supplementary Table S1 (table_s1-r1_bbab574.xlsx).
+  Agent indexes curated ssESRs only (not the online predictor API).
+  Build: `python -m app.sources.build_index gpsuber`
+
+tools:
+  - gpsuber_e3_sites
+
+files:
+  - id: ssesr
+    path: tables/ssesr.tsv
+    description: Site-specific E3–substrate relations (human literature ssESRs)
+    columns: [substrate_gene, substrate_uniprot, substrate_uniprot_base, position, peptide, e3_gene, e3_uniprot, e3_uniprot_base, e3_class, pmids]
+    index_keys: [substrate_gene, substrate_uniprot, substrate_uniprot_base, position, e3_gene, e3_uniprot, e3_uniprot_base, e3_class]
+    approx_rows: 1311

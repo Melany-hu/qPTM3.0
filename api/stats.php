@@ -1,64 +1,40 @@
 <?php
 /**
- * GET /api/stats
+ * GET /api/stats.php
  *
- * Get database statistics: total events, sites, proteins, conditions,
- * broken down by organism and PTM type.
+ * Lightweight stats. Avoids full-table scans on large qevent tables.
+ * Agent tools do not depend on this endpoint.
  */
 
 require_once __DIR__ . '/db.php';
 
-// ── Overall totals ────────────────────────────────────────────────
-$totals = fetch_one(
-    "SELECT
-        (SELECT COUNT(*) FROM ptm_events) as total_events,
-        (SELECT COUNT(*) FROM ptm_sites) as total_sites,
-        (SELECT COUNT(*) FROM proteins) as total_proteins,
-        (SELECT COUNT(*) FROM conditions) as total_conditions,
-        (SELECT COUNT(*) FROM samples) as total_samples"
+$approx = fetch_one(
+    "SELECT TABLE_ROWS AS c
+     FROM information_schema.TABLES
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'qevent'"
 );
 
-// ── By organism ───────────────────────────────────────────────────
-$organismRows = fetch_all(
-    "SELECT p.organism,
-            COUNT(DISTINCT e.id) as events,
-            COUNT(DISTINCT e.uniprot_ac) as proteins
-     FROM ptm_events e
-     JOIN proteins p ON e.uniprot_ac = p.uniprot_ac
-     GROUP BY p.organism"
-);
-
-$byOrganism = [];
-foreach ($organismRows as $row) {
-    $byOrganism[$row['organism']] = [
-        'events'   => intval($row['events']),
-        'proteins' => intval($row['proteins']),
-    ];
-}
-
-// ── By PTM type ───────────────────────────────────────────────────
-$ptmRows = fetch_all(
-    "SELECT ptm_type,
-            COUNT(*) as events,
-            COUNT(DISTINCT uniprot_ac) as proteins
-     FROM ptm_events
-     GROUP BY ptm_type"
-);
-
-$byPtmType = [];
-foreach ($ptmRows as $row) {
-    $byPtmType[$row['ptm_type']] = [
-        'events'   => intval($row['events']),
-        'proteins' => intval($row['proteins']),
-    ];
-}
-
+// Cheap distinct lists from smaller dimension-ish usage via LIMIT sample is unreliable;
+// return organism/PTM keys known to the site UI instead of scanning qevent.
 json_response([
-    'total_events'     => intval($totals['total_events'] ?? 0),
-    'total_sites'      => intval($totals['total_sites'] ?? 0),
-    'total_proteins'   => intval($totals['total_proteins'] ?? 0),
-    'total_conditions' => intval($totals['total_conditions'] ?? 0),
-    'total_samples'    => intval($totals['total_samples'] ?? 0),
-    'by_organism'      => $byOrganism,
-    'by_ptm_type'      => $byPtmType,
+    'total_events'     => intval($approx['c'] ?? 0),
+    'total_sites'      => null,
+    'total_proteins'   => null,
+    'total_conditions' => null,
+    'total_samples'    => null,
+    'by_organism'      => [
+        'Human' => new stdClass(),
+        'Mouse' => new stdClass(),
+        'Rat'   => new stdClass(),
+        'Yeast' => new stdClass(),
+    ],
+    'by_ptm_type'      => [
+        'phosphorylation' => new stdClass(),
+        'acetylation'     => new stdClass(),
+        'methylation'     => new stdClass(),
+        'ubiquitylation'  => new stdClass(),
+        'glycosylation'   => new stdClass(),
+        'sumoylation'     => new stdClass(),
+    ],
+    'note'             => 'total_events is approximate (INFORMATION_SCHEMA.TABLE_ROWS)',
 ]);

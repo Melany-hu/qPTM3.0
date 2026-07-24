@@ -1,0 +1,28 @@
+id: string
+name: STRING
+aspect: interactions
+access: api
+
+description: >
+  STRING aggregates experimental, computational and text-mined protein
+  associations into scored functional / physical / regulatory networks.
+  Agent uses the REST interaction_partners endpoint (cn.string-db.org mirror
+  preferred; falls back if Cloudflare blocks string-db.org).
+
+homepage: https://string-db.org
+api_base: https://cn.string-db.org/api
+api_docs: https://string-db.org/help/api/
+citation: >
+  The STRING database in 2025: protein networks with directionality of
+  regulation. Nucleic Acids Research (2025).
+doi: 10.1093/nar/gkae1113
+pmid: "39558183"
+license: See https://string-db.org
+notes: >
+  No local tables. Configure STRING_API_BASE_URL if needed.
+  Tool: string_ppi
+
+tools:
+  - string_ppi
+
+files: []

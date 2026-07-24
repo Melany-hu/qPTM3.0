@@ -1,0 +1,36 @@
+id: pathbank
+name: PathBank
+aspect: pathways
+access: local
+
+description: >
+  PathBank is a comprehensive pathway database for model organisms (Wishart et
+  al., 2020). PathBank.org has no public REST API; the agent indexes Wishart-lab
+  SMPDB protein–pathway CSVs (PathBank family / human) for local UniProt/gene
+  lookup of metabolic, disease, drug-action and signaling pathways.
+
+homepage: https://pathbank.org
+api_base: null
+api_docs: https://pathbank.org/downloads
+citation: >
+  PathBank: a comprehensive pathway database for model organisms. Nucleic Acids
+  Research (2020).
+doi: 10.1093/nar/gkz861
+pmid: "31602469"
+license: Open Database License / CC BY-NC (see PathBank)
+notes: >
+  Rebuild:
+    python -m app.sources.prepare_pathbank
+    python -m app.sources.build_index pathbank
+  Source dump: https://smpdb.ca/downloads/smpdb_proteins.csv.zip
+
+tools:
+  - pathbank_pathways
+
+files:
+  - id: protein_pathways
+    path: tables/protein_pathways.tsv
+    description: SMPDB/PathBank-family protein–pathway associations (human)
+    columns: [uniprot, gene, protein_name, pathway_id, pathway_name, pathway_subject, source]
+    index_keys: [uniprot, gene, pathway_id, pathway_subject]
+    approx_rows: 303875

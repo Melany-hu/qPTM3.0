@@ -1,0 +1,36 @@
+id: psp_disease
+name: PhosphoSitePlus (disease)
+aspect: disease
+access: local
+
+description: >
+  PhosphoSitePlus Disease-associated_sites — PTM sites curated from the
+  literature that are correlated with specific disease states (e.g. increased /
+  decreased modification). Online: https://www.phosphosite.org
+
+homepage: https://www.phosphosite.org
+api_base: null
+api_docs: https://www.phosphosite.org
+citation: >
+  PhosphoSitePlus, 2014: mutations, PTMs and recalibrations. Nucleic Acids Research.
+doi: 10.1093/nar/gky1159
+pmid: "30445427"
+license: CC BY-NC-SA 3.0 (Cell Signaling Technology)
+notes: >
+  Build: `python -m app.sources.build_index psp_disease`
+
+tools:
+  - psp_disease_sites
+
+files:
+  - id: disease_sites
+    path: Disease-associated_sites
+    delimiter: "\t"
+    encoding: iso-8859-1
+    skip_until_header: true
+    header_startswith: DISEASE
+    derive_mod_position_from: MOD_RSD
+    description: Disease-correlated PTM sites with alteration direction
+    columns: [DISEASE, ALTERATION, GENE, ACC_ID, MOD_RSD, PMIDs, NOTES]
+    index_keys: [disease, gene, uniprot, position]
+    approx_rows: 5000

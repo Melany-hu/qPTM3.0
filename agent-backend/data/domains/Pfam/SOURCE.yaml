@@ -1,0 +1,25 @@
+id: pfam
+name: Pfam
+aspect: domains
+access: api
+
+description: >
+  Pfam is a widely used database of protein families with manually curated
+  entries (El-Gebali et al., 2019). Standalone Pfam web services have been
+  retired; programmatic access is via the InterPro API (/entry/pfam/...).
+
+homepage: https://www.ebi.ac.uk/interpro/entry/pfam/
+api_base: https://www.ebi.ac.uk/interpro/api
+api_docs: https://pfam-docs.readthedocs.io/en/latest/api.html
+citation: >
+  The Pfam protein families database in 2019. Nucleic Acids Research (2019).
+doi: 10.1093/nar/gky995
+pmid: "30357350"
+license: See https://www.ebi.ac.uk/interpro/
+notes: >
+  Tool pfam_domains. Configure INTERPRO_API_BASE_URL (shared with InterPro).
+
+tools:
+  - pfam_domains
+
+files: []

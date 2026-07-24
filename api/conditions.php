@@ -1,12 +1,12 @@
 <?php
 /**
- * GET /api/conditions
+ * GET /api/conditions.php
  *
- * Get distinct conditions where a site (or protein) was quantified.
+ * Distinct experimental conditions for a UniProt site / protein (from qevent).
  *
  * Parameters:
  *   uniprot_ac - UniProt accession (required)
- *   position   - residue position (optional; if omitted, returns conditions for all sites on the protein)
+ *   position   - residue position (optional)
  *   ptm_type   - filter by PTM type (optional)
  */
 
@@ -17,61 +17,83 @@ if (!$uniprot_ac) {
     json_error('Parameter "uniprot_ac" is required');
 }
 
-$position  = param('position');
-$ptm_type  = param('ptm_type', 'all');
+$position = param('position');
+$ptm_type = strtolower(param('ptm_type', 'all'));
 
-$where = ["e.uniprot_ac = ?"];
+$where = ['e.up = ?'];
 $params = [$uniprot_ac];
 $types = 's';
 
-if ($position) {
-    $where[] = "e.position = ?";
-    $params[] = intval($position);
-    $types .= 'i';
+if ($position !== null && $position !== '') {
+    $where[] = 'e.pos = ?';
+    $params[] = (string)intval($position);
+    $types .= 's';
 }
 
 if ($ptm_type !== 'all' && isset($PTM_TYPE_MAP[$ptm_type])) {
-    $where[] = "e.ptm_type = ?";
+    $where[] = 'e.mods = ?';
     $params[] = $PTM_TYPE_MAP[$ptm_type];
     $types .= 's';
 }
 
+$where[] = "e.samplecondition IS NOT NULL AND e.samplecondition <> ''";
 $whereClause = implode(' AND ', $where);
 
-// ── Distinct conditions with event counts ─────────────────────────
-$sql = "SELECT c.id, c.condition_name, c.condition_abbr, c.description,
-               COUNT(*) as event_count,
-               GROUP_CONCAT(DISTINCT s.sample_name) as samples,
-               MIN(e.log2_ratio) as min_log2,
-               MAX(e.log2_ratio) as max_log2,
-               AVG(e.log2_ratio) as avg_log2
-    FROM ptm_events e
-    LEFT JOIN conditions c ON e.condition_id = c.id
-    LEFT JOIN samples s ON e.sample_id = s.id
-    WHERE $whereClause
-    GROUP BY c.id, c.condition_name, c.condition_abbr, c.description
-    ORDER BY event_count DESC";
+$rows = fetch_all(
+    "SELECT e.samplecondition, e.sample, e.qratio
+     FROM qevent e
+     WHERE $whereClause",
+    $params,
+    $types
+);
 
-$rows = fetch_all($sql, $params, $types);
+$grouped = [];
+foreach ($rows as $row) {
+    $name = $row['samplecondition'];
+    if (!isset($grouped[$name])) {
+        $grouped[$name] = [
+            'condition_name' => $name,
+            'condition_abbr' => $name,
+            'description'    => null,
+            'event_count'    => 0,
+            'samples'        => [],
+            'ratios'         => [],
+        ];
+    }
+    $grouped[$name]['event_count']++;
+    if (!empty($row['sample'])) {
+        $grouped[$name]['samples'][$row['sample']] = true;
+    }
+    $f = nullable_float($row['qratio'] ?? null);
+    if ($f !== null) {
+        $grouped[$name]['ratios'][] = $f;
+    }
+}
 
-$conditions = array_map(function ($row) {
-    return [
-        'condition_name' => $row['condition_name'],
-        'condition_abbr' => $row['condition_abbr'],
-        'description'    => $row['description'],
-        'event_count'    => intval($row['event_count']),
-        'samples'        => $row['samples'] ? explode(',', $row['samples']) : [],
+$conditions = [];
+foreach ($grouped as $g) {
+    $vals = $g['ratios'];
+    $conditions[] = [
+        'condition_name' => $g['condition_name'],
+        'condition_abbr' => $g['condition_abbr'],
+        'description'    => null,
+        'event_count'    => $g['event_count'],
+        'samples'        => array_keys($g['samples']),
         'log2_range'     => [
-            'min' => $row['min_log2'] !== null ? floatval($row['min_log2']) : null,
-            'max' => $row['max_log2'] !== null ? floatval($row['max_log2']) : null,
-            'avg' => $row['avg_log2'] !== null ? floatval($row['avg_log2']) : null,
+            'min' => $vals ? min($vals) : null,
+            'max' => $vals ? max($vals) : null,
+            'avg' => $vals ? round(array_sum($vals) / count($vals), 4) : null,
         ],
     ];
-}, $rows);
+}
+
+usort($conditions, function ($a, $b) {
+    return $b['event_count'] <=> $a['event_count'];
+});
 
 json_response([
-    'uniprot_ac' => $uniprot_ac,
-    'position'   => $position ? intval($position) : null,
+    'uniprot_ac'       => $uniprot_ac,
+    'position'         => ($position !== null && $position !== '') ? intval($position) : null,
     'total_conditions' => count($conditions),
-    'conditions' => $conditions,
+    'conditions'       => $conditions,
 ]);

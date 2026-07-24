@@ -7,6 +7,8 @@ Each tool has:
 The registry maps tool names to their schemas and handlers.
 """
 
+from __future__ import annotations
+
 import logging
 from typing import Any, Callable
 
@@ -67,6 +69,24 @@ class ToolRegistry:
     @property
     def tool_names(self) -> list[str]:
         return list(self._handlers.keys())
+
+    def schemas_for_tools(self, tool_names: list[str]) -> list[dict[str, Any]]:
+        """Return JSON schemas for a subset of tools (plan-step scoped)."""
+        allowed = set(tool_names)
+        return [
+            schema for schema in self._schemas
+            if schema["function"]["name"] in allowed
+        ]
+
+    def catalog(self) -> list[dict[str, str]]:
+        """Tool catalog for the planning layer (no handlers exposed)."""
+        return [
+            {
+                "tool": schema["function"]["name"],
+                "description": schema["function"]["description"],
+            }
+            for schema in self._schemas
+        ]
 
 
 # Global registry

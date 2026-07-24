@@ -1,0 +1,44 @@
+id: nlsdb
+name: NLSdb
+aspect: localization
+access: local
+
+description: >
+  NLSdb collects nuclear localization signals (NLS) and nuclear export signals
+  (NES) with experimentally annotated nuclear and non-nuclear proteins. The
+  updated database contains 2253 NLS and 398 NES motifs, plus in silico
+  mutagenesis–expanded motif sets. Local tables were extracted from the iNuLoC
+  download bundle (which integrates NLSdb among other resources). Web service:
+  https://rostlab.org/services/nlsdb/
+
+homepage: https://rostlab.org/services/nlsdb/
+api_base: null
+api_docs: https://rostlab.org/services/nlsdb/
+citation: >
+  Kosugi S, et al. NLSdb—database of nuclear localization signals and nuclear
+  export signals. Nucleic Acids Research.
+doi: 10.1093/nar/gkx1021
+pmid: "29106588"
+license: See https://rostlab.org/services/nlsdb/
+notes: >
+  motifs_experimental.tsv — experimentally validated NLS/NES (via iNuLoC Table 2).
+  motifs_predicted.tsv — NLS/NES-like predicted motifs (in silico expanded sets).
+  Build: `python -m app.sources.build_index nlsdb`
+
+tools:
+  - inuloc_nls_nes
+
+files:
+  - id: motifs_experimental
+    path: tables/motifs_experimental.tsv
+    description: Experimentally validated NLS/NES motifs (NLSdb / integrated sources)
+    columns: [uniprot, gene, signal, start, end, motif_seq, source, organism]
+    index_keys: [uniprot, gene, signal]
+    approx_rows: 826
+
+  - id: motifs_predicted
+    path: tables/motifs_predicted.tsv
+    description: Predicted NLS/NES motif sets (NLSdb in silico mutagenesis pipeline)
+    columns: [uniprot, gene, signal, start, end, motif_seq, score]
+    index_keys: [uniprot, gene, signal]
+    approx_rows: 4489

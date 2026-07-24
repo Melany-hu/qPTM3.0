@@ -1,0 +1,32 @@
+id: iptmnet
+name: iPTMnet
+aspect: enzymes
+access: api
+
+description: >
+  iPTMnet integrates text mining, data mining, analysis/visualization tools,
+  databases and ontologies for PTM network discovery (Huang et al., NAR 2018).
+  Agent calls the public REST API v1: /substrate (enzymes) and /ptmppi
+  (PTM-dependent PPI). No local tables.
+
+homepage: https://research.bioinformatics.udel.edu/iptmnet/
+api_base: https://research.bioinformatics.udel.edu/iptmnet/api
+api_docs: https://research.bioinformatics.udel.edu/iptmnet/api/doc/
+citation: >
+  Huang H, Arighi CN, Ross KE, Ren J, Li G, Chen SC, Wang Q, Cowart J,
+  Vijay-Shanker K, Wu CH. iPTMnet: an integrated resource for protein
+  post-translational modification network discovery. Nucleic Acids Res.
+  2018 Jan 4;46(D1):D542-D550.
+doi: 10.1093/nar/gkx1104
+pmid: "29145615"
+license: See https://research.bioinformatics.udel.edu/iptmnet/
+notes: >
+  Configure IPTMNET_API_BASE_URL if the host changes.
+  Tools: iptmnet_enzymes, iptmnet_ptm_ppi.
+  Search endpoint (/v1/search) is currently unreliable; gene→AC uses local identity.
+
+tools:
+  - iptmnet_enzymes
+  - iptmnet_ptm_ppi
+
+files: []

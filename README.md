@@ -140,21 +140,25 @@ The agent backend registers tools that the LLM can call during a conversation. E
 | 6 | PTM & disease | dbPTM/PTMD (tool 8, already integrated by qPTM) |
 | 7 | AI & PTM prediction | Planned (DeepMVP) |
 
-## Three-Stage Workflow
+## Four-Stage Logic Line (WHO → WHEN → WHERE → WHY)
 
 The agent guides users through investigating a PTM site:
 
-1. **Stage 1 — Where & When**: Under what experimental conditions is a site modified?
+1. **Stage 1 — WHO**: Who regulates it (drugs / ligands → targets → kinases/enzymes)?
+   - Tools: `qptm_kinases`, `iptmnet_enzymes`, `activedriver_kinase_network`, `pmads_drug_ptm`, `decryptm_drug_ptm`
+   - Output: upstream regulators, enzyme names, evidence type
+
+2. **Stage 2 — WHEN**: When does the site change (kinetics / fold change)?
    - Tools: `qptm_search`, `qptm_site_conditions`
-   - Output: conditions, cell types, treatments, log2 ratios
+   - Output: time points, treatments, log2 ratios, transient vs sustained
 
-2. **Stage 2 — Who**: Which enzyme catalyzes the modification?
-   - Tools: `qptm_kinases`, `iptmnet_enzymes`
-   - Output: kinase/enzyme names, evidence type, inhibitors
+3. **Stage 3 — WHERE**: Where does it happen (cell background + localization)?
+   - Tools: `uniprot_annotation`, `compartments_localization`, `inuloc_nls_nes`, `inuloc_nuclear_prob`
+   - Output: sample/cell context, subcellular location, complex/pathway role
 
-3. **Stage 3 — Why It Matters**: What happens to protein function?
-   - Tools: `ptm_stability`, `psp_regulatory`, `uniprot_annotation`, `iptmnet_ptm_ppi`, `dbptm_functional`
-   - Output: stability effects, functional annotations, interactions, disease associations
+4. **Stage 4 — WHY**: Why does it matter (mechanism → outcome → value)?
+   - Tools: `psp_regulatory`, `ptm_stability`, `funcscore_phosphosite`, `ptmd_disease`, `dbptm_functional`, …
+   - Output: pathway meaning, phenotype, biomarker / therapeutic implication
 
 ## PTM-Stability Curated Dataset
 

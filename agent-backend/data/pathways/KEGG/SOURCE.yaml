@@ -1,0 +1,25 @@
+id: kegg
+name: KEGG
+aspect: pathways
+access: api
+
+description: >
+  KEGG is a resource for understanding high-level functions of biological
+  systems from molecular-level information (Kanehisa et al., 2019). Agent uses
+  the KEGG REST API (conv + link pathway) for academic use (≤3 req/s).
+
+homepage: https://www.kegg.jp
+api_base: https://rest.kegg.jp
+api_docs: https://www.kegg.jp/kegg/rest/keggapi.html
+citation: >
+  New approach for understanding genome variations in KEGG. Nucleic Acids
+  Research (2019).
+doi: 10.1093/nar/gky962
+pmid: "30321428"
+license: Academic use; see https://www.kegg.jp
+notes: Tool kegg_pathways — no local tables.
+
+tools:
+  - kegg_pathways
+
+files: []

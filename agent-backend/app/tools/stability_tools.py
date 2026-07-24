@@ -3,7 +3,7 @@
 Direction 3 tool:
   ptm_stability — look up how a PTM affects protein stability (stabilize/destabilize)
 
-Data source: A manually curated dataset extracted from the Nature Communications
+Data source: A manually curated dataset compiled from the Nature Communications
 review "Control of protein stability by post-translational modifications"
 (Batista et al., 2023, doi:10.1038/s41467-023-35795-8, PMC9839724).
 
@@ -14,11 +14,15 @@ proteins, with 78 curated relationships. Each entry records:
   - mechanism: molecular mechanism (degron type, E3 ligase, reader protein, etc.)
   - writer/eraser/reader: enzymes and recognition proteins
   - ubiquitin_sites: specific lysines targeted for ubiquitination
-  - evidence: experimental (all entries are from the review's curated literature)
+  - evidence: experimental
+  - source: primary-literature PMID(s) supporting the claim (pipe-separated)
+  - curated_from: PMC9839724 (review used as curation provenance)
 
 The TSV file is loaded into an in-memory index on first access, keyed by
 UniProt accession for fast per-protein lookup.
 """
+
+from __future__ import annotations
 
 import csv
 import logging
@@ -88,6 +92,7 @@ def _load_stability_data() -> dict[str, list[dict[str, Any]]]:
                     "ubiquitin_sites": row.get("ubiquitin_sites", "").strip() or None,
                     "evidence": row.get("evidence", "").strip(),
                     "source": row.get("source", "").strip(),
+                    "curated_from": row.get("curated_from", "").strip() or "PMC9839724",
                 }
                 index.setdefault(acc, []).append(entry)
 
@@ -124,7 +129,7 @@ def _ptm_stability(
             "summary": (
                 "PTM-stability curated dataset not loaded. "
                 "The dataset file (ptm_stability_curated.tsv) should be in "
-                "the data/stability/ directory."
+                "the data/stability/curated/ directory."
             ),
             "uniprot_ac": uniprot_ac,
             "available": False,
@@ -213,7 +218,20 @@ def _ptm_stability(
             destab_details.append(detail)
         summary += f"Destabilizing: {', '.join(destab_details)}. "
 
-    summary += f"Source: curated from PMC9839724 (Nat Comms 2023)."
+    primary_pmids: list[str] = []
+    seen_pmid: set[str] = set()
+    for e in entries:
+        for part in (e.get("source") or "").replace(",", "|").split("|"):
+            pmid = part.strip()
+            if pmid.isdigit() and pmid not in seen_pmid:
+                seen_pmid.add(pmid)
+                primary_pmids.append(pmid)
+    if primary_pmids:
+        summary += f"Primary literature: PMID {', '.join(primary_pmids[:8])}"
+        if len(primary_pmids) > 8:
+            summary += f" (+{len(primary_pmids) - 8} more)"
+        summary += ". "
+    summary += "Curated from PMC9839724 (Nat Comms 2023)."
 
     return {
         "summary": summary,
@@ -225,6 +243,8 @@ def _ptm_stability(
         "stabilize_count": len(stabilize),
         "destabilize_count": len(destabilize),
         "entries": entries[:20],
+        "primary_pmids": primary_pmids[:20],
+        "curated_from": "PMC9839724",
         "total_for_protein": len(all_entries),
         "total_proteins_in_dataset": len(index),
     }
@@ -243,8 +263,9 @@ def register_stability_tools() -> None:
             "protein stability — whether it stabilizes or destabilizes the protein, "
             "the molecular mechanism (degron type, E3 ligase, reader protein), "
             "and the writer/eraser/reader enzymes involved. "
-            "Data is curated from a Nature Communications review of PTM-controlled "
-            "protein stability (PMC9839724, 2023). Covers 34 substrate proteins and "
+            "Entries cite primary literature PMIDs; the table was curated from a "
+            "Nature Communications review of PTM-controlled protein stability "
+            "(PMC9839724, 2023). Covers 34 substrate proteins and "
             "78 PTM-stability relationships. "
             "Use this for Direction 3: understanding how PTMs affect protein stability "
             "and degradation. Query by UniProt accession, optionally filtered by "

@@ -1,0 +1,38 @@
+id: weram
+name: WERAM
+aspect: enzymes
+access: local
+
+description: >
+  WERAM — Writers, Erasers and Readers of histone Acetylation and Methylation
+  in eukaryotes (Xu et al., NAR 2017). Local human subset: acetylation and
+  methylation writers (HAT/HMT), erasers (HDAC/HDM), and readers
+  (Ac_Reader/Me_Reader), with collected vs predicted evidence. Online:
+  http://weram.biocuckoo.org
+
+homepage: http://weram.biocuckoo.org
+api_base: null
+api_docs: http://weram.biocuckoo.org
+citation: >
+  Xu Y, Zhang S, Lin S, Guo Y, Deng W, Zhang Y, Xue Y. WERAM: a database of
+  writers, erasers and readers of histone acetylation and methylation in
+  eukaryotes. Nucleic Acids Res. 2017 Jan 4;45(D1):D264-D270.
+doi: 10.1093/nar/gkw1011
+pmid: "27789692"
+license: See http://weram.biocuckoo.org
+notes: >
+  Built from human FASTA downloads (collected + predicted, acetylation +
+  methylation). Headers: WERAM-ID|ENSP|organism|family|class.
+  ENSP mapped to UniProt/gene via UniProt ID mapping.
+  Build: `python -m app.sources.build_index weram`
+
+tools:
+  - weram_regulators
+
+files:
+  - id: proteins
+    path: tables/proteins.tsv
+    description: Human histone acetylation/methylation writers, erasers and readers
+    columns: [weram_id, gene, uniprot, ensembl_protein, role, family, class, modification, evidence, organism]
+    index_keys: [gene, uniprot, role, family, modification, evidence]
+    approx_rows: 360

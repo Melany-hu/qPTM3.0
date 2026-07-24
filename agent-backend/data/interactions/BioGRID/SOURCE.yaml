@@ -1,0 +1,27 @@
+id: biogrid
+name: BioGRID
+aspect: interactions
+access: api
+
+description: >
+  BioGRID is a curated repository of protein, genetic and chemical
+  interactions from the primary literature. Agent queries the BioGRID REST
+  webservice (requires a free BIOGRID_ACCESS_KEY).
+
+homepage: https://thebiogrid.org
+api_base: https://webservice.thebiogrid.org
+api_docs: https://wiki.thebiogrid.org/doku.php/biogridrest
+citation: >
+  The BioGRID database: A comprehensive biomedical resource of curated
+  protein, genetic, and chemical interactions. Protein Science (2021).
+doi: 10.1002/pro.3978
+pmid: "33070389"
+license: Open access; API key required
+notes: >
+  Register key at https://webservice.thebiogrid.org/ then set
+  BIOGRID_ACCESS_KEY in .env. Tool: biogrid_interactions
+
+tools:
+  - biogrid_interactions
+
+files: []

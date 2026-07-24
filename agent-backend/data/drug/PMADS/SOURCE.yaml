@@ -1,0 +1,57 @@
+id: pmads
+name: PMADS
+aspect: drug
+access: local
+
+description: >
+  PMADS (Post-translational Modification Associated Drug database) catalogues
+  curated associations manually extracted from biomedical literature and
+  inferred associations from large-scale proteomics analysis. It covers
+  drug-induced modulation of PTMs (upstream) and PTM-mediated changes in drug
+  sensitivity (downstream), with annotations for PTM site, effect description,
+  evidence, confidence, and cross-links to PDB, PhosphoSitePlus, and DrugBank.
+  Local table: ~4.8k Curated + ~43.9k Inferred associations across 19 PTM types.
+
+homepage: https://pmads-db.org
+api_base: null
+api_docs: null
+citation: >
+  PMADS: a comprehensive database of post-translational modification associated
+  with drugs and diseases. Nucleic Acids Research.
+doi: 10.1093/nar/gkaf1033
+pmid: "41099621"
+license: Freely available at https://pmads-db.org
+notes: >
+  Working table is tables/associations.tsv (headers normalized).
+  Status=Curated|Inferred. Build index:
+  `python -m app.sources.build_index pmads`.
+
+tools:
+  - pmads_drug_ptm
+
+files:
+  - id: associations
+    path: tables/associations.tsv
+    description: Curated and inferred drug–PTM–disease associations
+    columns:
+      - id
+      - pmid
+      - sentence
+      - protein_uniprot
+      - protein
+      - gene_manual
+      - ptm
+      - site
+      - disease
+      - disease_fine
+      - drug
+      - drug_class
+      - kw
+      - confidence_score
+      - confidence_level
+      - regulatory_class
+      - ptm_regulation
+      - disease_regulation
+      - status
+    index_keys: [gene_manual, protein_uniprot, drug, disease, status, ptm]
+    approx_rows: 48663

@@ -1,0 +1,46 @@
+id: ptmd
+name: PTMD
+aspect: disease
+access: local
+
+description: >
+  PTMD 2.0 is a comprehensive database of disease-associated post-translational
+  modifications, with 342,624 PTM–disease associations (PDAs) in 15,105 proteins
+  across 93 PTM types and 2,083 diseases. PDAs are classified into six states:
+  upregulation (U) / downregulation (D) of PTM levels, absence (A) / presence (P)
+  of PTMs, and creation (C) / disruption (N) of PTM sites. Includes integrated
+  public-source PDAs and literature-curated PDAs with PMIDs. Online service:
+  https://ptmd.biocuckoo.cn/
+
+homepage: https://ptmd.biocuckoo.cn/
+api_base: null
+api_docs: https://ptmd.biocuckoo.cn/
+citation: >
+  PTMD 2.0: an updated database of disease-associated post-translational
+  modifications. Nucleic Acids Research.
+doi: 10.1093/nar/gkae850
+pmid: "39329270"
+license: Freely available at https://ptmd.biocuckoo.cn/
+notes: >
+  Working tables under tables/*.tsv. State codes: U/D/A/P/C/N.
+  Prefer pda_literature for PMID-backed curated evidence; pda_public for
+  large-scale integrated PDAs. Build:
+  `python -m app.sources.build_index ptmd`
+
+tools:
+  - ptmd_disease
+
+files:
+  - id: literature
+    path: tables/pda_literature.tsv
+    description: Literature-curated PTM–disease associations with PMIDs
+    columns: [uniprot, position, gene, protein_name, organism, type, state, disease, pmid, sentence]
+    index_keys: [uniprot, gene, position, disease, state, type]
+    approx_rows: 6740
+
+  - id: public
+    path: tables/pda_public.tsv
+    description: Integrated public-source PTM–disease associations (PTMD 2.0 bulk)
+    columns: [uniprot, position, type, state, disease, mutation_site, source, residue, is_experimental, enzyme, gene, pmid, sentence, celltype, pdas_id]
+    index_keys: [uniprot, gene, position, disease, state, type]
+    approx_rows: 342624

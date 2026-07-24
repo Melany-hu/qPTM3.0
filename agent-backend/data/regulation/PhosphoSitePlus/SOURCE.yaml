@@ -1,0 +1,51 @@
+id: psp_regulation
+name: PhosphoSitePlus (regulation)
+aspect: regulation
+access: local
+
+description: >
+  PhosphoSitePlus regulatory annotations and PTMVars. Regulatory_sites catalogues
+  literature-curated PTM sites that regulate molecular functions, biological
+  processes, or molecular interactions. PTMVar catalogues missense variants at
+  or within ±5 residues of PTM sites (Class I / Class II). Online:
+  https://www.phosphosite.org
+
+homepage: https://www.phosphosite.org
+api_base: null
+api_docs: https://www.phosphosite.org
+citation: >
+  PhosphoSitePlus, 2014: mutations, PTMs and recalibrations. Nucleic Acids Research.
+doi: 10.1093/nar/gky1159
+pmid: "30445427"
+license: CC BY-NC-SA 3.0 (Cell Signaling Technology)
+notes: >
+  Files retain PSP license preamble; indexes skip until header.
+  Build: `python -m app.sources.build_index psp_regulation`
+
+tools:
+  - psp_regulatory
+  - psp_ptmvar
+
+files:
+  - id: regulatory
+    path: Regulatory_sites
+    delimiter: "\t"
+    encoding: iso-8859-1
+    skip_until_header: true
+    header_startswith: GENE
+    derive_mod_position_from: MOD_RSD
+    description: Literature-curated regulatory PTM sites (ON_FUNCTION / ON_PROCESS / interactions)
+    columns: [GENE, PROTEIN, ACC_ID, MOD_RSD, ON_FUNCTION, ON_PROCESS, ON_PROT_INTERACT, PMIDs]
+    index_keys: [gene, uniprot, position]
+    approx_rows: 20000
+
+  - id: ptmvar
+    path: PTMVar.xlsx
+    xlsx_sheet: PTMVar
+    skip_until_header: true
+    header_startswith: GENE
+    derive_mod_position_from: MOD_RSD
+    description: Disease/polymorphism variants overlapping PTM sites (Class I/II PTMVars)
+    columns: [GENE, ACC_ID, MOD_RSD, MUT_RSD#, AA_CHANGE, VAR_TYPE, DISEASE(s), MOD_TYPE]
+    index_keys: [gene, uniprot, position, mut_position]
+    approx_rows: 36000

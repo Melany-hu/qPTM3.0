@@ -1,0 +1,69 @@
+id: activedriverdb
+name: ActiveDriverDB
+aspect: disease
+access: hybrid
+
+description: >
+  ActiveDriverDB integrates post-translational modification (PTM) sites with
+  germline and somatic mutations from multiple cohorts, displayed in the
+  context of PTM signalling networks, proteins, and diseases. Local tables
+  cover ClinVar, TCGA/MC3, PCAWG, and population variants that affect PTM
+  sites, plus a site-specific kinase–target network. Prefer local SQLite
+  indexes; the public REST API is documented but the service is scheduled
+  for retirement (2026-05-01).
+
+homepage: https://activedriverdb.org
+api_base: https://activedriverdb.org
+api_docs: https://activedriverdb.org/api/
+citation: >
+  Krassowski M, et al. ActiveDriverDB: human disease mutations and genome
+  variation in post-translational modification sites of proteins.
+  Nucleic Acids Research.
+doi: 10.3389/fcell.2021.626821
+pmid: "33834021"
+license: See https://activedriverdb.org Terms of Use
+notes: >
+  Mutation TSVs share columns: gene, refseq, mutation position, mutation alt,
+  mutation summary, site position, site residue. Network TSV: kinase/target
+  symbols, refseq, target site. Build indexes with
+  `python -m app.sources.build_index activedriverdb`.
+
+tools:
+  - activedriver_mutations
+  - activedriver_kinase_network
+
+files:
+  - id: clinvar
+    path: mutations/clinvar.tsv
+    description: ClinVar mutations affecting PTM sites (disease annotations in mutation summary)
+    columns: [gene, refseq, mutation_position, mutation_alt, mutation_summary, site_position, site_residue]
+    index_keys: [gene, site_position]
+    approx_rows: 271335
+
+  - id: mc3
+    path: mutations/mc3.tsv
+    description: TCGA/MC3 somatic mutations affecting PTM sites (cancer type in mutation summary)
+    columns: [gene, refseq, mutation_position, mutation_alt, mutation_summary, site_position, site_residue]
+    index_keys: [gene, site_position]
+    approx_rows: 606167
+
+  - id: pcawg
+    path: mutations/pcawg.tsv
+    description: PCAWG mutations affecting PTM sites
+    columns: [gene, refseq, mutation_position, mutation_alt, mutation_summary, site_position, site_residue]
+    index_keys: [gene, site_position]
+    approx_rows: 100759
+
+  - id: population
+    path: mutations/population.tsv
+    description: Population / germline variants affecting PTM sites (frequency-like summary)
+    columns: [gene, refseq, mutation_position, mutation_alt, mutation_summary, site_position, site_residue]
+    index_keys: [gene, site_position]
+    approx_rows: 862054
+
+  - id: kinase_network
+    path: network/kinase_target_sites.tsv
+    description: Site-specific kinase–substrate network
+    columns: [kinase_symbol, target_symbol, kinase_refseq, target_refseq, target_sequence_position, target_amino_acid]
+    index_keys: [target_symbol, kinase_symbol, target_sequence_position]
+    approx_rows: 35543

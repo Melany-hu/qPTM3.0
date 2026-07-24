@@ -1,0 +1,37 @@
+id: dbptm
+name: dbPTM
+aspect: disease
+access: local
+
+description: >
+  dbPTM disease layer: PTM sites associated with disease via nearby nsSNPs
+  (GWAS / dbSNP). Online: https://biomics.lab.nycu.edu.tw/dbPTM/
+  Drug-binding PTMs are not ingested here (use DrugBank / PMADS instead).
+
+homepage: https://biomics.lab.nycu.edu.tw/dbPTM/
+api_base: null
+api_docs: https://biomics.lab.nycu.edu.tw/dbPTM/
+citation: >
+  Chung CR, et al. dbPTM 2025 update: comprehensive integration of PTMs and
+  proteomic data for advanced insights into cancer research. Nucleic Acids Res.
+doi: 10.1093/nar/gkae1005
+pmid: "39526378"
+license: Freely available at https://biomics.lab.nycu.edu.tw/dbPTM/
+notes: >
+  No public REST API. Disease bulk CSV from export_snpptm_sequence.php.
+  UniProt entry names are mapped to primary accessions during prepare.
+  Prepare: `python -m app.sources.prepare_dbptm`
+
+tools:
+  - dbptm_functional
+
+files:
+  - id: disease
+    path: tables/disease_associated_ptms.tsv
+    description: >
+      nsSNP-associated disease PTM sites (official export; browse total ~701,
+      unique mapped rows after prepare).
+    columns:
+      [uniprot_ac, position, "ptm type", disease, snp, uniprot_id, sap_position, pmid, sequence_window]
+    index_keys: [uniprot_ac, uniprot_id, position, disease, snp]
+    approx_rows: 327

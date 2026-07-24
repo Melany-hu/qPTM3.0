@@ -1,0 +1,44 @@
+id: ptmphase
+name: PTMPhaSe
+aspect: phase_separation
+access: local
+
+description: >
+  PTMPhaSe is a curated database of PTM regulation on liquid–liquid phase
+  separation (LLPS), with manually curated experimental evidence of PTMs that
+  promote or inhibit LLPS, plus human proteome-scale PhosLLPS predictions of
+  functional phosphorylation sites regulating LLPS (AUC = 0.9116). Homepage:
+  https://ptmphase.sjtu.edu.cn ; predictor: https://ptmphase.sjtu.edu.cn/Predictor
+
+homepage: https://ptmphase.sjtu.edu.cn
+api_base: null
+api_docs: https://ptmphase.sjtu.edu.cn/Predictor
+citation: >
+  PTMPhaSe / PhosLLPS: PTM regulation of liquid–liquid phase separation
+  (Communications Chemistry).
+doi: 10.1038/s42004-025-01773-y
+pmid: "41360972"
+license: See https://ptmphase.sjtu.edu.cn
+notes: >
+  Working tables under tables/*.tsv (description rows stripped, headers
+  normalized). Build indexes:
+  `python -m app.sources.build_index ptmphase`
+
+tools:
+  - ptmphase_llps
+  - ptmphase_phosllps
+
+files:
+  - id: experimental
+    path: tables/experimental_evidence.tsv
+    description: Manually curated experimental PTM–LLPS associations
+    columns: [organism, enzymes, ptm, gene, uniprot, site, aa, sequence_window, effect, llps_regions, llps_partners, mlos, methods, diseases, pmid]
+    index_keys: [gene, uniprot, site, ptm, effect]
+    approx_rows: 855
+
+  - id: predictions
+    path: tables/predictions.tsv
+    description: PhosLLPS human proteome-scale predicted functional phosphorylation sites
+    columns: [uniprot, gene, protein, length, site, residue, pred, prob]
+    index_keys: [gene, uniprot, site, pred]
+    approx_rows: 457035

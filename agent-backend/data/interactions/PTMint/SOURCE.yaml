@@ -1,0 +1,36 @@
+id: ptmint
+name: PTMint
+aspect: interactions
+access: local
+
+description: >
+  PTMint catalogues manually curated experimental evidence of PTM regulation
+  on protein–protein interactions (PPIs) across multiple organisms (human,
+  Arabidopsis, C. elegans, Drosophila, S. cerevisiae, S. pombe). Version 1
+  covers ~2477 non-redundant PTM sites in 1169 proteins affecting 2371
+  protein–protein pairs and 357 diseases. Effects are Enhance (increase
+  affinity) or Inhibit (decrease affinity). Homepage: https://ptmint.sjtu.edu.cn/
+
+homepage: https://ptmint.sjtu.edu.cn/
+api_base: null
+api_docs: https://ptmint.sjtu.edu.cn/
+citation: >
+  PTMint: a database of post-translational modification regulation of
+  protein–protein interactions. Bioinformatics.
+doi: 10.1093/bioinformatics/btac823
+pmid: "36548389"
+license: Freely available at https://ptmint.sjtu.edu.cn/
+notes: >
+  Working table: tables/experimental_evidence.tsv (description row stripped).
+  Build: `python -m app.sources.build_index ptmint`
+
+tools:
+  - ptmint_ppi
+
+files:
+  - id: experimental
+    path: tables/experimental_evidence.tsv
+    description: Curated experimental PTM–PPI regulation evidence
+    columns: [organism, gene, uniprot, ptm, site, aa, sequence_window, int_uniprot, int_gene, effect, method, disease, co_localized, pmid]
+    index_keys: [gene, uniprot, int_gene, int_uniprot, site, effect, ptm]
+    approx_rows: 4694

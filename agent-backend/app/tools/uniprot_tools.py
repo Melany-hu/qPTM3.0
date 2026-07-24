@@ -13,6 +13,8 @@ The API returns complex nested JSON. Key structures:
   - features[] with type=Region/DNA binding/Domain — functional domains
 """
 
+from __future__ import annotations
+
 import logging
 from typing import Any
 

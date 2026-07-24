@@ -2,14 +2,8 @@
 /**
  * qPTM REST API — Shared database connection and JSON helpers.
  *
- * This file is included by all /api/*.php endpoints. It provides:
- * - MySQL connection (from environment or config constants)
- * - CORS headers
- * - JSON response helpers
- * - Query parameter sanitization
- *
- * Configuration: set DB credentials via environment variables or edit
- * the defaults below to match your qPTM MySQL database.
+ * Connects to the live qPTM MySQL schema (qevent / protable / …).
+ * Defaults match resource/functions.php; override via QPTM_DB_* env vars.
  */
 
 // ── CORS Headers ──────────────────────────────────────────────────
@@ -18,37 +12,33 @@ header('Access-Control-Allow-Methods: GET, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, Authorization');
 header('Content-Type: application/json; charset=utf-8');
 
-// Handle preflight
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(204);
     exit;
 }
 
 // ── Database Configuration ────────────────────────────────────────
-// Adjust these to match your qPTM MySQL database credentials.
-// You can also set them as environment variables.
 $DB_HOST = getenv('QPTM_DB_HOST') ?: 'localhost';
-$DB_USER = getenv('QPTM_DB_USER') ?: 'qptm_user';
-$DB_PASS = getenv('QPTM_DB_PASS') ?: 'qptm_password';
-$DB_NAME = getenv('QPTM_DB_NAME') ?: 'qptm';
+$DB_USER = getenv('QPTM_DB_USER') ?: 'cancerbi_web';
+$DB_PASS = getenv('QPTM_DB_PASS') ?: 'web4lzx!';
+$DB_NAME = getenv('QPTM_DB_NAME') ?: 'cancerbi_qptm2026';
 $DB_PORT = intval(getenv('QPTM_DB_PORT') ?: '3306');
 
-// ── PTM type mapping ──────────────────────────────────────────────
-// Maps URL-friendly names to database values
+// URL-friendly names → live DB values (qevent.org / qevent.mods)
 $PTM_TYPE_MAP = [
-    'phosphorylation' => 'phosphorylation',
-    'acetylation'     => 'acetylation',
-    'ubiquitylation'  => 'ubiquitylation',
-    'methylation'     => 'methylation',
-    'glycosylation'   => 'glycosylation',
-    'sumoylation'     => 'sumoylation',
+    'phosphorylation' => 'Phosphorylation',
+    'acetylation'     => 'Acetylation',
+    'ubiquitylation'  => 'Ubiquitylation',
+    'methylation'     => 'Methylation',
+    'glycosylation'   => 'Glycosylation',
+    'sumoylation'     => 'SUMOylation',
 ];
 
 $ORGANISM_MAP = [
-    'human'  => 'Homo sapiens',
-    'mouse'  => 'Mus musculus',
-    'rat'    => 'Rattus norvegicus',
-    'yeast'  => 'Saccharomyces cerevisiae',
+    'human'  => 'Human',
+    'mouse'  => 'Mouse',
+    'rat'    => 'Rat',
+    'yeast'  => 'Yeast',
 ];
 
 // ── Database Connection ───────────────────────────────────────────
@@ -81,7 +71,7 @@ function json_error(string $message, int $status = 400): void {
 // ── Parameter Helpers ─────────────────────────────────────────────
 function param(string $key, $default = null) {
     $val = $_GET[$key] ?? $default;
-    return $val !== null ? trim($val) : $default;
+    return $val !== null ? trim((string)$val) : $default;
 }
 
 function param_int(string $key, int $default): int {
@@ -89,6 +79,51 @@ function param_int(string $key, int $default): int {
     if ($val === null) return $default;
     $int = intval($val);
     return $int > 0 ? $int : $default;
+}
+
+function nullable_float($val) {
+    if ($val === null || $val === '' || $val === '-' || strcasecmp((string)$val, 'NA') === 0) {
+        return null;
+    }
+    if (!is_numeric($val)) {
+        return null;
+    }
+    return floatval($val);
+}
+
+function nullable_int($val) {
+    if ($val === null || $val === '' || !is_numeric($val)) {
+        return null;
+    }
+    return intval($val);
+}
+
+/** Map a qevent row to the API event JSON shape expected by the agent. */
+function format_event_row(array $row): array {
+    $fdr = $row['fdr'] ?? null;
+    $fdrFlag = false;
+    if ($fdr !== null && $fdr !== '' && $fdr !== '-' && $fdr !== '0') {
+        $fdrFlag = true;
+    }
+
+    return [
+        'pmid'                => $row['pmid'] ?? null,
+        'uniprot_ac'          => $row['up'] ?? null,
+        'gene'                => $row['gene'] ?? null,
+        'position'            => nullable_int($row['pos'] ?? null),
+        'ptm_type'            => isset($row['mods']) ? strtolower($row['mods']) : null,
+        'sequence_window'     => $row['pep'] ?? null,
+        'sample'              => $row['sample'] ?? null,
+        'condition'           => $row['samplecondition'] ?? null,
+        'organism'            => $row['org'] ?? null,
+        'log2_ratio'          => nullable_float($row['qratio'] ?? null),
+        'p_value'             => nullable_float($row['pvalue'] ?? null),
+        'proteome_log2_ratio' => nullable_float($row['qratiopro'] ?? null),
+        'proteome_p_value'    => nullable_float($row['pvaluepro'] ?? null),
+        'stars'               => nullable_int($row['qptmscore'] ?? null),
+        'fdr_flag'            => $fdrFlag,
+        'fdr'                 => $fdr,
+    ];
 }
 
 // ── Query Helper ──────────────────────────────────────────────────
@@ -108,7 +143,9 @@ function query(string $sql, array $params = [], string $types = ''): mysqli_resu
     if (!empty($types)) {
         $stmt->bind_param($types, ...$params);
     }
-    $stmt->execute();
+    if (!$stmt->execute()) {
+        json_error('Query execution failed: ' . $stmt->error, 500);
+    }
     $result = $stmt->get_result();
     if ($result === false) {
         json_error('Query execution failed: ' . $stmt->error, 500);

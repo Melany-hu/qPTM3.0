@@ -1,0 +1,25 @@
+id: interpro
+name: InterPro
+aspect: domains
+access: api
+
+description: >
+  InterPro provides functional analysis of proteins by classifying them into
+  families and predicting domains and important sites (Mitchell et al., 2019).
+  Agent uses the InterPro REST API entry→protein mapping.
+
+homepage: https://www.ebi.ac.uk/interpro/
+api_base: https://www.ebi.ac.uk/interpro/api
+api_docs: https://www.ebi.ac.uk/interpro/api/
+citation: >
+  InterPro in 2019: improving coverage, classification and access to protein
+  sequence annotations. Nucleic Acids Research (2019).
+doi: 10.1093/nar/gky1100
+pmid: "30398656"
+license: See https://www.ebi.ac.uk/interpro/
+notes: Tool interpro_domains — no local tables.
+
+tools:
+  - interpro_domains
+
+files: []

@@ -1,0 +1,47 @@
+id: dscope
+name: dSCOPE
+aspect: phase_separation
+access: local
+
+description: >
+  dSCOPE predicts protein sequence segments critical for liquid–liquid phase
+  separation (LLPS). The training set comprises experimentally identified
+  LLPS-driving regions curated from literature; the human proteome predictions
+  annotate PS-driving regions with probability scores. Web server:
+  https://dscope.omicsbio.info
+
+homepage: https://dscope.omicsbio.info
+api_base: null
+api_docs: https://dscope.omicsbio.info
+citation: >
+  dSCOPE: a software to detect sequences critical for liquid–liquid phase
+  separation (Briefings in Bioinformatics).
+doi: 10.1093/bib/bbac550
+pmid: "36528388"
+license: See https://dscope.omicsbio.info
+notes: >
+  Literature training set: dscope_data.txt; human proteome predictions:
+  dscope.proinfo.xls (Regions = predicted PS-driving segments,
+  AverageScores = prediction probability). Build indexes:
+  `python -m app.sources.build_index dscope`
+
+tools:
+  - dscope_literature
+  - dscope_predictions
+
+files:
+  - id: literature
+    path: dscope_data.txt
+    description: Experimentally identified LLPS-driving sequence segments from literature
+    delimiter: "\t"
+    columns: [uniprot, protein, position, organism, sequence, peptide, pmid, interaction]
+    index_keys: [uniprot, protein, organism]
+    approx_rows: 121
+
+  - id: predictions
+    path: dscope.proinfo.xls
+    description: Human proteome dSCOPE predictions of PS-driving regions
+    delimiter: "\t"
+    columns: [uniprot, ids, protein, gene, regions, averagescores]
+    index_keys: [uniprot, gene]
+    approx_rows: 20300

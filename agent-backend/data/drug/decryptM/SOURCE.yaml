@@ -1,0 +1,50 @@
+id: decryptm
+name: decryptM
+aspect: drug
+access: hybrid
+
+description: >
+  decryptM (Zecha et al., Science 2023) quantifies drug–PTM modulation with
+  dose- and time-resolved proteomics across 31 cancer drugs in 13 cell lines,
+  yielding ~1.8 million dose-response curves (phospho / ubiquitin / acetyl).
+  Local table supplements the ProteomicsDB API for faster offline lookup.
+  Use for drug MoA, target engagement, and which PTMs a drug regulates.
+
+homepage: https://www.proteomicsdb.org/decryptm
+api_base: https://www.proteomicsdb.org
+api_docs: https://www.proteomicsdb.org/api
+citation: >
+  Zecha J, et al. Decrypting drug actions and protein modifications by
+  dose- and time-resolved proteomics. Science.
+doi: 10.1126/science.ade3925
+pmid: "36926954"
+license: See ProteomicsDB / Science article
+notes: >
+  Local: tables/curves.tsv (~1.3M dose-response rows; phospho/ubiquitin/acetyl).
+  API: proteincentric/getDDPTMProtein.xsjs, drugcentric/getDDPTMDrug.xsjs.
+  Tool queries local index first, then supplements via ProteomicsDB API.
+  Build: `python -m app.sources.build_index decryptm`
+
+tools:
+  - decryptm_drug_ptm
+
+files:
+  - id: curves
+    path: tables/curves.tsv
+    description: decryptM dose-response PTM measurements (local supplement)
+    columns:
+      - protein
+      - uniprot
+      - position
+      - site
+      - gene
+      - protein_name
+      - cell
+      - drug
+      - experiment
+      - pec50
+      - regulation
+      - ptm_type
+      - modified_sequence
+    index_keys: [uniprot, gene, drug, regulation]
+    approx_rows: 1300987

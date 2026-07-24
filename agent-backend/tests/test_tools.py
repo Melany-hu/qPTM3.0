@@ -39,10 +39,12 @@ def test_tool_registration():
     register_dbptm_tools()
     register_stability_tools()
 
-    expected = 9
+    expected = 12  # 3 qPTM + 2 iPTMnet + 1 UniProt + 4 PSP + 1 dbPTM + 1 stability
     actual = len(registry.tool_names)
     assert actual == expected, f"Expected {expected} tools, got {actual}"
     assert "ptm_stability" in registry.tool_names, "ptm_stability should be registered"
+    assert "psp_kinase_substrate" in registry.tool_names
+    assert "psp_ptmvar" in registry.tool_names
     print(f"  PASS: {actual} tools registered: {registry.tool_names}")
     print()
 
@@ -109,15 +111,17 @@ def test_iptmnet_ptm_ppi():
     print()
 
 
-def test_psp_regulatory_no_data():
-    """Test PSP regulatory tool gracefully handles missing data file."""
-    print("=== Test: PSP Regulatory (no data file) ===")
+def test_psp_regulatory():
+    """Test PSP regulatory tool against local Regulatory_sites index."""
+    print("=== Test: PSP Regulatory (P04637 S15) ===")
     result = registry.execute("psp_regulatory", {"uniprot_ac": "P04637", "position": 15})
 
-    assert result["available"] == False, "Should report data not available"
-    assert "download" in result["summary"].lower(), "Should mention downloading"
+    assert result.get("available") is not False or result.get("found") is True or "index" in (result.get("summary") or "").lower()
+    assert "summary" in result
+    if result.get("found"):
+        assert result.get("on_function") or result.get("on_process") or result.get("hits")
 
-    print(f"  PASS: Gracefully handles missing data: {result['summary'][:80]}...")
+    print(f"  PASS: {result['summary'][:100]}...")
     print()
 
 
@@ -149,6 +153,10 @@ def test_ptm_stability():
     assert "effect_direction" in entry, "Entry should have effect_direction"
     assert "mechanism" in entry, "Entry should have mechanism"
     assert "ptm_type" in entry, "Entry should have ptm_type"
+    assert entry.get("source") and any(p.isdigit() for p in entry["source"].replace("|", " ").split()), \
+        f"source should be primary PMID(s), got {entry.get('source')}"
+    assert entry.get("curated_from") == "PMC9839724", \
+        f"curated_from should be PMC9839724, got {entry.get('curated_from')}"
 
     print(f"  PASS: Found {result['total']} entries (stab={result['stabilize_count']}, destab={result['destabilize_count']})")
     print()
@@ -231,6 +239,7 @@ def test_workflow_state_machine():
     test_cases = [
         ("Under what conditions is TP53 S15 phosphorylated?", WorkflowStage.conditions),
         ("Which kinase phosphorylates TP53 S15?", WorkflowStage.kinase),
+        ("Where is RFTN1 localized in the cell?", WorkflowStage.where),
         ("What is the functional effect of phosphorylating TP53 S15?", WorkflowStage.function),
         ("TP53 S15的条件是什么？", WorkflowStage.conditions),  # Chinese
         ("哪个激酶磷酸化TP53 S15？", WorkflowStage.kinase),  # Chinese
@@ -240,30 +249,34 @@ def test_workflow_state_machine():
         assert detected == expected, f"Expected {expected}, got {detected} for '{msg}'"
     print(f"  PASS: Stage detection ({len(test_cases)} cases, including Chinese)")
 
-    # Test stage advancement
+    # Test stage advancement: WHO → WHEN → WHERE → WHY → synthesis
     sm = SessionManager()
     state = sm.get_or_create("test-wf")
     state.set_target(gene="TP53", uniprot_ac="P04637", position=15, ptm_type="phosphorylation")
-    state.advance_to(WorkflowStage.conditions)
-    state.add_conditions([{"condition_name": "etoposide"}], total=3)
-
-    next_stage = advance_stage(state)
-    assert next_stage == WorkflowStage.kinase, f"Should advance to kinase, got {next_stage}"
-
+    state.advance_to(WorkflowStage.kinase)
     state.add_kinases([{"kinase_gene": "ATM", "evidence_type": "experimental"}])
+
     next_stage = advance_stage(state)
-    assert next_stage == WorkflowStage.function, f"Should advance to function, got {next_stage}"
+    assert next_stage == WorkflowStage.conditions, f"Should advance to WHEN, got {next_stage}"
+
+    state.add_conditions([{"condition_name": "etoposide"}], total=3)
+    next_stage = advance_stage(state)
+    assert next_stage == WorkflowStage.where, f"Should advance to WHERE, got {next_stage}"
+
+    state.add_localization([{"source": "COMPARTMENTS", "term": "nucleus"}])
+    next_stage = advance_stage(state)
+    assert next_stage == WorkflowStage.function, f"Should advance to WHY, got {next_stage}"
 
     state.add_functions([{"source": "UniProt", "function": "transcription factor"}])
     next_stage = advance_stage(state)
     assert next_stage == WorkflowStage.synthesis, f"Should advance to synthesis, got {next_stage}"
 
-    print(f"  PASS: Stage advancement (idle → conditions → kinase → function → synthesis)")
+    print(f"  PASS: Stage advancement (idle → WHO → WHEN → WHERE → WHY → synthesis)")
 
     # Test stage suggestions
     state2 = sm.get_or_create("test-sugg")
     sugg = get_stage_suggestion(state2)
-    assert "three-stage" in sugg["suggestion"], "Idle suggestion should mention three stages"
+    assert "four-stage" in sugg["suggestion"], "Idle suggestion should mention four stages"
     print(f"  PASS: Stage suggestions generated correctly")
 
     # Test state serialization
@@ -311,7 +324,7 @@ def main():
         test_iptmnet_enzymes,
         test_iptmnet_enzymes_filtered,
         test_iptmnet_ptm_ppi,
-        test_psp_regulatory_no_data,
+        test_psp_regulatory,
         test_dbptm_no_data,
         test_ptm_stability,
         test_ptm_stability_filtered,

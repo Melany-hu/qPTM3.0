@@ -1,0 +1,39 @@
+id: funcscore
+name: Funcscore
+aspect: regulation
+access: local
+
+description: >
+  Functional scores for human phosphosites from "The functional landscape of
+  the human phosphoproteome" (Ochoa et al., Nat Biotechnol 2020). The authors
+  curated 112 phospho-enriched proteomics datasets spanning 104 human cell
+  types/tissues, reanalyzed 6,801 experiments, and compiled a reference
+  phosphoproteome of 119,809 sites. Machine learning integrated 59 features
+  (proteomic, structural, regulatory, evolutionary) into a single functional
+  score prioritizing likely functional phosphosites. Local table is from the
+  paper Supplementary Tables.
+
+homepage: https://www.nature.com/articles/s41587-019-0344-3
+api_base: null
+api_docs: null
+citation: >
+  Ochoa D, et al. The functional landscape of the human phosphoproteome.
+  Nature Biotechnology.
+doi: 10.1038/s41587-019-0344-3
+pmid: "31819260"
+license: See Nature Biotechnology article / supplementary materials
+notes: >
+  tables/functional_score.tsv — uniprot, position, functional_score (0–1).
+  Higher score = more likely functionally important.
+  Build: `python -m app.sources.build_index funcscore`
+
+tools:
+  - funcscore_phosphosite
+
+files:
+  - id: functional_score
+    path: tables/functional_score.tsv
+    description: Per-phosphosite functional score (Ochoa et al. supplementary)
+    columns: [uniprot, position, functional_score]
+    index_keys: [uniprot, position]
+    approx_rows: 116258

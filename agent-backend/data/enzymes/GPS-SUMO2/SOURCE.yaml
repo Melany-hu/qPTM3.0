@@ -1,0 +1,47 @@
+id: gpssumo2
+name: GPS-SUMO 2.0
+aspect: enzymes
+access: local
+
+description: >
+  Curated experimental SUMOylation sites and SUMO-interacting motifs (SIMs)
+  from the GPS-SUMO 2.0 training/test sets (Wang et al., NAR 2024). These are
+  literature/database-backed real sites used for model training — not
+  computational predictions. Online predictor:
+  https://sumo.biocuckoo.cn/
+
+homepage: https://sumo.biocuckoo.cn/
+api_base: null
+api_docs: https://sumo.biocuckoo.cn/
+citation: >
+  Wang H, Ning W, Zhao P, Zhou C, Ai X, Chen M, Wang Q, Zhou X, Li C, Wu Z,
+  Chen H, Xue Y. GPS-SUMO 2.0: an updated online service for the prediction
+  of SUMOylation sites and SUMO-interacting motifs. Nucleic Acids Res.
+  2024 Jul 5;52(W1):W238-W247.
+doi: 10.1093/nar/gkae346
+pmid: "38709873"
+license: See https://sumo.biocuckoo.cn/
+notes: >
+  Supplementary Table S2 (GPS-SUMO2.xlsx): S2A train + S2B test SUMOylation
+  sites; S2C SIM training set. Agent keeps human/mouse/rat/yeast.
+  Evidence level: curated experimental (not GPS predictor scores).
+  Prepare: `python -m app.sources.prepare_gpssumo2`
+  Build: `python -m app.sources.build_index gpssumo2`
+
+tools:
+  - gpssumo2_sites
+
+files:
+  - id: sumoylation_sites
+    path: tables/sumoylation_sites.tsv
+    description: Curated SUMOylation lysine sites (train+test; qPTM organisms)
+    columns: [uniprot, uniprot_base, position, residue, peptide, organism, species, source_dbs, pmids, dataset_split]
+    index_keys: [uniprot, uniprot_base, position, organism, dataset_split]
+    approx_rows: 58000
+
+  - id: sims
+    path: tables/sims.tsv
+    description: Curated SUMO-interacting motifs (SIMs)
+    columns: [uniprot, uniprot_base, position_start, position_end, position, peptide, organism, species, source_dbs, pmids]
+    index_keys: [uniprot, uniprot_base, position_start, position_end, organism]
+    approx_rows: 100

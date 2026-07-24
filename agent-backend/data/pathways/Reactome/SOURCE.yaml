@@ -1,0 +1,25 @@
+id: reactome
+name: Reactome
+aspect: pathways
+access: api
+
+description: >
+  Reactome provides molecular details of signal transduction, transport, DNA
+  replication, metabolism and other cellular processes as an ordered network of
+  molecular transformations (Fabregat et al., 2018). Agent uses the Content
+  Service UniProt→pathways mapping API.
+
+homepage: https://reactome.org
+api_base: https://reactome.org/ContentService
+api_docs: https://reactome.org/ContentService/
+citation: >
+  The Reactome Pathway Knowledgebase. Nucleic Acids Research (2018).
+doi: 10.1093/nar/gkx1132
+pmid: "29145629"
+license: CC0 / see https://reactome.org
+notes: Tool reactome_pathways — no local tables.
+
+tools:
+  - reactome_pathways
+
+files: []

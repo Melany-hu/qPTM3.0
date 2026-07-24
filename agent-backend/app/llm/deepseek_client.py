@@ -4,6 +4,8 @@ Uses the OpenAI Python SDK pointed at DeepSeek's OpenAI-compatible endpoint.
 Supports streaming responses via SSE for real-time chat.
 """
 
+from __future__ import annotations
+
 import json
 import logging
 from typing import Any

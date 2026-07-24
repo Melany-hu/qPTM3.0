@@ -1,5 +1,7 @@
 """Pydantic models for API request/response schemas."""
 
+from __future__ import annotations
+
 from pydantic import BaseModel, Field
 from enum import Enum
 
@@ -35,9 +37,10 @@ class SearchField(str, Enum):
 
 class WorkflowStage(str, Enum):
     idle = "idle"
-    conditions = "conditions"       # Stage 1: where/when
-    kinase = "kinase"               # Stage 2: who
-    function = "function"           # Stage 3: why it matters
+    kinase = "kinase"               # Stage 1: WHO — who regulates it
+    conditions = "conditions"       # Stage 2: WHEN — kinetics / time course
+    where = "where"                 # Stage 3: WHERE — cell context + localization
+    function = "function"           # Stage 4: WHY — mechanism, outcome, value
     synthesis = "synthesis"         # Final summary
 
 
@@ -169,6 +172,7 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     message: str
     session_id: str | None = None
+    conversation_id: str | None = None
     history: list[ChatMessage] = Field(default_factory=list)
 
 
@@ -190,3 +194,95 @@ class StageUpdateEvent(BaseModel):
     """SSE event: workflow stage changed."""
     stage: WorkflowStage
     description: str
+
+
+# ── Research plan models (planning-first agent) ────────────────────
+
+class PlanStepStatus(str, Enum):
+    pending = "pending"
+    running = "running"
+    completed = "completed"
+    skipped = "skipped"
+    failed = "failed"
+
+
+class PlanStep(BaseModel):
+    """One step in a structured PTM research workflow."""
+    step: int
+    stage: WorkflowStage
+    title: str
+    description: str
+    database: str
+    tool: str
+    status: PlanStepStatus = PlanStepStatus.pending
+
+
+class ResearchPlan(BaseModel):
+    """Structured research plan before tool execution."""
+    question: str
+    intent_summary: str
+    steps: list[PlanStep]
+
+
+# ── Agent context & citation models ────────────────────────────────
+
+class SourceType(str, Enum):
+    database = "database"
+    literature = "literature"
+    prediction = "prediction"
+    curated_dataset = "curated dataset"
+
+
+class EvidenceLevel(str, Enum):
+    experimental = "experimental"
+    predicted = "predicted"
+    curated = "curated"
+    unknown = "unknown"
+
+
+class Citation(BaseModel):
+    """Traceable data source; LLM cites via [id], frontend renders url/pmid."""
+    id: str
+    source_db: str
+    label: str
+    source_type: SourceType = SourceType.database
+    evidence_level: EvidenceLevel = EvidenceLevel.experimental
+    pmid: str | None = None
+    doi: str | None = None
+    url: str | None = None
+    detail: str | None = None
+
+
+class ToolResult(BaseModel):
+    """Uniform tool output shell with compact evidence and citations.
+
+    Handlers may return bare dicts; attach_citations() wraps them into this.
+    """
+    tool: str
+    database: str
+    success: bool
+    summary: str
+    data: dict = Field(default_factory=dict)
+    raw: dict = Field(default_factory=dict)
+    citations: list[Citation] = Field(default_factory=list)
+    citation_map: dict[str, str] = Field(default_factory=dict)
+
+    def model_dump_for_sse(self) -> dict:
+        """Compact payload for the SSE tool_result event."""
+        data_count = 0
+        for v in self.data.values():
+            if isinstance(v, list):
+                data_count += len(v)
+        return {
+            "tool_name": self.tool,
+            "database": self.database,
+            "success": self.success,
+            "summary": self.summary,
+            "data_count": data_count,
+            "citations": [c.model_dump(mode="json") for c in self.citations],
+        }
+
+
+# Backward-compatible alias
+EnrichedToolResult = ToolResult
+

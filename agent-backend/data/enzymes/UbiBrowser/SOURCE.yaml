@@ -1,0 +1,40 @@
+id: ubibrowser
+name: UbiBrowser
+aspect: enzymes
+access: hybrid
+
+description: >
+  UbiBrowser 2.0 — proteome-wide known and predicted ubiquitin ligase (E3) /
+  deubiquitinase (DUB)–substrate interactions across eukaryotic species
+  (Wang et al., NAR 2022). Local tables store manually curated literature
+  ESIs/DSIs; predicted interactions are fetched on demand via the site
+  downloadData endpoint (UniProt AC). Online:
+  http://ubibrowser.bio-it.cn/ubibrowser_v3/home/index
+
+homepage: http://ubibrowser.bio-it.cn/ubibrowser_v3/home/index
+api_base: http://ubibrowser.bio-it.cn/ubibrowser_v3
+api_docs: http://ubibrowser.bio-it.cn/ubibrowser_v3/home/index/API
+citation: >
+  Wang X, Li Y, He M, Kong X, Jiang P, Liu X, Diao L, Zhang X, Li H, Ling X,
+  Xia S, Liu Z, Liu Y, Cui C, Wang Y, Tang L, Zhang L, He F, Li D.
+  UbiBrowser 2.0: a comprehensive resource for proteome-wide ubiquitin
+  ligase/deubiquitinase-substrate interactions in eukaryotic species.
+  Nucleic Acids Res. 2022 Jan 7;50(D1):D719-D728.
+doi: 10.1093/nar/gkab962
+pmid: "34634807"
+license: See http://ubibrowser.bio-it.cn/ubibrowser_v3/home/download
+notes: >
+  Literature files: raw/literature.{E3,DUB}.txt from Public/download/literature/.
+  Predicted human bulk gz are large; agent uses on-demand downloadData by UniProt AC.
+  Build: `python -m app.sources.build_index ubibrowser`
+
+tools:
+  - ubibrowser_interactions
+
+files:
+  - id: interactions
+    path: tables/interactions.tsv
+    description: Literature-curated E3/DUB–substrate interactions (all species)
+    columns: [enzyme_type, enzyme_gene, enzyme_uniprot, enzyme_entry, substrate_gene, substrate_uniprot, substrate_entry, family, pmid, source, sentence, species, evidence, confidence]
+    index_keys: [enzyme_gene, enzyme_uniprot, substrate_gene, substrate_uniprot, enzyme_type, species]
+    approx_rows: 5000

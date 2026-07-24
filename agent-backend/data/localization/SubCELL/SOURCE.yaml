@@ -1,0 +1,57 @@
+id: subcell
+name: SubCELL
+aspect: localization
+access: local
+
+description: >
+  SubCELL catalogues subcellular compartment-specific molecular interactions
+  (SCSIs) among proteins/RNAs/DNAs, plus experimentally determined locations
+  (Zhang et al., NAR 2025). Agent keeps protein–protein SCSIs and protein
+  location annotations for human/mouse/rat/yeast.
+
+homepage: https://subcell.idrblab.cn/
+api_base: https://subcell.idrblab.cn/api
+api_docs: https://subcell.idrblab.cn/manual
+citation: >
+  SubCELL: the landscape of subcellular compartment-specific molecular
+  interactions. Nucleic Acids Research (2025).
+doi: 10.1093/nar/gkae863
+pmid: "39373488"
+license: Freely accessible at https://subcell.idrblab.cn/
+notes: >
+  Raw downloads under raw/ from https://subcell.idrblab.cn/download.
+  Rebuild working tables:
+    python -m app.sources.prepare_subcell
+    python -m app.sources.build_index subcell
+
+tools:
+  - subcell_scsi
+
+files:
+  - id: proteins
+    path: tables/proteins.tsv
+    description: SubCELL protein IDs mapped to UniProt/gene (qPTM organisms)
+    columns: [molecule_id, uniprot_ac, uniprot_entry, gene, protein_name, organism_id, organism]
+    index_keys: [molecule_id, uniprot_ac, gene, organism]
+    approx_rows: 21634
+
+  - id: interactions
+    path: tables/interactions.tsv
+    description: Compartment-specific protein–protein interactions (SCSIs)
+    columns: [molecule_a, molecule_b, compartment_id, scsi_type, gene_a, gene_b, uniprot_a, uniprot_b, compartment_name]
+    index_keys: [molecule_a, molecule_b, gene_a, gene_b, uniprot_a, uniprot_b, compartment_id, compartment_name]
+    approx_rows: 201462
+
+  - id: locations
+    path: tables/locations.tsv
+    description: Protein subcellular compartment annotations
+    columns: [molecule_id, gene, uniprot_ac, compartment_id, compartment_name, organism]
+    index_keys: [molecule_id, gene, uniprot_ac, compartment_id, compartment_name]
+    approx_rows: 49102
+
+  - id: compartments
+    path: tables/compartments.tsv
+    description: Compartment ID → name tree
+    columns: [compartment_id, compartment_name, parent_id]
+    index_keys: [compartment_id, compartment_name]
+    approx_rows: 245

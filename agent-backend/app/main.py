@@ -1,25 +1,23 @@
 """FastAPI main application for the qPTM Agent.
 
+Architecture: Agent = LLM (brain) + Context (eyes) + Tools (hands)
+
+  Phase 1 — Planning:  deterministic routing to databases/tools
+  Phase 2 — Execution: tools return structured evidence + citations
+  Phase 3 — Synthesis: LLM reads full context and writes source-attributed answer
+
 Endpoints:
   GET  /health       — health check
-  POST /chat         — streaming chat via SSE (Server-Sent Events)
+  POST /chat         — streaming chat via SSE
   GET  /session/{id} — get session state
   DELETE /session/{id} — reset session
-
-The agent loop:
-  1. Receive user message + history
-  2. Build messages with system prompt (stage-aware)
-  3. Call DeepSeek with tools (streaming)
-  4. Stream text chunks to client via SSE
-  5. If tool calls are made: execute tools, send results, call DeepSeek again
-  6. Repeat until no more tool calls
-  7. Update workflow state, send stage update
 """
 
+import asyncio
 import json
 import logging
 import uuid
-from typing import Any, AsyncGenerator
+from typing import Any, AsyncGenerator, Optional
 
 import uvicorn
 from fastapi import FastAPI, Request
@@ -28,8 +26,8 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.config import settings
 from app.llm.deepseek_client import get_llm_client
-from app.llm.prompts import build_system_prompt
-from app.models.schemas import ChatRequest, WorkflowStage
+from app.llm.prompts import build_synthesis_messages
+from app.models.schemas import ChatRequest, WorkflowStage, PlanStepStatus, ToolResult
 from app.tools.registry import registry
 from app.tools.qptm_tools import register_qptm_tools
 from app.tools.iptmnet_tools import register_iptmnet_tools
@@ -37,13 +35,43 @@ from app.tools.uniprot_tools import register_uniprot_tools
 from app.tools.psp_tools import register_psp_tools
 from app.tools.dbptm_tools import register_dbptm_tools
 from app.tools.stability_tools import register_stability_tools
+from app.tools.activedriver_tools import register_activedriver_tools
+from app.tools.pmads_tools import register_pmads_tools
+from app.tools.drugbank_tools import register_drugbank_tools
+from app.tools.weram_tools import register_weram_tools
+from app.tools.ubibrowser_tools import register_ubibrowser_tools
+from app.tools.gpsuber_tools import register_gpsuber_tools
+from app.tools.gps6_tools import register_gps6_tools
+from app.tools.gpssumo2_tools import register_gpssumo2_tools
+from app.tools.ptmphase_tools import register_ptmphase_tools
+from app.tools.dscope_tools import register_dscope_tools
+from app.tools.ptmd_tools import register_ptmd_tools
+from app.tools.cancerproteome_tools import register_cancerproteome_tools
+from app.tools.ptmint_tools import register_ptmint_tools
+from app.tools.ppi_api_tools import register_ppi_api_tools
+from app.tools.pathway_tools import register_pathway_tools
+from app.tools.ptmcode_tools import register_ptmcode_tools
+from app.tools.inuloc_tools import register_inuloc_tools
+from app.tools.funcscore_tools import register_funcscore_tools
+from app.tools.decryptm_tools import register_decryptm_tools
+from app.tools.compartments_tools import register_compartments_tools
+from app.tools.subcell_tools import register_subcell_tools
+from app.tools.domain_tools import register_domain_tools
+from app.tools.pubtator_tools import register_pubtator_tools
 from app.workflow.state import session_manager
+from app.workflow.planner import (
+    build_research_plan,
+    infer_tool_arguments,
+    parse_query_entities,
+)
 from app.workflow.stages import (
-    detect_stage_from_message,
     advance_stage,
     get_stage_suggestion,
     get_stage_label,
 )
+from app.workflow.citations import attach_citations
+from app.workflow.context import build_agent_context
+from app.storage import conversations as conv_store
 
 logging.basicConfig(
     level=logging.INFO,
@@ -55,7 +83,7 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="qPTM Agent API",
-    description="AI agent for the qPTM database — three-stage PTM research workflow",
+    description="AI agent for the qPTM database — WHO→WHEN→WHERE→WHY PTM research workflow",
     version="1.0.0",
 )
 
@@ -87,6 +115,29 @@ def register_all_tools() -> None:
     register_psp_tools()
     register_dbptm_tools()
     register_stability_tools()
+    register_activedriver_tools()
+    register_pmads_tools()
+    register_drugbank_tools()
+    register_weram_tools()
+    register_ubibrowser_tools()
+    register_gpsuber_tools()
+    register_gps6_tools()
+    register_gpssumo2_tools()
+    register_ptmphase_tools()
+    register_dscope_tools()
+    register_ptmd_tools()
+    register_cancerproteome_tools()
+    register_ptmint_tools()
+    register_ppi_api_tools()
+    register_pathway_tools()
+    register_ptmcode_tools()
+    register_inuloc_tools()
+    register_funcscore_tools()
+    register_decryptm_tools()
+    register_compartments_tools()
+    register_subcell_tools()
+    register_domain_tools()
+    register_pubtator_tools()
     _tools_registered = True
     logger.info(f"Registered {len(registry.tool_names)} tools: {registry.tool_names}")
 
@@ -95,6 +146,7 @@ def register_all_tools() -> None:
 def _startup_register_tools() -> None:
     """Register all tools on FastAPI startup."""
     register_all_tools()
+    conv_store.init_db()
 
 
 # ── SSE helpers ───────────────────────────────────────────────────
@@ -114,14 +166,28 @@ def _sse_tool_call(tool_name: str, arguments: dict[str, Any]) -> str:
     return _sse_event("tool_call", {"tool_name": tool_name, "arguments": arguments})
 
 
-def _sse_tool_result(tool_name: str, success: bool, summary: str, data_count: int) -> str:
+def _sse_tool_result(
+    tool_name: str,
+    success: bool,
+    summary: str,
+    data_count: int,
+    database: str = "",
+    citations: Optional[list] = None,
+) -> str:
     """SSE event for a tool result."""
     return _sse_event("tool_result", {
         "tool_name": tool_name,
+        "database": database,
         "success": success,
         "summary": summary,
         "data_count": data_count,
+        "citations": citations or [],
     })
+
+
+def _sse_sources(citations: list[dict[str, Any]]) -> str:
+    """SSE event: source registry for the answer."""
+    return _sse_event("sources", {"citations": citations})
 
 
 def _sse_stage_update(stage: str, label: str, description: str) -> str:
@@ -131,6 +197,23 @@ def _sse_stage_update(stage: str, label: str, description: str) -> str:
         "label": label,
         "description": description,
     })
+
+
+def _sse_plan_created(plan) -> str:
+    """SSE event: research plan generated by the planning layer."""
+    return _sse_event("plan_created", {
+        "question": plan.question,
+        "intent_summary": plan.intent_summary,
+        "steps": [s.model_dump() for s in plan.steps],
+    })
+
+
+def _sse_step_started(step) -> str:
+    return _sse_event("step_started", step.model_dump())
+
+
+def _sse_step_completed(step) -> str:
+    return _sse_event("step_completed", step.model_dump())
 
 
 def _sse_done() -> str:
@@ -191,6 +274,35 @@ def _update_state_from_tools(
                 if not state.has_target:
                     state.set_target(uniprot_ac=result.get("uniprot_ac"))
 
+        elif tool_name == "cancerproteome_disease":
+            # WHEN: tumor/control PTM & protein quantification; WHY: cancer context
+            ptm_hits = result.get("ptm_hits") or []
+            protein_hits = result.get("protein_hits") or []
+            quant_rows: list[dict[str, Any]] = []
+            for hit in ptm_hits:
+                quant_rows.append({
+                    "source": "CancerProteome",
+                    "kind": "ptm_tumor_vs_control",
+                    **(hit if isinstance(hit, dict) else {"value": hit}),
+                })
+            for hit in protein_hits:
+                quant_rows.append({
+                    "source": "CancerProteome",
+                    "kind": "protein_tumor_vs_control",
+                    **(hit if isinstance(hit, dict) else {"value": hit}),
+                })
+            if quant_rows:
+                merged = list(state.conditions_found) + quant_rows
+                state.add_conditions(merged, len(merged))
+            if ptm_hits or protein_hits or (result.get("summary") and not result.get("error")):
+                state.add_disease([{
+                    "source": "CancerProteome",
+                    "ptm_hits": ptm_hits[:20] if isinstance(ptm_hits, list) else ptm_hits,
+                    "protein_hits": protein_hits[:20] if isinstance(protein_hits, list) else protein_hits,
+                    "cancer_filter": result.get("cancer_filter"),
+                    "summary": result.get("summary"),
+                }])
+
         elif tool_name == "qptm_kinases":
             kinases = result.get("kinases", [])
             if kinases:
@@ -201,10 +313,61 @@ def _update_state_from_tools(
             if enzymes:
                 state.add_enzymes(enzymes)
 
-        elif tool_name == "iptmnet_ptm_ppi":
-            interactions = result.get("interactions", [])
+        elif tool_name in ("pmads_drug_ptm", "decryptm_drug_ptm", "drugbank_targets"):
+            associations = (
+                result.get("associations")
+                or result.get("records")
+                or result.get("drugs")
+                or result.get("results")
+                or []
+            )
+            if associations:
+                state.add_drugs(associations if isinstance(associations, list) else [associations])
+            elif result.get("summary") and not result.get("error"):
+                state.add_drugs([{"source": tool_name, "summary": result.get("summary")}])
+
+        elif tool_name in (
+            "iptmnet_ptm_ppi",
+            "ptmint_ppi",
+            "string_ppi",
+            "biogrid_interactions",
+            "intact_interactions",
+        ):
+            interactions = (
+                result.get("interactions")
+                or result.get("as_substrate")
+                or result.get("as_partner")
+                or []
+            )
+            if interactions:
+                state.add_interactions(interactions if isinstance(interactions, list) else [interactions])
+            elif result.get("summary") and not result.get("error"):
+                state.add_interactions([{"source": tool_name, "summary": result.get("summary")}])
+
+        elif tool_name in (
+            "reactome_pathways",
+            "kegg_pathways",
+            "pathbank_pathways",
+        ):
+            pathways = result.get("pathways") or []
+            if pathways:
+                state.add_functions([{
+                    "source": result.get("source") or tool_name,
+                    "pathways": pathways if isinstance(pathways, list) else [pathways],
+                    "total": result.get("total"),
+                }])
+            elif result.get("summary") and not result.get("error"):
+                state.add_functions([{"source": tool_name, "summary": result.get("summary")}])
+
+        elif tool_name == "subcell_scsi":
+            interactions = result.get("interactions") or []
+            locations = result.get("locations") or []
             if interactions:
                 state.add_interactions(interactions)
+            if locations:
+                state.add_localization(locations)
+            elif result.get("summary") and not result.get("error") and not interactions:
+                state.add_localization([{"source": "SubCELL", "summary": result.get("summary")}])
 
         elif tool_name == "psp_regulatory":
             if result.get("found"):
@@ -217,7 +380,13 @@ def _update_state_from_tools(
                 }])
 
         elif tool_name == "uniprot_annotation":
-            if result.get("function") or result.get("disease_associations"):
+            if result.get("function") or result.get("disease_associations") or result.get("domains"):
+                state.add_localization([{
+                    "source": "UniProt",
+                    "function": result.get("function"),
+                    "ptm_description": result.get("ptm_description"),
+                    "domains": result.get("domains", []),
+                }])
                 state.add_functions([{
                     "source": "UniProt",
                     "function": result.get("function"),
@@ -230,19 +399,43 @@ def _update_state_from_tools(
                         "diseases": result["disease_associations"],
                     }])
 
+        elif tool_name in ("interpro_domains", "pfam_domains"):
+            domains = result.get("domains") or []
+            if domains:
+                state.add_functions([{
+                    "source": result.get("source") or tool_name,
+                    "domains": domains,
+                    "total": result.get("total"),
+                }])
+            elif result.get("summary") and not result.get("error"):
+                state.add_functions([{
+                    "source": result.get("source") or tool_name,
+                    "summary": result.get("summary"),
+                }])
+
+        elif tool_name == "compartments_localization":
+            locs = result.get("localizations") or result.get("records") or result.get("results") or []
+            if locs:
+                state.add_localization(locs if isinstance(locs, list) else [locs])
+            elif result.get("summary") and not result.get("error"):
+                state.add_localization([{"source": "COMPARTMENTS", "summary": result.get("summary")}])
+
+        elif tool_name in ("inuloc_nls_nes", "inuloc_nuclear_prob"):
+            if result.get("summary") and not result.get("error"):
+                state.add_localization([{"source": tool_name, "summary": result.get("summary")}])
+            elif any(result.get(k) for k in ("motifs", "dnl", "records", "results", "probabilities")):
+                state.add_localization([{"source": tool_name, "data": result}])
+
         elif tool_name == "dbptm_functional":
             if result.get("disease_associations"):
                 state.add_disease(result["disease_associations"])
-            if result.get("drug_binding_sites"):
-                state.add_functions([{
-                    "source": "dbPTM",
-                    "drug_binding": result["drug_binding_sites"],
-                }])
 
         elif tool_name == "ptm_stability":
             if result.get("found"):
                 state.add_functions([{
-                    "source": "PTM-stability curated (PMC9839724)",
+                    "source": "PTM-stability curated",
+                    "curated_from": result.get("curated_from", "PMC9839724"),
+                    "primary_pmids": result.get("primary_pmids", [])[:10],
                     "stability_entries": result.get("entries", []),
                     "stabilize_count": result.get("stabilize_count", 0),
                     "destabilize_count": result.get("destabilize_count", 0),
@@ -251,124 +444,116 @@ def _update_state_from_tools(
 
 # ── Agent loop (streaming generator) ──────────────────────────────
 
+async def _stream_llm_events(
+    llm,
+    messages: list[dict[str, Any]],
+    tools: list[dict[str, Any]],
+) -> AsyncGenerator[dict[str, Any], None]:
+    """Run sync LLM streaming in a worker thread so the event loop stays responsive."""
+    loop = asyncio.get_running_loop()
+    queue: asyncio.Queue[Any] = asyncio.Queue()
+
+    def _producer() -> None:
+        try:
+            for event in llm.chat_completion_stream(messages, tools=tools):
+                loop.call_soon_threadsafe(queue.put_nowait, event)
+        except Exception as exc:
+            logger.error(f"LLM stream error: {exc}", exc_info=True)
+            loop.call_soon_threadsafe(
+                queue.put_nowait,
+                {"type": "error", "message": str(exc)},
+            )
+        finally:
+            loop.call_soon_threadsafe(queue.put_nowait, None)
+
+    loop.run_in_executor(None, _producer)
+
+    while True:
+        event = await queue.get()
+        if event is None:
+            break
+        yield event
+
+
 async def _agent_loop(
     user_message: str,
     history: list[dict[str, str]],
     session_id: str,
 ) -> AsyncGenerator[str, None]:
-    """Main agent loop — yields SSE events.
+    """Planning-first agent loop.
 
-    1. Build messages with system prompt
-    2. Call DeepSeek (streaming)
-    3. Yield text chunks as SSE
-    4. If tool calls: execute, yield tool events, call DeepSeek again
-    5. Update workflow state, yield stage update
-    6. Yield done event
+    Phase 1 — Planning:  route question → databases/tools → step1/2/3 plan
+    Phase 2 — Execution: run each planned tool deterministically
+    Phase 3 — Synthesis: LLM writes the final answer from collected results
     """
     state = session_manager.get_or_create(session_id)
     state.turn_count += 1
 
-    # Detect stage from user message
-    detected_stage = detect_stage_from_message(user_message)
-    if detected_stage and state.current_stage == WorkflowStage.idle:
-        state.advance_to(detected_stage)
-    elif detected_stage:
-        # User is asking about a different stage — update focus
-        state.current_stage = detected_stage
+    entities = parse_query_entities(user_message)
+    state.plan_entities = entities
 
-    # Build system prompt with current stage focus
-    system_prompt = build_system_prompt(state.current_stage.value)
+    # ── Phase 1: Planning ───────────────────────────────────────
+    plan = build_research_plan(user_message, state)
+    state.current_plan = plan.model_dump()
 
-    # Build message list for DeepSeek
-    messages: list[dict[str, Any]] = [
-        {"role": "system", "content": system_prompt},
-    ]
+    yield _sse_plan_created(plan)
 
-    # Add conversation history
-    for msg in history:
-        messages.append({"role": msg["role"], "content": msg["content"]})
+    if plan.steps:
+        state.advance_to(plan.steps[0].stage)
+        yield _sse_stage_update(
+            plan.steps[0].stage.value,
+            get_stage_label(plan.steps[0].stage),
+            plan.intent_summary,
+        )
 
-    # Add current user message
-    messages.append({"role": "user", "content": user_message})
-
-    # Get tool schemas
-    tools = registry.schemas
-
+    enriched_results: list[ToolResult] = []
     llm = get_llm_client()
 
     try:
-        for round_num in range(MAX_TOOL_ROUNDS):
-            logger.info(f"Session {session_id}: tool round {round_num + 1}")
+        # ── Phase 2: Execute plan steps ───────────────────────────
+        for idx, step in enumerate(plan.steps):
+            state.current_step_index = idx
+            step.status = PlanStepStatus.running
+            yield _sse_step_started(step)
 
-            # Collect full response from streaming
-            full_text = ""
-            tool_calls: list[dict[str, Any]] = []
+            args = infer_tool_arguments(step.tool, entities, state)
+            if not args:
+                step.status = PlanStepStatus.skipped
+                yield _sse_step_completed(step)
+                continue
 
-            # Stream the response
-            for event in llm.chat_completion_stream(messages, tools=tools):
-                if event["type"] == "text":
-                    full_text += event["content"]
-                    yield _sse_text_chunk(event["content"])
+            yield _sse_tool_call(step.tool, args)
+            result = await asyncio.to_thread(_execute_tool_call, step.tool, args)
 
-                elif event["type"] == "tool_call":
-                    tool_calls.append({
-                        "id": event.get("id", ""),
-                        "name": event["name"],
-                        "arguments": event["arguments"],
-                    })
+            enriched = attach_citations(step.tool, step.database, result)
+            enriched_results.append(enriched)
+            yield _sse_event("tool_result", enriched.model_dump_for_sse())
 
-                elif event["type"] == "done":
-                    finish_reason = event.get("finish_reason", "stop")
+            _update_state_from_tools(state, [(step.tool, result)])
 
-            # If no tool calls, we're done
-            if not tool_calls:
-                break
+            # Propagate resolved identifiers to later steps
+            if step.tool == "qptm_search":
+                events = result.get("events", [])
+                if events:
+                    first = events[0]
+                    if first.get("uniprot_ac"):
+                        entities["uniprot_ac"] = first["uniprot_ac"]
+                        state.set_target(uniprot_ac=first["uniprot_ac"])
+                    if first.get("gene"):
+                        entities["gene"] = first["gene"]
+                        state.set_target(gene=first["gene"])
+                    if first.get("position") and not entities.get("position"):
+                        entities["position"] = first["position"]
+                        state.set_target(position=first["position"])
+                    if first.get("ptm_type"):
+                        entities["ptm_type"] = first["ptm_type"]
+                        state.set_target(ptm_type=first["ptm_type"])
 
-            # ── Execute tool calls ──
-            # Add assistant message with tool calls to the conversation
-            assistant_msg: dict[str, Any] = {"role": "assistant", "content": full_text}
-            assistant_msg["tool_calls"] = [
-                {
-                    "id": tc["id"],
-                    "type": "function",
-                    "function": {
-                        "name": tc["name"],
-                        "arguments": json.dumps(tc["arguments"], ensure_ascii=False),
-                    },
-                }
-                for tc in tool_calls
-            ]
-            messages.append(assistant_msg)
+            step.status = (
+                PlanStepStatus.completed if enriched.success else PlanStepStatus.failed
+            )
+            yield _sse_step_completed(step)
 
-            # Execute each tool call
-            tool_results: list[tuple[str, dict[str, Any]]] = []
-            for tc in tool_calls:
-                # Send tool_call SSE event
-                yield _sse_tool_call(tc["name"], tc["arguments"])
-
-                # Execute the tool
-                result = _execute_tool_call(tc["name"], tc["arguments"])
-                tool_results.append((tc["name"], result))
-
-                # Send tool_result SSE event
-                success = "error" not in result
-                summary = result.get("summary", result.get("error", ""))
-                data_count = 0
-                for key in ("events", "conditions", "kinases", "enzymes",
-                            "interactions", "sites", "disease_associations",
-                            "drug_binding_sites"):
-                    val = result.get(key)
-                    if isinstance(val, list):
-                        data_count += len(val)
-                yield _sse_tool_result(tc["name"], success, summary, data_count)
-
-                # Add tool result to messages for the next DeepSeek call
-                messages.append(_tool_result_to_message(tc["id"], result))
-
-            # Update workflow state from tool results
-            _update_state_from_tools(state, tool_results)
-
-            # Try to advance the stage
             new_stage = advance_stage(state)
             if new_stage:
                 yield _sse_stage_update(
@@ -377,7 +562,21 @@ async def _agent_loop(
                     f"Advanced to {get_stage_label(new_stage)}",
                 )
 
-        # ── Post-response: generate stage suggestion ──
+        # ── Phase 3: Synthesis — LLM reads full context + cites sources ──
+        agent_context = build_agent_context(
+            user_message, plan.intent_summary, enriched_results, history,
+        )
+        yield _sse_sources(agent_context["citations"])
+
+        messages = build_synthesis_messages(agent_context)
+
+        async for event in _stream_llm_events(llm, messages, tools=[]):
+            if event["type"] == "text":
+                yield _sse_text_chunk(event["content"])
+            elif event["type"] == "error":
+                yield _sse_error(event.get("message", "Synthesis error"))
+                return
+
         suggestion = get_stage_suggestion(state)
         if suggestion["suggestion"]:
             yield _sse_stage_update(
@@ -393,6 +592,52 @@ async def _agent_loop(
     yield _sse_done()
 
 
+def _get_client_ip(request: Request) -> str:
+    forwarded = request.headers.get("X-Forwarded-For") or request.headers.get("X-Real-IP")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    if request.client:
+        return request.client.host
+    return "unknown"
+
+
+def _title_from_message(message: str) -> str:
+    text = " ".join(message.strip().split())
+    if len(text) > 60:
+        return text[:57] + "..."
+    return text or "New conversation"
+
+
+def _collect_text_from_sse(chunk: str, accumulator: list[str]) -> None:
+    """Parse an SSE chunk and append any text content."""
+    event_type = None
+    for line in chunk.split("\n"):
+        if line.startswith("event: "):
+            event_type = line[7:].strip()
+        elif line.startswith("data: ") and event_type == "text":
+            try:
+                data = json.loads(line[6:])
+                accumulator.append(data.get("content", ""))
+            except json.JSONDecodeError:
+                pass
+
+
+async def _agent_loop_with_persist(
+    user_message: str,
+    history: list[dict[str, str]],
+    session_id: str,
+    conversation_id: str,
+) -> AsyncGenerator[str, None]:
+    """Wrap agent loop and persist assistant reply when complete."""
+    text_parts: list[str] = []
+    async for chunk in _agent_loop(user_message, history, session_id):
+        _collect_text_from_sse(chunk, text_parts)
+        yield chunk
+    full_text = "".join(text_parts)
+    if full_text.strip():
+        conv_store.add_message(conversation_id, "assistant", full_text)
+
+
 # ── Endpoints ─────────────────────────────────────────────────────
 
 @app.get("/health")
@@ -405,6 +650,48 @@ async def health() -> dict[str, Any]:
     }
 
 
+@app.get("/conversations")
+async def list_conversations(request: Request) -> JSONResponse:
+    """List conversations for the current client IP."""
+    client_ip = _get_client_ip(request)
+    items = conv_store.list_conversations(client_ip)
+    return JSONResponse({"conversations": items})
+
+
+@app.post("/conversations")
+async def create_conversation(request: Request) -> JSONResponse:
+    """Create a new empty conversation for the current client IP."""
+    client_ip = _get_client_ip(request)
+    title = "New conversation"
+    try:
+        body = await request.json()
+        if isinstance(body, dict) and body.get("title"):
+            title = str(body["title"])
+    except Exception:
+        pass
+    conv = conv_store.create_conversation(client_ip, title)
+    return JSONResponse(conv, status_code=201)
+
+
+@app.get("/conversations/{conversation_id}")
+async def get_conversation(conversation_id: str, request: Request) -> JSONResponse:
+    """Get a conversation with all messages."""
+    client_ip = _get_client_ip(request)
+    conv = conv_store.get_conversation(conversation_id, client_ip)
+    if not conv:
+        return JSONResponse({"error": "Conversation not found"}, status_code=404)
+    return JSONResponse(conv)
+
+
+@app.delete("/conversations/{conversation_id}")
+async def delete_conversation(conversation_id: str, request: Request) -> JSONResponse:
+    """Delete a conversation."""
+    client_ip = _get_client_ip(request)
+    if not conv_store.delete_conversation(conversation_id, client_ip):
+        return JSONResponse({"error": "Conversation not found"}, status_code=404)
+    return JSONResponse({"status": "deleted"})
+
+
 @app.post("/chat")
 async def chat(request: Request) -> StreamingResponse:
     """Streaming chat endpoint. Returns SSE stream.
@@ -413,34 +700,49 @@ async def chat(request: Request) -> StreamingResponse:
       {
         "message": "user's question",
         "session_id": "optional session ID (auto-generated if absent)",
+        "conversation_id": "optional conversation ID (created if absent)",
         "history": [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]
       }
 
     SSE events:
+      - plan_created / step_started / step_completed
       - text: {"content": "chunk of text"}
-      - tool_call: {"tool_name": "...", "arguments": {...}}
-      - tool_result: {"tool_name": "...", "success": true, "summary": "...", "data_count": N}
-      - stage_update: {"stage": "...", "label": "...", "description": "..."}
-      - done: {}
-      - error: {"message": "..."}
+      - tool_call / tool_result
+      - stage_update
+      - done / error
     """
     body = await request.json()
     chat_req = ChatRequest(**body)
+    client_ip = _get_client_ip(request)
 
-    # Generate session ID if not provided
+    conversation_id = chat_req.conversation_id
+    if conversation_id and not conv_store.belongs_to_ip(conversation_id, client_ip):
+        return JSONResponse({"error": "Conversation not found"}, status_code=403)
+
+    is_new = False
+    if not conversation_id:
+        conv = conv_store.create_conversation(client_ip, _title_from_message(chat_req.message))
+        conversation_id = conv["id"]
+        is_new = True
+
+    conv_store.add_message(conversation_id, "user", chat_req.message)
+    if is_new:
+        conv_store.update_title(conversation_id, _title_from_message(chat_req.message))
+
     session_id = chat_req.session_id or str(uuid.uuid4())
-
-    # Convert history to dict format
     history = [{"role": m.role, "content": m.content} for m in chat_req.history]
 
     return StreamingResponse(
-        _agent_loop(chat_req.message, history, session_id),
+        _agent_loop_with_persist(
+            chat_req.message, history, session_id, conversation_id,
+        ),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",  # Disable Nginx buffering
+            "X-Accel-Buffering": "no",
             "X-Session-Id": session_id,
+            "X-Conversation-Id": conversation_id,
         },
     )
 

@@ -1,0 +1,34 @@
+id: drugbank
+name: DrugBank
+aspect: drug
+access: local
+
+description: >
+  DrugBank 6.0 drug–target links for proteins in the qPTM/PTM ecosystem:
+  DrugBank ID, drug name/type, approval groups, known pharmacological action,
+  and supporting PMIDs. Used in Stage 1 (WHO) to identify upstream drugs that
+  target a protein (complementary to PMADS/decryptM site-level PTM regulation).
+  Online: https://go.drugbank.com
+
+homepage: https://go.drugbank.com
+api_base: null
+api_docs: https://docs.drugbank.com/v1/
+citation: >
+  DrugBank 6.0: the DrugBank Knowledgebase for 2024. Nucleic Acids Research (2024).
+doi: 10.1093/nar/gkad976
+pmid: "37953279"
+license: See https://go.drugbank.com
+notes: >
+  Working table tables/targets.tsv (~21k rows; PTMD cross-id removed).
+  Build index: python -m app.sources.build_index drugbank
+
+tools:
+  - drugbank_targets
+
+files:
+  - id: targets
+    path: tables/targets.tsv
+    description: Drug–protein target associations (UniProt ↔ DrugBank)
+    columns: [uniprot, db_id, drug_name, drug_type, groups, know_action, pmids]
+    index_keys: [uniprot, db_id, drug_name, know_action]
+    approx_rows: 21021

@@ -1,0 +1,45 @@
+id: inuloc
+name: iNuLoC
+aspect: localization
+access: local
+
+description: >
+  iNuLoC platform for nuclear localization: residue-level determinants for
+  nuclear localization (DNLs) and proteome-scale nuclear localization
+  probabilities across five model organisms. NLS/NES motif tables are stored
+  separately under localization/NLSdb/ (NLSdb attribution). Homepage:
+  http://inuloc.omicsbio.info/
+
+homepage: http://inuloc.omicsbio.info/
+api_base: null
+api_docs: http://inuloc.omicsbio.info/
+citation: >
+  Zheng et al. Deep learning prioritizes cancer mutations that alter protein
+  nucleocytoplasmic shuttling to drive tumorigenesis. Nature Communications.
+doi: 10.1038/s41467-025-57858-8
+pmid: "40087285"
+license: See http://inuloc.omicsbio.info/
+notes: >
+  PTM-relevant iNuLoC-native tables only (DNL + nuclear probability).
+  NLS/NES motifs → see localization/NLSdb/ (PMID 29106588).
+  SAM tables omitted (not PTM-centric).
+  Build: `python -m app.sources.build_index inuloc`
+
+tools:
+  - inuloc_nls_nes
+  - inuloc_nuclear_prob
+
+files:
+  - id: dnl
+    path: tables/dnl.tsv
+    description: Predicted determinants for nuclear localization (DNLs, iNuLoC RCA)
+    columns: [uniprot, gene, start, end, motif_seq, nuclear_score]
+    index_keys: [uniprot, gene]
+    approx_rows: 16180
+
+  - id: nuclear_prob
+    path: tables/nuclear_prob.tsv
+    description: Nuclear localization probability (human/mouse/rat/yeast/fly)
+    columns: [uniprot, gene, organism, nuclear_prob]
+    index_keys: [uniprot, gene, organism]
+    approx_rows: 54837

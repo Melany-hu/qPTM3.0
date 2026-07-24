@@ -1,113 +1,131 @@
 <?php
 /**
- * GET /api/browse/{type}
+ * GET /api/browse.php?type=gene|condition|sample
+ * Also supports path /api/browse/{type}
  *
- * Browse genes, conditions, or samples alphabetically with event counts.
- *
- * Path parameters:
- *   type - gene|condition|sample
- *
- * Parameters:
- *   organism  - human|mouse|rat|yeast|all (default: all)
- *   ptm_type  - phosphorylation|acetylation|... (default: all)
- *   letter    - filter by initial letter (default: all)
- *   page      - page number (default: 1)
- *   per_page  - results per page, max 200 (default: 50)
+ * Prefer browsetable when available; fall back to distinct qevent values.
  */
 
 require_once __DIR__ . '/db.php';
 
-// ── Parse path ────────────────────────────────────────────────────
 $path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 $parts = explode('/', trim($path, '/'));
 $browseIdx = array_search('browse', $parts);
-if ($browseIdx === false || !isset($parts[$browseIdx + 1])) {
-    json_error('Path must be /api/browse/{type}');
+
+$type = null;
+if ($browseIdx !== false && isset($parts[$browseIdx + 1])
+    && $parts[$browseIdx + 1] !== 'browse.php') {
+    $type = $parts[$browseIdx + 1];
+} else {
+    $type = param('type');
 }
 
-$type = $parts[$browseIdx + 1];
-if (!in_array($type, ['gene', 'condition', 'sample'])) {
-    json_error('Type must be: gene, condition, or sample');
+if (!in_array($type, ['gene', 'condition', 'sample'], true)) {
+    json_error('Type must be: gene, condition, or sample (path /api/browse/{type} or ?type=)');
 }
 
-$organism = param('organism', 'all');
-$ptm_type = param('ptm_type', 'all');
+$organism = strtolower(param('organism', 'all'));
+$ptm_type = strtolower(param('ptm_type', 'all'));
 $letter   = param('letter', 'all');
 $page     = param_int('page', 1);
 $per_page = min(param_int('per_page', 50), 200);
 $offset   = ($page - 1) * $per_page;
 
-// ── Build query based on browse type ──────────────────────────────
-$where = [];
-$params = [];
-$types = '';
+$where = ['b.btype = ?'];
+$params = [$type];
+$types = 's';
 
 if ($organism !== 'all' && isset($ORGANISM_MAP[$organism])) {
-    $where[] = "p.organism = ?";
+    $where[] = 'b.org = ?';
     $params[] = $ORGANISM_MAP[$organism];
     $types .= 's';
 }
 
 if ($ptm_type !== 'all' && isset($PTM_TYPE_MAP[$ptm_type])) {
-    $where[] = "e.ptm_type = ?";
+    $where[] = 'b.mods = ?';
     $params[] = $PTM_TYPE_MAP[$ptm_type];
     $types .= 's';
 }
 
-$whereClause = $where ? 'WHERE ' . implode(' AND ', $where) : '';
-
-switch ($type) {
-    case 'gene':
-        $nameCol = 'e.gene';
-        $groupBy = 'e.gene';
-        $orderBy = 'e.gene';
-        break;
-    case 'condition':
-        $nameCol = 'c.condition_name';
-        $groupBy = 'c.condition_name';
-        $orderBy = 'c.condition_name';
-        break;
-    case 'sample':
-        $nameCol = 's.sample_name';
-        $groupBy = 's.sample_name';
-        $orderBy = 's.sample_name';
-        break;
-}
-
-// Letter filter
 if ($letter !== 'all' && strlen($letter) === 1) {
-    $where[] = "$nameCol LIKE ?";
-    $params[] = "$letter%";
+    $where[] = 'b.fword = ?';
+    $params[] = strtoupper($letter);
     $types .= 's';
-    $whereClause = 'WHERE ' . implode(' AND ', $where);
 }
 
-// ── Count ─────────────────────────────────────────────────────────
-$joinClause = match ($type) {
-    'gene' => "FROM ptm_events e LEFT JOIN proteins p ON e.uniprot_ac = p.uniprot_ac",
-    'condition' => "FROM ptm_events e LEFT JOIN proteins p ON e.uniprot_ac = p.uniprot_ac LEFT JOIN conditions c ON e.condition_id = c.id",
-    'sample' => "FROM ptm_events e LEFT JOIN proteins p ON e.uniprot_ac = p.uniprot_ac LEFT JOIN samples s ON e.sample_id = s.id",
-};
+$whereClause = implode(' AND ', $where);
 
-$countSql = "SELECT COUNT(DISTINCT $nameCol) as total $joinClause $whereClause";
-$countRow = fetch_one($countSql, $params, $types);
+// Try browsetable first
+$countRow = fetch_one(
+    "SELECT COUNT(DISTINCT b.cont) AS total FROM browsetable b WHERE $whereClause",
+    $params,
+    $types
+);
 $total = intval($countRow['total'] ?? 0);
 
-// ── Fetch ─────────────────────────────────────────────────────────
-$dataSql = "SELECT $nameCol as name, COUNT(*) as event_count
-    $joinClause $whereClause
-    GROUP BY $groupBy
-    ORDER BY $orderBy
-    LIMIT ? OFFSET ?";
+if ($total > 0) {
+    $rows = fetch_all(
+        "SELECT b.cont AS name, COUNT(*) AS event_count
+         FROM browsetable b
+         WHERE $whereClause
+         GROUP BY b.cont
+         ORDER BY b.cont
+         LIMIT ? OFFSET ?",
+        array_merge($params, [$per_page, $offset]),
+        $types . 'ii'
+    );
+} else {
+    // Fallback: distinct values from qevent
+    $colMap = [
+        'gene'      => 'gene',
+        'condition' => 'samplecondition',
+        'sample'    => 'sample',
+    ];
+    $col = $colMap[$type];
 
-$pageParams = array_merge($params, [$per_page, $offset]);
-$pageTypes = $types . 'ii';
+    $qWhere = ["$col IS NOT NULL", "$col <> ''"];
+    $qParams = [];
+    $qTypes = '';
 
-$rows = fetch_all($dataSql, $pageParams, $pageTypes);
+    if ($organism !== 'all' && isset($ORGANISM_MAP[$organism])) {
+        $qWhere[] = 'org = ?';
+        $qParams[] = $ORGANISM_MAP[$organism];
+        $qTypes .= 's';
+    }
+    if ($ptm_type !== 'all' && isset($PTM_TYPE_MAP[$ptm_type])) {
+        $qWhere[] = 'mods = ?';
+        $qParams[] = $PTM_TYPE_MAP[$ptm_type];
+        $qTypes .= 's';
+    }
+    if ($letter !== 'all' && strlen($letter) === 1) {
+        $qWhere[] = "$col LIKE ?";
+        $qParams[] = strtoupper($letter) . '%';
+        $qTypes .= 's';
+    }
+    $qWhereClause = implode(' AND ', $qWhere);
+
+    $countRow = fetch_one(
+        "SELECT COUNT(DISTINCT $col) AS total FROM qevent WHERE $qWhereClause",
+        $qParams,
+        $qTypes
+    );
+    $total = intval($countRow['total'] ?? 0);
+
+    $rows = fetch_all(
+        "SELECT $col AS name, COUNT(*) AS event_count
+         FROM qevent
+         WHERE $qWhereClause
+         GROUP BY $col
+         ORDER BY $col
+         LIMIT ? OFFSET ?",
+        array_merge($qParams, [$per_page, $offset]),
+        $qTypes . 'ii'
+    );
+}
 
 $items = array_map(function ($row) {
     return [
-        'name'        => $row['name'],
+        'name'        => trim($row['name']),
         'event_count' => intval($row['event_count']),
     ];
 }, $rows);

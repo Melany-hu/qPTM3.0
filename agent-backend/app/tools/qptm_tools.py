@@ -8,7 +8,10 @@ Stage 2 tool:
   3. qptm_kinases — get kinases from qPTM's integrated data
 """
 
+from __future__ import annotations
+
 import logging
+import re
 from typing import Any
 
 import httpx
@@ -50,8 +53,18 @@ def _qptm_search(
     per_page: int = 20,
 ) -> dict[str, Any]:
     """Search qPTM for PTM events matching a keyword."""
-    data = _get("/search", {
-        "q": query,
+    q = (query or "").strip()
+    # Infer a fast field when the model omits it (avoids slow field=any scans).
+    if field == "any" and q:
+        if re.fullmatch(r"[OPQ][0-9][A-Z0-9]{3}[0-9](?:-[0-9]+)?", q, re.I) or re.fullmatch(
+            r"[A-NR-Z][0-9][A-Z][A-Z0-9]{2}[0-9](?:-[0-9]+)?", q, re.I
+        ):
+            field = "uniprot"
+        elif re.fullmatch(r"[A-Za-z][A-Za-z0-9-]{1,14}", q):
+            field = "gene"
+
+    data = _get("/search.php", {
+        "q": q,
         "field": field,
         "organism": organism,
         "ptm_type": ptm_type,
@@ -86,7 +99,7 @@ def _qptm_site_conditions(
     ptm_type: str = "all",
 ) -> dict[str, Any]:
     """Get all experimental conditions where a specific PTM site was quantified."""
-    data = _get("/conditions", {
+    data = _get("/conditions.php", {
         "uniprot_ac": uniprot_ac,
         "position": str(position),
         "ptm_type": ptm_type,
@@ -121,7 +134,10 @@ def _qptm_kinases(
     position: int,
 ) -> dict[str, Any]:
     """Get kinases/enzymes from qPTM's integrated kinase-substrate data."""
-    data = _get(f"/kinases/{uniprot_ac}/{position}")
+    data = _get("/kinases.php", {
+        "uniprot_ac": uniprot_ac,
+        "position": str(position),
+    })
     kinases = data.get("kinases", [])
     summary = f"Found {len(kinases)} kinase(s)/enzyme(s) for {uniprot_ac} position {position}. "
     if kinases:
@@ -154,10 +170,10 @@ def register_qptm_tools() -> None:
     registry.register(
         name="qptm_search",
         description=(
-            "Search the qPTM database for PTM events by gene name, protein name, "
-            "UniProt accession, sample, or condition. Returns matching quantitative PTM events "
-            "with conditions, samples, log2 ratios, and p-values. Use this to find which proteins "
-            "and sites have quantitative PTM data in qPTM."
+            "Search the qPTM database for PTM events. "
+            "ALWAYS set field explicitly: use field='gene' for gene symbols (e.g. TP53), "
+            "field='uniprot' for UniProt accessions (e.g. P04637). "
+            "Returns quantitative PTM events with conditions, samples, log2 ratios, and p-values."
         ),
         parameters={
             "type": "object",
@@ -169,7 +185,7 @@ def register_qptm_tools() -> None:
                 "field": {
                     "type": "string",
                     "enum": ["any", "gene", "uniprot", "protein", "function", "sample", "condition"],
-                    "description": "Which field to search in (default: any)",
+                    "description": "Search field. Prefer 'gene' or 'uniprot' for speed; avoid 'any' when possible.",
                 },
                 "organism": {
                     "type": "string",

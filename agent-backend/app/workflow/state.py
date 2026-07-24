@@ -1,12 +1,14 @@
-"""Workflow state machine — tracks conversation state across the three-stage PTM workflow.
+"""Workflow state machine — tracks conversation state across the PTM logic line.
 
 The state tracks:
-  - Current stage (idle → conditions → kinase → function → synthesis)
+  - Current stage (idle → WHO → WHEN → WHERE → WHY → synthesis)
   - Target protein/site being investigated
   - Findings accumulated at each stage
 
 This state is per-session and kept in memory.
 """
+
+from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
@@ -32,15 +34,19 @@ class ConversationState:
     target_position: int | None = None
     target_ptm_type: str | None = None
 
-    # Stage 1 findings: conditions where the site is modified
+    # Stage 1 WHO: kinases / enzymes / drugs that regulate the site
+    kinases_found: list[dict[str, Any]] = field(default_factory=list)
+    enzymes_found: list[dict[str, Any]] = field(default_factory=list)
+    drugs_found: list[dict[str, Any]] = field(default_factory=list)
+
+    # Stage 2 WHEN: quantitative kinetics / conditions
     conditions_found: list[dict[str, Any]] = field(default_factory=list)
     total_conditions: int = 0
 
-    # Stage 2 findings: kinases/enzymes responsible
-    kinases_found: list[dict[str, Any]] = field(default_factory=list)
-    enzymes_found: list[dict[str, Any]] = field(default_factory=list)
+    # Stage 3 WHERE: cellular context / subcellular localization
+    localization_found: list[dict[str, Any]] = field(default_factory=list)
 
-    # Stage 3 findings: functional consequences
+    # Stage 4 WHY: functional consequences / disease / interactions
     functions_found: list[dict[str, Any]] = field(default_factory=list)
     disease_associations: list[dict[str, Any]] = field(default_factory=list)
     interactions_found: list[dict[str, Any]] = field(default_factory=list)
@@ -48,6 +54,11 @@ class ConversationState:
     # Conversation metadata
     turn_count: int = 0
     stages_completed: list[WorkflowStage] = field(default_factory=list)
+
+    # Research plan (planning-first agent)
+    current_plan: Any | None = None  # ResearchPlan, stored as dict for serialization
+    current_step_index: int = 0
+    plan_entities: dict[str, Any] = field(default_factory=dict)
 
     # ── Stage transitions ──
 
@@ -68,14 +79,19 @@ class ConversationState:
         self.target_uniprot_ac = None
         self.target_position = None
         self.target_ptm_type = None
-        self.conditions_found.clear()
-        self.total_conditions = 0
         self.kinases_found.clear()
         self.enzymes_found.clear()
+        self.drugs_found.clear()
+        self.conditions_found.clear()
+        self.total_conditions = 0
+        self.localization_found.clear()
         self.functions_found.clear()
         self.disease_associations.clear()
         self.interactions_found.clear()
         self.stages_completed.clear()
+        self.current_plan = None
+        self.current_step_index = 0
+        self.plan_entities.clear()
 
     # ── Target management ──
 
@@ -118,29 +134,37 @@ class ConversationState:
 
     # ── Findings accumulation ──
 
-    def add_conditions(self, conditions: list[dict[str, Any]], total: int = 0) -> None:
-        """Record Stage 1 findings."""
-        self.conditions_found = conditions
-        self.total_conditions = total or len(conditions)
-
     def add_kinases(self, kinases: list[dict[str, Any]]) -> None:
-        """Record Stage 2 kinase findings."""
+        """Record Stage 1 WHO kinase findings."""
         self.kinases_found = kinases
 
     def add_enzymes(self, enzymes: list[dict[str, Any]]) -> None:
-        """Record Stage 2 enzyme findings from iPTMnet."""
+        """Record Stage 1 WHO enzyme findings from iPTMnet."""
         self.enzymes_found = enzymes
 
+    def add_drugs(self, drugs: list[dict[str, Any]]) -> None:
+        """Record Stage 1 WHO drug / upstream regulator findings."""
+        self.drugs_found = drugs
+
+    def add_conditions(self, conditions: list[dict[str, Any]], total: int = 0) -> None:
+        """Record Stage 2 WHEN kinetics / condition findings."""
+        self.conditions_found = conditions
+        self.total_conditions = total or len(conditions)
+
+    def add_localization(self, localization: list[dict[str, Any]]) -> None:
+        """Record Stage 3 WHERE localization / context findings."""
+        self.localization_found = localization
+
     def add_functions(self, functions: list[dict[str, Any]]) -> None:
-        """Record Stage 3 functional consequence findings."""
+        """Record Stage 4 WHY functional consequence findings."""
         self.functions_found = functions
 
     def add_disease(self, disease: list[dict[str, Any]]) -> None:
-        """Record Stage 3 disease association findings."""
+        """Record Stage 4 WHY disease association findings."""
         self.disease_associations = disease
 
     def add_interactions(self, interactions: list[dict[str, Any]]) -> None:
-        """Record Stage 3 PTM-dependent interaction findings."""
+        """Record Stage 4 WHY PTM-dependent interaction findings."""
         self.interactions_found = interactions
 
     # ── Serialization ──
@@ -154,9 +178,11 @@ class ConversationState:
             "target_uniprot_ac": self.target_uniprot_ac,
             "target_position": self.target_position,
             "target_ptm_type": self.target_ptm_type,
-            "total_conditions": self.total_conditions,
             "kinases_count": len(self.kinases_found),
             "enzymes_count": len(self.enzymes_found),
+            "drugs_count": len(self.drugs_found),
+            "total_conditions": self.total_conditions,
+            "localization_count": len(self.localization_found),
             "functions_count": len(self.functions_found),
             "disease_count": len(self.disease_associations),
             "interactions_count": len(self.interactions_found),

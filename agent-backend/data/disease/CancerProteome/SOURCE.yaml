@@ -1,0 +1,47 @@
+id: cancerproteome
+name: CancerProteome
+aspect: disease
+access: local
+
+description: >
+  CancerProteome functionally deciphers and visualizes the proteome landscape
+  in cancer. Manually curated / re-analyzed MS-based quantification and PTM
+  proteomes across 21 cancer types (tumor vs control). Local tables cover
+  differential PTM site quantification (ptm_info) and protein abundance
+  (protein_inf). Online: http://bio-bigdata.hrbmu.edu.cn/CancerProteome
+
+homepage: http://bio-bigdata.hrbmu.edu.cn/CancerProteome
+api_base: null
+api_docs: http://bio-bigdata.hrbmu.edu.cn/CancerProteome
+citation: >
+  CancerProteome: a resource to functionally decipher the proteome landscape
+  in cancer. Nucleic Acids Research (2024).
+doi: 10.1093/nar/gkad824
+pmid: "37823596"
+license: See http://bio-bigdata.hrbmu.edu.cn/CancerProteome
+notes: >
+  Dual-stage: Stage 2 WHEN (tumor/control PTM & protein quantification) and
+  Stage 4 WHY (cancer relevance). ptm_info.csv column `pmid` holds Proteomic
+  Data Commons (PDC) dataset IDs (e.g. PDC000232), not PubMed IDs — cite paper
+  PMID 37823596 for the resource.
+  Build: `python -m app.sources.build_index cancerproteome`
+
+tools:
+  - cancerproteome_disease
+
+files:
+  - id: ptm
+    path: ptm_info.csv
+    delimiter: ","
+    description: Tumor vs control PTM site quantification across cancer types
+    columns: [org, pmid, up, gene, pos, mods, pep, raw, sample, samplecondition, qratio, fdr]
+    index_keys: [uniprot, gene, position]
+    approx_rows: 16145
+
+  - id: protein
+    path: protein_inf.txt
+    delimiter: "\t"
+    description: Tumor vs control protein abundance (FC/FDR) across cancer types
+    columns: [protein, geneName, protein_length, mean_control, mean_tumor, FC, FDR, cancer, source]
+    index_keys: [gene, uniprot, cancer]
+    approx_rows: 36647

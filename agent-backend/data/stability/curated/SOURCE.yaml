@@ -1,0 +1,50 @@
+id: ptm_stability_curated
+name: PTM-stability curated
+aspect: stability
+access: local
+
+description: >
+  Manually curated PTM–protein stability relationships (stabilize/destabilize)
+  covering phospho-, methyl-, acetyl-, ubiquityl-, SUMO-, hydroxyl-, and
+  glycosyl-regulated degrons. Rows were compiled from the Nature Communications
+  review Batista et al. 2023; the `source` column stores primary-literature
+  PMIDs for each claim, while `curated_from` records the review as provenance.
+
+homepage: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC9839724/
+api_base: null
+citation: >
+  Batista TM, et al. Control of protein stability by post-translational
+  modifications. Nat Commun. 2023. (curation source; per-entry evidence in
+  `source` PMIDs)
+doi: 10.1038/s41467-023-35795-8
+pmid: null
+license: See source publications
+notes: >
+  `source` = primary PMID(s), pipe-separated when multiple papers support the
+  claim. `curated_from` = PMC9839724 (review used to assemble the table).
+  Some review in-text citation numbers were corrected against article titles
+  when mapping to primary PMIDs.
+
+tools:
+  - ptm_stability
+
+files:
+  - id: curated
+    path: ptm_stability_curated.tsv
+    description: Curated PTM-stability relationships with primary PMID sources
+    columns:
+      - uniprot_ac
+      - gene
+      - ptm_type
+      - position
+      - effect_direction
+      - mechanism
+      - writer
+      - eraser
+      - reader
+      - ubiquitin_sites
+      - evidence
+      - source
+      - curated_from
+    index_keys: [uniprot_ac, gene, ptm_type, position]
+    approx_rows: 78

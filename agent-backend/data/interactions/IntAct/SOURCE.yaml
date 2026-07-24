@@ -1,0 +1,26 @@
+id: intact
+name: IntAct
+aspect: interactions
+access: api
+
+description: >
+  IntAct provides curated molecular interaction evidence (IMEx) with fine-
+  grained experimental detail. Agent queries the IntAct PSICQUIC REST service
+  and returns PSI-MITAB 2.5 records.
+
+homepage: https://www.ebi.ac.uk/intact
+api_base: https://www.ebi.ac.uk/Tools/webservices/psicquic/intact/webservices/current/search
+api_docs: https://psicquic.github.io/PsicquicSpec_1_4_Rest.html
+citation: >
+  The IntAct database: efficient access to fine-grained molecular interaction
+  data. Nucleic Acids Research (2022).
+doi: 10.1093/nar/gkab1006
+pmid: "34761267"
+license: See https://www.ebi.ac.uk/intact
+notes: >
+  No local tables. Tool: intact_interactions
+
+tools:
+  - intact_interactions
+
+files: []

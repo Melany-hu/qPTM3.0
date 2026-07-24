@@ -1,0 +1,39 @@
+id: gps6
+name: GPS 6.0
+aspect: enzymes
+access: local
+
+description: >
+  GPS 6.0 human kinase-specific phosphorylation site predictions produced
+  locally with the Group-based Prediction System (Chen et al., NAR 2023).
+  Each substrate S/T/Y site is annotated with predicted kinases (hierarchy +
+  gene) and GPS confidence scores. Online server:
+  https://gps.biocuckoo.cn
+
+homepage: https://gps.biocuckoo.cn
+api_base: null
+api_docs: https://gps.biocuckoo.cn
+citation: >
+  Chen M, Zhang W, Gou Y, Xu D, Wei Y, Liu D, Han C, Huang X, Li C, Ning W,
+  Peng D, Xue Y. GPS 6.0: an updated server for prediction of kinase-specific
+  phosphorylation sites in proteins. Nucleic Acids Res. 2023 Jul 5;51(W1):
+  W243-W250.
+doi: 10.1093/nar/gkad383
+pmid: "37158278"
+license: See https://gps.biocuckoo.cn
+notes: >
+  Source dump: GPS_Human.csv (organism, UniProt, position, residue, GPS, GPS_Score).
+  Expanded to one kinase–site row per prediction in tables/predictions.tsv.
+  Evidence level: computational prediction (not experimental).
+  Build: `python -m app.sources.build_index gps6`
+
+tools:
+  - gps6_kinases
+
+files:
+  - id: predictions
+    path: tables/predictions.tsv
+    description: Human GPS 6.0 kinase-specific p-site predictions (expanded)
+    columns: [gene, uniprot, uniprot_base, position, residue, kinase_gene, kinase_group, kinase_family, kinase_hierarchy, score, organism]
+    index_keys: [gene, uniprot, uniprot_base, position, kinase_gene, kinase_group, kinase_family]
+    approx_rows: 334335

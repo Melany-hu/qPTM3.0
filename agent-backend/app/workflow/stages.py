@@ -2,9 +2,14 @@
 
 Determines when to advance the workflow stage and generates contextual
 suggestions for the user to proceed to the next stage.
+
+Canonical logic line: WHO → WHEN → WHERE → WHY
 """
 
+from __future__ import annotations
+
 import logging
+import re
 from typing import Any
 
 from app.models.schemas import WorkflowStage
@@ -17,33 +22,59 @@ logger = logging.getLogger(__name__)
 
 # Keywords that signal which stage the user is asking about
 _STAGE_KEYWORDS: dict[WorkflowStage, list[str]] = {
-    WorkflowStage.conditions: [
-        "condition", "conditions", "when", "where", "cell type", "treatment",
-        "stimulus", "stimuli", "time point", "time-course", "time course",
-        "sample", "experiment", "tissue", "expressed", "quantified",
-        "log2", "fold change", "ratio", "up-regulated", "down-regulated",
-        "upregulated", "downregulated", "differential",
-        "条件", "何时", "何地", "细胞", "处理", "刺激", "时间点", "样本",
-        "实验", "组织", "表达", "定量", "变化", "差异",
-    ],
     WorkflowStage.kinase: [
         "kinase", "enzyme", "catalyze", "catalyzes", "responsible",
-        "phosphorylate", "phosphorylates", "acetylate", "acetyltransferase",
-        "ubiquitinate", "e3 ligase", "ligase", "demethylase", "methyltransferase",
-        "glycosyltransferase", "sumo ligase", "who", "writer", "eraser",
-        "激酶", "酶", "催化", "负责", "磷酸化", "乙酰化", "泛素化",
-        "甲基化", "糖基化", "sumo化", "谁",
+        "which kinase", "who phosphorylates", "acetyltransferase",
+        "e3 ligase", "ligase", "demethylase", "methyltransferase",
+        "glycosyltransferase", "sumo ligase", "writer", "eraser",
+        "upstream", "drug", "drugs", "inhibitor", "antibody", "ligand",
+        "who regulates", "regulates this",
+        "激酶", "酶", "催化", "负责", "谁磷酸化", "哪个激酶",
+        "乙酰化酶", "泛素化", "甲基化酶", "糖基化", "sumo化", "谁调控",
+        "调控了", "上游", "药物",
+    ],
+    WorkflowStage.conditions: [
+        "condition", "conditions", "when", "time point", "time-course",
+        "time course", "kinetics", "minutes", "hours", "transient", "sustained",
+        "fold change", "log2", "ratio", "up-regulated", "down-regulated",
+        "upregulated", "downregulated", "differential", "stimulus", "stimuli",
+        "treatment", "under what",
+        "条件", "何时", "时间点", "时程", "动力学", "倍数", "定量",
+        "变化", "差异", "瞬时", "持续",
+    ],
+    WorkflowStage.where: [
+        "where", "location", "localization", "localisation", "localized",
+        "localised", "compartment", "subcellular", "cell type", "cell line",
+        "tissue", "sample", "lipid raft", "organelle", "nucleus", "cytoplasm",
+        "membrane",
+        "何地", "定位", "细胞器", "组织", "样本", "背景", "位置",
+        "脂筏", "核定位", "膜定位", "胞质",
     ],
     WorkflowStage.function: [
         "function", "functional", "effect", "consequence", "happen",
-        "activity", "stability", "localization", "localisation",
-        "pathway", "process", "disease", "drug", "target", "therapeutic",
-        "interaction", "binding", "regulate", "regulation",
-        "cancer", "tumor", "tumour", "clinical",
-        "功能", "作用", "后果", "影响", "活性", "稳定性", "定位",
-        "通路", "途径", "疾病", "药物", "靶点", "治疗", "相互作用",
+        "activity", "stability", "pathway", "process", "disease",
+        "target", "therapeutic", "interaction", "binding",
+        "cancer", "tumor", "tumour", "clinical", "mutation", "mutations",
+        "clinvar", "somatic", "germline", "variant", "variants",
+        "resistance", "sensitivity", "pharmacology", "biomarker",
+        "mechanism", "outcome", "why",
+        "phase separation", "llps", "condensate", "droplet", "phasllps", "phosllps",
+        "dscope", "stress granule", "p-body", "membraneless",
+        "功能", "作用", "后果", "影响", "活性", "稳定性",
+        "通路", "途径", "疾病", "靶点", "治疗", "相互作用",
+        "突变", "变异", "体细胞", "胚系", "耐药", "敏感性",
+        "相分离", "液液相分离", "凝聚体", "机制", "结局", "价值", "标志物",
+        "为什么", "为何",
     ],
 }
+
+
+def _keyword_hit(keyword: str, text: str) -> bool:
+    """Match keywords; use token boundaries for Latin, substring for CJK."""
+    if any("\u4e00" <= ch <= "\u9fff" for ch in keyword):
+        return keyword in text
+    pattern = r"(?<![a-z0-9])" + re.escape(keyword.lower()) + r"(?![a-z0-9])"
+    return re.search(pattern, text) is not None
 
 
 def detect_stage_from_message(message: str) -> WorkflowStage | None:
@@ -53,14 +84,15 @@ def detect_stage_from_message(message: str) -> WorkflowStage | None:
     """
     msg_lower = message.lower()
     scores: dict[WorkflowStage, int] = {
-        WorkflowStage.conditions: 0,
         WorkflowStage.kinase: 0,
+        WorkflowStage.conditions: 0,
+        WorkflowStage.where: 0,
         WorkflowStage.function: 0,
     }
 
     for stage, keywords in _STAGE_KEYWORDS.items():
         for kw in keywords:
-            if kw in msg_lower:
+            if _keyword_hit(kw, msg_lower):
                 scores[stage] += 1
 
     best_stage = max(scores, key=lambda s: scores[s])
@@ -75,14 +107,18 @@ def should_advance_stage(state: ConversationState) -> WorkflowStage | None:
     """Determine if the workflow should advance to the next stage.
 
     Returns the next stage to advance to, or None if no advancement needed.
+    Order: WHO (kinase) → WHEN (conditions) → WHERE → WHY (function) → synthesis
     """
-    # Only advance if we have findings for the current stage
-    if state.current_stage == WorkflowStage.conditions:
-        if state.conditions_found and state.has_target:
-            return WorkflowStage.kinase
+    if state.current_stage == WorkflowStage.kinase:
+        if (state.kinases_found or state.enzymes_found or state.drugs_found) and state.has_target:
+            return WorkflowStage.conditions
 
-    elif state.current_stage == WorkflowStage.kinase:
-        if (state.kinases_found or state.enzymes_found) and state.has_target:
+    elif state.current_stage == WorkflowStage.conditions:
+        if state.conditions_found and state.has_target:
+            return WorkflowStage.where
+
+    elif state.current_stage == WorkflowStage.where:
+        if (state.localization_found or state.functions_found) and state.has_target:
             return WorkflowStage.function
 
     elif state.current_stage == WorkflowStage.function:
@@ -116,52 +152,21 @@ def get_stage_suggestion(state: ConversationState) -> dict[str, Any]:
       - "tools": which tools would be called
     """
     if state.current_stage == WorkflowStage.idle:
-        # User hasn't started investigating yet
         return {
-            "stage": WorkflowStage.conditions,
+            "stage": WorkflowStage.kinase,
             "suggestion": (
-                "I can help you investigate PTM sites through a three-stage workflow:\n"
-                "1. **Where & When** — experimental conditions\n"
-                "2. **Who** — kinase/enzyme identification\n"
-                "3. **Why it matters** — functional consequences\n\n"
-                "Tell me a protein or gene name to start (e.g., \"TP53\", \"AKT1\", \"S15 phosphorylation of TP53\")."
+                "I can help you investigate PTM sites through a four-stage logic line:\n"
+                "1. **WHO** — who regulates it (drugs / enzymes)\n"
+                "2. **WHEN** — when it happens (kinetics)\n"
+                "3. **WHERE** — cell context & localization\n"
+                "4. **WHY** — mechanism, outcome, and clinical value\n\n"
+                "Tell me a protein or gene name to start (e.g., \"TP53\", \"AKT1\", \"RFTN1 S467\")."
             ),
-            "tools": ["qptm_search"],
+            "tools": ["qptm_search", "qptm_kinases"],
         }
 
-    if state.current_stage == WorkflowStage.conditions:
-        if state.conditions_found:
-            gene = state.target_gene or state.target_uniprot_ac or "this protein"
-            pos = state.target_position or ""
-            n = state.total_conditions or len(state.conditions_found)
-            top_conds = [
-                c.get("condition_name", c.get("condition", ""))
-                for c in state.conditions_found[:3]
-                if c.get("condition_name") or c.get("condition")
-            ]
-            cond_str = f" ({', '.join(top_conds)})" if top_conds else ""
-            return {
-                "stage": WorkflowStage.kinase,
-                "suggestion": (
-                    f"I found that **{gene}{' ' + str(pos) if pos else ''}** is modified "
-                    f"under {n} condition(s){cond_str}. "
-                    f"Would you like to identify **which kinase or enzyme** is responsible "
-                    f"for this modification? (Stage 2)"
-                ),
-                "tools": ["qptm_kinases", "iptmnet_enzymes"],
-            }
-        else:
-            return {
-                "stage": WorkflowStage.conditions,
-                "suggestion": (
-                    "Let me search for PTM events for this protein first. "
-                    "Could you provide a gene name or UniProt accession?"
-                ),
-                "tools": ["qptm_search"],
-            }
-
     if state.current_stage == WorkflowStage.kinase:
-        if state.kinases_found or state.enzymes_found:
+        if state.kinases_found or state.enzymes_found or state.drugs_found:
             gene = state.target_gene or state.target_uniprot_ac or "this protein"
             all_enzymes = state.kinases_found + state.enzymes_found
             names = [
@@ -171,24 +176,67 @@ def get_stage_suggestion(state: ConversationState) -> dict[str, Any]:
             ]
             enzyme_str = f" ({', '.join(names[:3])})" if names else ""
             return {
+                "stage": WorkflowStage.conditions,
+                "suggestion": (
+                    f"I identified regulators for **{gene}**{enzyme_str}. "
+                    f"Would you like to see **WHEN** this site changes "
+                    f"(time course / fold change / cancer vs normal)? (Stage 2)"
+                ),
+                "tools": ["qptm_site_conditions", "cancerproteome_disease"],
+            }
+        return {
+            "stage": WorkflowStage.kinase,
+            "suggestion": (
+                "I haven't found regulator data yet. Let me search qPTM, iPTMnet, "
+                "and drug–PTM resources for enzymes and upstream drugs."
+            ),
+            "tools": ["qptm_kinases", "iptmnet_enzymes", "pmads_drug_ptm", "drugbank_targets"],
+        }
+
+    if state.current_stage == WorkflowStage.conditions:
+        if state.conditions_found:
+            gene = state.target_gene or state.target_uniprot_ac or "this protein"
+            pos = state.target_position or ""
+            n = state.total_conditions or len(state.conditions_found)
+            return {
+                "stage": WorkflowStage.where,
+                "suggestion": (
+                    f"I found quantitative kinetics for **{gene}"
+                    f"{' ' + str(pos) if pos else ''}** under {n} condition(s). "
+                    f"Would you like to explore **WHERE** this happens "
+                    f"(cell/tissue background and subcellular location)? (Stage 3)"
+                ),
+                "tools": ["compartments_localization", "uniprot_annotation", "interpro_domains", "pfam_domains"],
+            }
+        return {
+            "stage": WorkflowStage.conditions,
+            "suggestion": (
+                "Let me search for quantitative PTM events (qPTM) and "
+                "cancer tumor-vs-control quantification (CancerProteome)."
+            ),
+            "tools": ["qptm_search", "qptm_site_conditions", "cancerproteome_disease"],
+        }
+
+    if state.current_stage == WorkflowStage.where:
+        gene = state.target_gene or state.target_uniprot_ac or "this protein"
+        if state.localization_found or state.functions_found:
+            return {
                 "stage": WorkflowStage.function,
                 "suggestion": (
-                    f"I identified {len(all_enzymes)} enzyme(s) for **{gene}**{enzyme_str}. "
-                    f"Would you like to explore **what happens to {gene}'s function** "
-                    f"when this site is modified? (Stage 3 — functional consequences, "
-                    f"disease associations, and drug target potential)"
+                    f"I have localization / context for **{gene}**. "
+                    f"Would you like to explore **WHY it matters** "
+                    f"(mechanism, outcome, biomarker value)? (Stage 4)"
                 ),
-                "tools": ["psp_regulatory", "uniprot_annotation", "dbptm_functional", "iptmnet_ptm_ppi"],
+                "tools": ["psp_regulatory", "cancerproteome_disease", "ptmd_disease"],
             }
-        else:
-            return {
-                "stage": WorkflowStage.kinase,
-                "suggestion": (
-                    "I haven't found kinase data yet. Let me search qPTM and iPTMnet "
-                    "for enzymes associated with this site."
-                ),
-                "tools": ["qptm_kinases", "iptmnet_enzymes"],
-            }
+        return {
+            "stage": WorkflowStage.where,
+            "suggestion": (
+                "Let me query COMPARTMENTS / UniProt for cellular context "
+                "and subcellular localization."
+            ),
+            "tools": ["compartments_localization", "uniprot_annotation"],
+        }
 
     if state.current_stage == WorkflowStage.function:
         if state.functions_found or state.disease_associations or state.interactions_found:
@@ -203,23 +251,20 @@ def get_stage_suggestion(state: ConversationState) -> dict[str, Any]:
             return {
                 "stage": WorkflowStage.synthesis,
                 "suggestion": (
-                    f"I've gathered functional data for **{gene}**: "
-                    f"{', '.join(findings)}. Would you like me to provide a "
-                    f"**comprehensive synthesis** summarizing all three stages "
-                    f"(conditions → kinase → function)? I can also suggest "
-                    f"follow-up experiments."
+                    f"I've gathered WHY-it-matters data for **{gene}**: "
+                    f"{', '.join(findings)}. Would you like a "
+                    f"**comprehensive synthesis** along WHO → WHEN → WHERE → WHY?"
                 ),
                 "tools": [],
             }
-        else:
-            return {
-                "stage": WorkflowStage.function,
-                "suggestion": (
-                    "Let me query PhosphoSitePlus, UniProt, and dbPTM for "
-                    "functional consequences of this modification."
-                ),
-                "tools": ["psp_regulatory", "uniprot_annotation", "dbptm_functional"],
-            }
+        return {
+            "stage": WorkflowStage.function,
+            "suggestion": (
+                "Let me query PhosphoSitePlus, CancerProteome, and PTMD for "
+                "mechanism, outcome, and clinical value."
+            ),
+            "tools": ["psp_regulatory", "cancerproteome_disease", "ptmd_disease", "dbptm_functional"],
+        }
 
     if state.current_stage == WorkflowStage.synthesis:
         gene = state.target_gene or state.target_uniprot_ac or "this protein"
@@ -227,7 +272,7 @@ def get_stage_suggestion(state: ConversationState) -> dict[str, Any]:
             "stage": WorkflowStage.idle,
             "suggestion": (
                 f"We've completed the full investigation of **{gene}** "
-                f"across all three stages. Would you like to:\n"
+                f"across WHO → WHEN → WHERE → WHY. Would you like to:\n"
                 f"- Investigate another PTM site on the same protein\n"
                 f"- Explore a different protein\n"
                 f"- Dive deeper into any specific finding?"
@@ -246,9 +291,10 @@ def get_stage_label(stage: WorkflowStage) -> str:
     """Human-readable label for a workflow stage."""
     labels = {
         WorkflowStage.idle: "Getting Started",
-        WorkflowStage.conditions: "Stage 1: Where & When",
-        WorkflowStage.kinase: "Stage 2: Who",
-        WorkflowStage.function: "Stage 3: Why It Matters",
+        WorkflowStage.kinase: "Stage 1: WHO",
+        WorkflowStage.conditions: "Stage 2: WHEN",
+        WorkflowStage.where: "Stage 3: WHERE",
+        WorkflowStage.function: "Stage 4: WHY",
         WorkflowStage.synthesis: "Synthesis",
     }
     return labels.get(stage, str(stage))
@@ -258,8 +304,9 @@ def get_stage_order() -> list[WorkflowStage]:
     """Return the canonical stage progression order."""
     return [
         WorkflowStage.idle,
-        WorkflowStage.conditions,
         WorkflowStage.kinase,
+        WorkflowStage.conditions,
+        WorkflowStage.where,
         WorkflowStage.function,
         WorkflowStage.synthesis,
     ]
