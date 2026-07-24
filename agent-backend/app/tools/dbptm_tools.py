@@ -13,19 +13,16 @@ Files (tab-delimited) under data/disease/dbptm/ or data/disease/dbptm/tables/:
   1. disease_associated_ptms — nsSNP / disease-associated PTM sites (primary)
   2. experimental_ptm_sites — optional site inventory (not required)
 
-The tool also provides a web-scraping fallback: if no local data is available,
-it attempts to query the dbPTM search page by UniProt accession. This fallback
-is best-effort since dbPTM renders pages dynamically.
+Note: dbPTM renders search results client-side via jQuery DataTables, so the
+search page HTML contains no PTM data to scrape. Local bulk data files are
+required — there is no working web fallback.
 """
 
 from __future__ import annotations
 
 import logging
-import re
 from pathlib import Path
 from typing import Any
-
-import httpx
 
 from app.config import settings
 from app.tools.registry import registry
@@ -36,9 +33,6 @@ logger = logging.getLogger(__name__)
 _ptm_sites_index: dict[str, list[dict[str, Any]]] | None = None  # keyed by uniprot_ac
 _disease_index: dict[str, list[dict[str, Any]]] | None = None    # keyed by uniprot_ac
 _dbptm_loaded = False
-
-# dbPTM web base URL for fallback queries
-_DBPTM_WEB_BASE = "https://biomics.lab.nycu.edu.tw/dbPTM"
 
 
 def _parse_ptm_type(raw_type: str) -> str:
@@ -239,7 +233,7 @@ def _load_dbptm_data() -> None:
     total_disease = sum(len(v) for v in _disease_index.values())
     if total_sites == 0 and total_disease == 0:
         logger.info(
-            "No dbPTM data files found in %s. dbptm_functional tool will use web fallback. "
+            "No dbPTM data files found in %s. dbptm_functional tool will return empty results. "
             "Run: python -m app.sources.prepare_dbptm",
             dbptm_dir,
         )
@@ -248,55 +242,6 @@ def _load_dbptm_data() -> None:
             "dbPTM data loaded: %d PTM sites, %d disease associations",
             total_sites, total_disease,
         )
-
-
-def _web_fallback_search(uniprot_ac: str) -> dict[str, Any] | None:
-    """Best-effort web query to dbPTM search page by UniProt accession.
-
-    dbPTM renders results dynamically, so this may not always work.
-    Returns parsed data or None.
-    """
-    try:
-        with httpx.Client(timeout=settings.http_timeout_seconds) as client:
-            # Try the search by UniProt AC
-            resp = client.get(
-                f"{_DBPTM_WEB_BASE}/search.php",
-                params={"search_type": "uniprot_ac", "keyword": uniprot_ac},
-                headers={"Accept": "text/html"},
-            )
-            if resp.status_code != 200:
-                return None
-
-            # Parse the HTML for PTM site information
-            # dbPTM search results contain tables with PTM site data
-            text = resp.text
-            # Look for protein info and PTM site tables
-            # This is a best-effort parse; dbPTM uses PHP-rendered tables
-            sites = []
-            # Pattern: rows in PTM site tables typically have position, type, sequence
-            # Match table rows with PTM data
-            row_pattern = re.findall(
-                r'<tr[^>]*>.*?(\d+).*?(Phosphorylation|Acetylation|Ubiquitination|Methylation|Glycosylation|Sumoylation).*?</tr>',
-                text, re.IGNORECASE | re.DOTALL,
-            )
-            for pos_str, ptype in row_pattern:
-                sites.append({
-                    "position": int(pos_str),
-                    "ptm_type": _parse_ptm_type(ptype),
-                    "source": "dbPTM web",
-                })
-
-            if not sites:
-                return None
-
-            return {
-                "uniprot_ac": uniprot_ac,
-                "sites": sites[:20],
-                "source": "dbPTM web (best-effort)",
-            }
-    except Exception as e:
-        logger.debug(f"dbPTM web fallback failed for {uniprot_ac}: {e}")
-        return None
 
 
 # ── Tool 8: dbptm_functional ──────────────────────────────────────
@@ -314,32 +259,14 @@ def _dbptm_functional(
         or (_disease_index and len(_disease_index) > 0)
     )
 
-    # ── If no local data, try web fallback ──
+    # ── If no local data, return honest message ──
     if not has_local_data:
-        web_result = _web_fallback_search(uniprot_ac)
-        if web_result:
-            sites = web_result["sites"]
-            if position:
-                sites = [s for s in sites if s["position"] == position]
-            summary = (
-                f"dbPTM web query found {len(sites)} PTM site(s) for {uniprot_ac}"
-                + (f" at position {position}" if position else "")
-                + ". Note: This is a best-effort web query. For complete data, "
-                "run: python -m app.sources.prepare_dbptm"
-            )
-            return {
-                "summary": summary,
-                "uniprot_ac": uniprot_ac,
-                "position": position,
-                "source": "dbPTM web (best-effort)",
-                "sites": sites[:15],
-                "disease_associations": [],
-            }
-        else:
             return {
                 "summary": (
                     f"No dbPTM data available for {uniprot_ac}. "
-                    "dbPTM bulk data files not loaded and web query returned no results. "
+                    "dbPTM bulk data files are not loaded. dbPTM does not provide a "
+                    "public REST API and its search page renders results client-side "
+                    "(jQuery DataTables), so web scraping is not viable. "
                     "To enable dbPTM integration, run: python -m app.sources.prepare_dbptm"
                 ),
                 "uniprot_ac": uniprot_ac,
@@ -399,7 +326,7 @@ def register_dbptm_tools() -> None:
         description=(
             "Query dbPTM for disease associations based on nsSNP / GWAS proximity to PTM sites. "
             "Distinct from PTMD (literature PDAs) and DrugBank (use drugbank_targets / PMADS for drugs). "
-            "If local bulk data files are not loaded, falls back to a best-effort web query."
+            "Requires local bulk data files — run python -m app.sources.prepare_dbptm to prepare."
         ),
         parameters={
             "type": "object",

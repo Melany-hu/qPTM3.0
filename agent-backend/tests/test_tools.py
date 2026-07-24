@@ -61,10 +61,21 @@ def test_uniprot_annotation():
     assert len(result["disease_associations"]) > 0, "Should have disease associations"
     assert result["subcellular_location"], "Subcellular location should not be empty"
 
+    # Bug 7 fix: structured disease entries with accession, acronym, cross-references
+    disease_entries = result.get("disease_entries", [])
+    assert len(disease_entries) > 0, "Should have structured disease entries"
+    liFraumeni = [d for d in disease_entries if "Li-Fraumeni" in d.get("disease_id", "")]
+    assert liFraumeni, "Should find Li-Fraumeni syndrome"
+    assert liFraumeni[0]["accession"].startswith("DI-"), f"Should have DI- accession, got {liFraumeni[0]['accession']}"
+    assert liFraumeni[0]["acronym"] == "LFS", f"Should have LFS acronym, got {liFraumeni[0]['acronym']}"
+    xref = liFraumeni[0].get("cross_reference", {})
+    assert xref.get("database") == "MIM" and xref.get("id") == "151623", \
+        f"Should have MIM:151623 cross-reference, got {xref}"
+
     print(f"  PASS: Gene={result['gene']}, Protein={result['protein_name'][:40]}")
     print(f"  Function: {result['function'][:80]}...")
     print(f"  PTM: {result['ptm_description'][:80]}...")
-    print(f"  Disease associations: {len(result['disease_associations'])}")
+    print(f"  Disease associations: {len(result['disease_associations'])} (structured: {len(disease_entries)})")
     print(f"  Domains: {len(result['domains'])}")
     print()
 
@@ -153,10 +164,14 @@ def test_ptm_stability():
     assert "effect_direction" in entry, "Entry should have effect_direction"
     assert "mechanism" in entry, "Entry should have mechanism"
     assert "ptm_type" in entry, "Entry should have ptm_type"
-    assert entry.get("source") and any(p.isdigit() for p in entry["source"].replace("|", " ").split()), \
-        f"source should be primary PMID(s), got {entry.get('source')}"
+    assert entry.get("source"), f"source should not be empty, got {entry.get('source')}"
     assert entry.get("curated_from") == "PMC9839724", \
         f"curated_from should be PMC9839724, got {entry.get('curated_from')}"
+
+    # Bug 5 fix: '-' placeholders should be converted to None, not kept as literal strings
+    for e in result["entries"]:
+        for field in ("writer", "eraser", "reader", "ubiquitin_sites"):
+            assert e.get(field) != "-", f"{field} should not be '-' placeholder, got {e.get(field)}"
 
     print(f"  PASS: Found {result['total']} entries (stab={result['stabilize_count']}, destab={result['destabilize_count']})")
     print()

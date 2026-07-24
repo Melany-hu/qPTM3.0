@@ -393,10 +393,11 @@ def _update_state_from_tools(
                     "ptm_description": result.get("ptm_description"),
                     "domains": result.get("domains", []),
                 }])
-                if result.get("disease_associations"):
+                if result.get("disease_associations") or result.get("disease_entries"):
                     state.add_disease([{
                         "source": "UniProt",
-                        "diseases": result["disease_associations"],
+                        "diseases": result.get("disease_associations", []),
+                        "disease_entries": result.get("disease_entries", []),
                     }])
 
         elif tool_name in ("interpro_domains", "pfam_domains"):

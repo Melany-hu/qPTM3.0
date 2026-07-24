@@ -117,6 +117,7 @@ def _uniprot_annotation(uniprot_ac: str) -> dict[str, Any]:
     function_texts: list[str] = []
     ptm_texts: list[str] = []
     disease_texts: list[str] = []
+    disease_entries: list[dict[str, Any]] = []
     subcellular_texts: list[str] = []
     pathway_texts: list[str] = []
 
@@ -132,13 +133,41 @@ def _uniprot_annotation(uniprot_ac: str) -> dict[str, Any]:
             ptm_texts.extend(_extract_text_values(c.get("texts", [])))
 
         elif ctype == "DISEASE":
-            # DISEASE comments store text in note.texts, plus disease metadata
+            # DISEASE comments store text in note.texts, plus structured disease metadata
             note_texts = _extract_note_texts(c)
             disease_texts.extend(note_texts)
-            # Also check for diseaseId field
-            disease_id = c.get("diseaseId", "")
-            if disease_id and disease_id not in note_texts:
-                disease_texts.append(disease_id)
+            # Extract structured disease fields (diseaseId, accession, acronym, description, cross-refs)
+            disease_obj = c.get("disease")
+            if isinstance(disease_obj, dict):
+                entry: dict[str, Any] = {
+                    "disease_id": disease_obj.get("diseaseId", ""),
+                    "accession": disease_obj.get("diseaseAccession", ""),
+                    "acronym": disease_obj.get("acronym", ""),
+                    "description": disease_obj.get("description", ""),
+                }
+                # Cross-reference (e.g., MIM/OMIM)
+                xref = disease_obj.get("diseaseCrossReference")
+                if isinstance(xref, dict):
+                    entry["cross_reference"] = {
+                        "database": xref.get("database", ""),
+                        "id": xref.get("id", ""),
+                    }
+                # Evidence PubMed IDs
+                evidences = disease_obj.get("evidences", [])
+                pmids = [
+                    e.get("id", "") for e in evidences
+                    if isinstance(e, dict) and e.get("source") == "PubMed" and e.get("id")
+                ]
+                if pmids:
+                    entry["pmids"] = pmids[:10]
+                disease_entries.append(entry)
+                # Also add diseaseId to text list for backward compatibility
+                did = entry["disease_id"]
+                if did and did not in disease_texts:
+                    disease_texts.append(did)
+            # Fallback: check for top-level diseaseId field (older API format)
+            elif c.get("diseaseId") and c.get("diseaseId") not in disease_texts:
+                disease_texts.append(c.get("diseaseId"))
 
         elif ctype == "SUBCELLULAR LOCATION":
             # Subcellular location has both note.texts and subcellularLocations[].location.value
@@ -212,6 +241,7 @@ def _uniprot_annotation(uniprot_ac: str) -> dict[str, Any]:
         "ptm_description": ptm_text[:1500] if ptm_text else None,
         "domains": unique_domains[:10],
         "disease_associations": disease_texts[:10],
+        "disease_entries": disease_entries[:10],
         "subcellular_location": subcellular_text[:500] if subcellular_text else None,
         "pathway": pathway_text[:500] if pathway_text else None,
     }

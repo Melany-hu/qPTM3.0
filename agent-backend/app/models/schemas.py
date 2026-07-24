@@ -141,6 +141,7 @@ class UniProtAnnotation(BaseModel):
     ptm_description: str | None = None
     domains: list[str] = Field(default_factory=list)
     disease_associations: list[str] = Field(default_factory=list)
+    disease_entries: list[dict[str, Any]] = Field(default_factory=list)
     subcellular_location: str | None = None
 
 

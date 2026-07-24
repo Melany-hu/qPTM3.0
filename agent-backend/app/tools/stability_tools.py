@@ -79,6 +79,11 @@ def _load_stability_data() -> dict[str, list[dict[str, Any]]]:
                     except ValueError:
                         pass
 
+                def _clean(val: str) -> str | None:
+                    """Convert empty string or '-' placeholder to None."""
+                    v = (val or "").strip()
+                    return v if v and v != "-" else None
+
                 entry = {
                     "uniprot_ac": acc,
                     "gene": row.get("gene", "").strip(),
@@ -86,10 +91,10 @@ def _load_stability_data() -> dict[str, list[dict[str, Any]]]:
                     "position": position,
                     "effect_direction": row.get("effect_direction", "").strip(),
                     "mechanism": row.get("mechanism", "").strip(),
-                    "writer": row.get("writer", "").strip() or None,
-                    "eraser": row.get("eraser", "").strip() or None,
-                    "reader": row.get("reader", "").strip() or None,
-                    "ubiquitin_sites": row.get("ubiquitin_sites", "").strip() or None,
+                    "writer": _clean(row.get("writer", "")),
+                    "eraser": _clean(row.get("eraser", "")),
+                    "reader": _clean(row.get("reader", "")),
+                    "ubiquitin_sites": _clean(row.get("ubiquitin_sites", "")),
                     "evidence": row.get("evidence", "").strip(),
                     "source": row.get("source", "").strip(),
                     "curated_from": row.get("curated_from", "").strip() or "PMC9839724",
