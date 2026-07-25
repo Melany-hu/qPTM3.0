@@ -1,0 +1,62 @@
+id: kaka
+name: KAKA
+aspect: enzymes
+access: local
+
+description: >
+  KAKA (Kinase Activity related Key Alterations) — literature-curated
+  mutations that alter protein kinase activity, classified as increase,
+  decrease, kinase-dead, or no-effect. Covers 2553 experimentally validated
+  alterations across 421 proteins in 8 species. Homepage:
+  https://kaka.omicsbio.info/
+
+homepage: https://kaka.omicsbio.info/
+api_base: null
+api_docs: https://kaka.omicsbio.info/
+citation: >
+  Protein kinases are pivotal regulators of cellular signaling, and their
+  genetic variations are frequently implicated in diseases. KAKA curates
+  2553 experimentally validated kinase activity-related key alterations
+  from the literature (increase, decrease, kinase-dead, no-effect),
+  covering 421 proteins in 8 species.
+doi: 10.1016/j.jgg.2026.03.010
+pmid: "41839313"
+license: See https://kaka.omicsbio.info/
+notes: >
+  Source file: qevent.xlsx (2553 curated rows).
+  Evidence level: curated experimental (literature).
+  Prepare: `python -m app.sources.prepare_kaka`
+  Build: `python -m app.sources.build_index kaka`
+
+tools:
+  - kaka_kinase_mutations
+
+files:
+  - id: events
+    path: tables/events.tsv
+    description: >
+      Literature-curated kinase mutations and their effects on enzyme activity
+    columns:
+      - gene
+      - protein_name
+      - uniprot
+      - uniprot_base
+      - review
+      - mutation
+      - aa_from
+      - aa_to
+      - position
+      - enzyme_activity
+      - organism
+      - species
+      - pmids
+      - description
+    index_keys:
+      - gene
+      - uniprot
+      - uniprot_base
+      - mutation
+      - position
+      - enzyme_activity
+      - organism
+    approx_rows: 2553

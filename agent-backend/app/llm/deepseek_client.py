@@ -33,6 +33,8 @@ class DeepSeekClient:
         tools: list[dict[str, Any]] | None = None,
         temperature: float = 0.3,
         max_tokens: int = 4096,
+        *,
+        disable_thinking: bool = False,
     ) -> dict[str, Any]:
         """Non-streaming completion with optional function calling.
 
@@ -47,6 +49,10 @@ class DeepSeekClient:
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"
+        if disable_thinking:
+            # deepseek-v4-flash otherwise spends the token budget on reasoning_content
+            # and can finish with empty visible content (finish_reason=length).
+            kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
 
         response = self._client.chat.completions.create(**kwargs)
         choice = response.choices[0]
@@ -62,7 +68,9 @@ class DeepSeekClient:
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
         temperature: float = 0.3,
-        max_tokens: int = 4096,
+        max_tokens: int = 8192,
+        *,
+        disable_thinking: bool = False,
     ):
         """Streaming completion that yields events.
 
@@ -70,6 +78,7 @@ class DeepSeekClient:
           - {"type": "text", "content": "..."} for text chunks
           - {"type": "tool_call", "name": "...", "arguments": {...}} for tool calls
           - {"type": "done", "finish_reason": "..."} when complete
+          - {"type": "error", "message": "..."} when the model returns no visible text
         """
         kwargs: dict[str, Any] = {
             "model": self.model,
@@ -81,20 +90,27 @@ class DeepSeekClient:
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"
+        if disable_thinking:
+            kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
 
         stream = self._client.chat.completions.create(**kwargs)
 
         # Accumulate tool call arguments across chunks
         tool_call_buffers: dict[int, dict[str, Any]] = {}
+        emitted_text = False
+        last_finish: str | None = None
 
         for chunk in stream:
             if not chunk.choices:
                 continue
             delta = chunk.choices[0].delta
             finish_reason = chunk.choices[0].finish_reason
+            if finish_reason:
+                last_finish = finish_reason
 
             # Text content
             if delta.content:
+                emitted_text = True
                 yield {"type": "text", "content": delta.content}
 
             # Tool calls (may arrive in fragments)
@@ -127,6 +143,20 @@ class DeepSeekClient:
                         "id": buf["id"],
                         "name": buf["name"],
                         "arguments": args,
+                    }
+                if not emitted_text and not tool_call_buffers:
+                    logger.error(
+                        "LLM stream finished with empty content (finish_reason=%s)",
+                        last_finish,
+                    )
+                    yield {
+                        "type": "error",
+                        "message": (
+                            "The model returned an empty answer "
+                            f"(finish_reason={last_finish or 'unknown'}). "
+                            "This often happens when reasoning consumes the token budget; "
+                            "please retry."
+                        ),
                     }
                 yield {"type": "done", "finish_reason": finish_reason}
                 break

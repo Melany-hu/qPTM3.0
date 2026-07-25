@@ -30,6 +30,8 @@ UBIBROWSER_URL = DATABASE_CATALOG["UbiBrowser"]["url"]
 GPSUBER_URL = DATABASE_CATALOG["GPS-Uber"]["url"]
 GPS6_URL = DATABASE_CATALOG["GPS 6.0"]["url"]
 GPSSUMO2_URL = DATABASE_CATALOG["GPS-SUMO 2.0"]["url"]
+KAKA_URL = DATABASE_CATALOG["KAKA"]["url"]
+EKPI_URL = DATABASE_CATALOG["eKPI"]["url"]
 DBPTM_URL = DATABASE_CATALOG["dbPTM"]["url"]
 ACTIVEDRIVER_URL = DATABASE_CATALOG["ActiveDriverDB"]["url"]
 PMADS_URL = DATABASE_CATALOG["PMADS"]["url"]
@@ -411,6 +413,99 @@ def extract_citations(
                 citations,
                 source_db="GPS-SUMO 2.0",
                 label=f"GPS-SUMO 2.0 literature PMID {pmid}",
+                source_type=SourceType.literature,
+                pmid=pmid,
+                evidence_level=EvidenceLevel.experimental,
+            )
+
+    elif tool_name == "kaka_kinase_mutations":
+        _cite(
+            citations,
+            source_db="KAKA",
+            label="KAKA kinase activity–related key alterations",
+            url=result.get("homepage") or KAKA_URL,
+            doi=result.get("doi") or "10.1016/j.jgg.2026.03.010",
+            pmid=str(result.get("pmid") or "41839313"),
+            evidence_level=EvidenceLevel.curated,
+            detail=f"{result.get('total', 0)} curated alteration(s)",
+        )
+        pmids = {
+            str(p).strip()
+            for row in (result.get("alterations") or [])[:30]
+            for p in (row.get("pmids") or [])
+            if str(p).strip().isdigit()
+        }
+        for pmid in sorted(pmids)[:6]:
+            _cite(
+                citations,
+                source_db="KAKA",
+                label=f"KAKA literature PMID {pmid}",
+                source_type=SourceType.literature,
+                pmid=pmid,
+                evidence_level=EvidenceLevel.experimental,
+            )
+
+    elif tool_name == "ekpi_kinases":
+        n_exp = len(result.get("experimental_kinases") or [])
+        n_pred = len(result.get("predicted_only_kinases") or [])
+        _cite(
+            citations,
+            source_db="eKPI",
+            label="eKPI kinase–phosphosite evidence (experimental + predicted)",
+            url=result.get("homepage") or EKPI_URL,
+            doi=result.get("doi") or "10.1093/bib/bbaf143",
+            pmid=str(result.get("pmid") or "40194556"),
+            evidence_level=(
+                EvidenceLevel.curated if n_exp else EvidenceLevel.predicted
+            ),
+            detail=(
+                f"{result.get('total', 0)} kinase(s) for "
+                f"{result.get('site') or result.get('position') or ''} "
+                f"(experimental×{n_exp}, predicted-only×{n_pred})"
+            ),
+        )
+        pmids = {
+            str(p).strip()
+            for row in (result.get("kinases") or [])[:30]
+            for p in (row.get("experimental_pmids") or [])
+            if str(p).strip().isdigit()
+        }
+        for pmid in sorted(pmids)[:6]:
+            _cite(
+                citations,
+                source_db="eKPI",
+                label=f"eKPI experimental KPI PMID {pmid}",
+                source_type=SourceType.literature,
+                pmid=pmid,
+                evidence_level=EvidenceLevel.experimental,
+            )
+
+    elif tool_name == "ekpi_quantitative":
+        _cite(
+            citations,
+            source_db="eKPI",
+            label="eKPI Quantitative kinase–phosphosite correlations",
+            url=result.get("homepage") or EKPI_URL,
+            doi=result.get("doi") or "10.1093/bib/bbaf143",
+            pmid=str(result.get("pmid") or "40194556"),
+            evidence_level=EvidenceLevel.predicted,
+            detail=(
+                f"{result.get('total', 0)} correlation(s) for "
+                f"{result.get('site') or result.get('position') or ''} "
+                f"(cohort={result.get('cohort')})"
+            ),
+        )
+        pmids = {
+            str(p).strip()
+            for row in (result.get("correlations") or [])[:30]
+            for p in [row.get("pmid")]
+            if p and str(p).strip().isdigit()
+        }
+        for pmid in sorted(pmids)[:6]:
+            _cite(
+                citations,
+                source_db="eKPI",
+                label=f"eKPI cohort dataset PMID {pmid}",
                 source_type=SourceType.literature,
                 pmid=pmid,
                 evidence_level=EvidenceLevel.experimental,
@@ -1246,6 +1341,77 @@ def compact_tool_data(tool_name: str, result: dict[str, Any]) -> dict[str, Any]:
         compact["note"] = result.get("note")
         compact["sites"] = (result.get("sites") or [])[:15]
         compact["sims"] = (result.get("sims") or [])[:10]
+
+    elif tool_name == "kaka_kinase_mutations":
+        compact["total"] = result.get("total", 0)
+        compact["gene"] = result.get("gene")
+        compact["uniprot_ac"] = result.get("uniprot_ac")
+        compact["mutation"] = result.get("mutation")
+        compact["position"] = result.get("position")
+        compact["enzyme_activity"] = result.get("enzyme_activity")
+        compact["organism"] = result.get("organism")
+        compact["activity_counts"] = result.get("activity_counts")
+        compact["note"] = result.get("note")
+        compact["alterations"] = [
+            {
+                "gene": a.get("gene"),
+                "uniprot": a.get("uniprot"),
+                "mutation": a.get("mutation"),
+                "position": a.get("position"),
+                "enzyme_activity": a.get("enzyme_activity"),
+                "organism": a.get("organism"),
+                "pmids": a.get("pmids"),
+                "description": (a.get("description") or "")[:350],
+            }
+            for a in (result.get("alterations") or [])[:15]
+        ]
+
+    elif tool_name == "ekpi_kinases":
+        compact["total"] = result.get("total", 0)
+        compact["gene"] = result.get("gene")
+        compact["uniprot_ac"] = result.get("uniprot_ac")
+        compact["position"] = result.get("position")
+        compact["site"] = result.get("site")
+        compact["evidence_type"] = result.get("evidence_type")
+        compact["experimental_kinases"] = result.get("experimental_kinases")
+        compact["predicted_only_kinases"] = (result.get("predicted_only_kinases") or [])[:20]
+        compact["note"] = result.get("note")
+        compact["kinases"] = [
+            {
+                "kinase_gene": k.get("kinase_gene"),
+                "evidence_levels": k.get("evidence_levels"),
+                "experimental_pmids": k.get("experimental_pmids"),
+                "prediction_tools": k.get("prediction_tools"),
+                "best_correlation": k.get("best_correlation"),
+            }
+            for k in (result.get("kinases") or [])[:20]
+        ]
+
+    elif tool_name == "ekpi_quantitative":
+        compact["total"] = result.get("total", 0)
+        compact["gene"] = result.get("gene")
+        compact["uniprot_ac"] = result.get("uniprot_ac")
+        compact["position"] = result.get("position")
+        compact["site"] = result.get("site")
+        compact["cohort"] = result.get("cohort")
+        compact["kinases_found"] = result.get("kinases_found")
+        compact["positive_rho"] = result.get("positive_rho")
+        compact["negative_rho"] = result.get("negative_rho")
+        compact["note"] = result.get("note")
+        compact["correlations"] = [
+            {
+                "kinase_gene": c.get("kinase_gene"),
+                "kinase_feature": c.get("kinase_feature"),
+                "feature_type": c.get("feature_type"),
+                "rho": c.get("rho"),
+                "pvalue": c.get("pvalue"),
+                "n": c.get("n"),
+                "pmid": c.get("pmid"),
+                "cancer_type": c.get("cancer_type"),
+                "cohort": c.get("cohort"),
+            }
+            for c in (result.get("correlations") or [])[:15]
+        ]
 
     elif tool_name == "psp_disease_sites":
         compact["total"] = result.get("total", 0)

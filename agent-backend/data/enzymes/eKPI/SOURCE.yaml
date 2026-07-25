@@ -1,0 +1,56 @@
+id: ekpi
+name: eKPI
+aspect: enzymes
+access: hybrid
+
+description: >
+  eKPI (evidence for Kinase-Phosphosite Interconnection) — integrates
+  experimental literature KPIs, predictions from 7 kinase-site tools, and
+  cancer multi-omics Spearman correlations (mRNA / protein / kinase
+  phosphosites vs substrate sites) across 23 tumor and 15 adjacent-normal
+  datasets. Homepage: https://ekpi.omicsbio.info/
+
+homepage: https://ekpi.omicsbio.info/
+api_base: null
+api_docs: https://ekpi.omicsbio.info/help
+citation: >
+  Inferring kinase–phosphosite regulation from phosphoproteome-enriched
+  cancer multi-omics datasets. Brief Bioinform. 2025;26(2):bbaf143.
+doi: 10.1093/bib/bbaf143
+pmid: "40194556"
+license: See https://ekpi.omicsbio.info/
+notes: >
+  Site index: tables/sites.tsv (~197k phosphosites) from ekpi_all_phosphosite.txt.
+  Quantitative matrices: per-site gzip CSVs under EKPI_FINAL_RESULT_DIR
+  (default /var/www/html/ekpi/final_result; ~78 GB — queried on demand, not copied).
+  Quantification entry format:
+    feature#rho#pvalue#n#pmid#cohort
+    feature = Pro | mRNA | pS##/pT##/pY## (kinase phosphosite)
+    pmid    = source multi-omics dataset (mapped to cancer_type in tool)
+    cohort  = cancer Tumor | cancer Normal
+  Evidence level: quantitative correlation (predicted interconnection support).
+  Prepare: `python -m app.sources.prepare_ekpi`
+  Build: `python -m app.sources.build_index ekpi`
+
+tools:
+  - ekpi_kinases
+  - ekpi_quantitative
+
+files:
+  - id: sites
+    path: tables/sites.tsv
+    description: Phosphosite lookup (UniProt / gene / position → final_result file key)
+    columns:
+      - uniprot
+      - uniprot_base
+      - gene
+      - gene_token
+      - protein_name
+      - position
+      - residue
+      - site
+      - flank_n
+      - flank_c
+      - file_key
+    index_keys: [uniprot, uniprot_base, gene, gene_token, position, site, file_key]
+    approx_rows: 197282

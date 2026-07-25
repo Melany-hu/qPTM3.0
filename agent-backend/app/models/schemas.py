@@ -177,6 +177,11 @@ class ChatRequest(BaseModel):
     history: list[ChatMessage] = Field(default_factory=list)
 
 
+class PdfExportRequest(BaseModel):
+    markdown: str
+    title: str | None = None
+
+
 class ToolCallEvent(BaseModel):
     """SSE event: agent is calling a tool."""
     tool_name: str

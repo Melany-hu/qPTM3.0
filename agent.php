@@ -116,57 +116,6 @@ body.agent-page {
 }
 
 /* ── Stage indicator ──────────────────────────────────── */
-.stage-bar {
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--border);
-  padding: 10px 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  flex-shrink: 0;
-  overflow-x: auto;
-}
-.stage-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 14px;
-  font-size: 13px;
-  color: var(--text-muted);
-  white-space: nowrap;
-  border-radius: 20px;
-  transition: all 0.3s ease;
-}
-.stage-item.active {
-  font-weight: 600;
-  color: var(--primary);
-  background: var(--primary-light);
-  box-shadow: 0 1px 4px rgba(14, 116, 211, 0.12);
-}
-.stage-item.active .stage-dot {
-  transform: scale(1.15);
-  box-shadow: 0 0 0 3px rgba(14, 116, 211, 0.2);
-}
-.stage-item.done { color: var(--primary-alt); }
-.stage-item.done .stage-dot { background: var(--primary-alt); }
-.stage-dot {
-  width: 8px; height: 8px;
-  border-radius: 50%;
-  background: var(--border-dark);
-  transition: all 0.3s ease;
-  flex-shrink: 0;
-}
-.stage-item.active .stage-dot { background: var(--primary); }
-.stage-arrow {
-  color: var(--border-dark);
-  font-size: 12px;
-  opacity: 0.6;
-  flex-shrink: 0;
-}
-
 /* ── Chat area ────────────────────────────────────────── */
 .chat-area {
   flex: 1;
@@ -342,38 +291,7 @@ body.agent-page {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  align-self: center;
-}
-
-.msg-avatar {
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 14px;
-  font-weight: 700;
-  overflow: hidden;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
-  align-self: center;
-}
-.message.user .msg-avatar {
-  background: #fff;
-  color: #0e74d3;
-}
-.message.assistant .msg-avatar {
-  background: var(--bg-white);
-  border: 1px solid var(--border);
-  padding: 5px;
-  box-sizing: border-box;
-}
-.message.assistant .msg-avatar img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  display: block;
+  align-self: stretch;
 }
 
 .msg-content {
@@ -387,7 +305,7 @@ body.agent-page {
   word-wrap: break-word;
   font-size: var(--font-size-md);
   line-height: 1.6;
-  align-self: center;
+  align-self: stretch;
 }
 .message.user .msg-content {
   background: linear-gradient(135deg, #e8f2ff 0%, var(--primary-light) 100%);
@@ -431,9 +349,26 @@ body.agent-page {
 .msg-content li { margin-bottom: 4px; }
 .msg-content a { color: var(--primary); }
 .msg-content a:hover { color: var(--primary-dark); }
-.msg-content h1 { font-size: 1.3em; font-weight: 700; margin: 14px 0 8px; }
-.msg-content h2 { font-size: 1.15em; font-weight: 700; margin: 12px 0 6px; color: var(--text); }
-.msg-content h3 { font-size: 1.05em; font-weight: 600; margin: 10px 0 6px; color: var(--primary-dark); }
+.msg-content h1 { font-size: 1.3em; font-weight: 700; margin: 14px 0 8px; color: var(--primary); }
+.msg-content h2 { font-size: 1.15em; font-weight: 700; margin: 12px 0 6px; color: var(--primary); }
+.msg-content h3 { font-size: 1.05em; font-weight: 600; margin: 10px 0 6px; color: var(--primary); }
+.msg-content h4 { font-size: 1em; font-weight: 600; margin: 10px 0 6px; color: var(--primary); }
+.msg-content h5 { font-size: 0.95em; font-weight: 600; margin: 8px 0 4px; color: var(--primary-dark); }
+.msg-content h6 { font-size: 0.9em; font-weight: 600; margin: 8px 0 4px; color: var(--text-light); }
+.msg-content blockquote {
+  margin: 10px 0;
+  padding: 10px 14px;
+  border-left: 3px solid var(--primary-medium);
+  background: rgba(232, 242, 255, 0.55);
+  border-radius: 0 8px 8px 0;
+  color: var(--text);
+}
+.msg-content blockquote p { margin: 0 0 6px; }
+.msg-content blockquote p:last-child { margin-bottom: 0; }
+/* Numbered logic-line section titles sometimes rendered as bold paragraphs */
+.message.assistant .msg-content > p > strong:only-child {
+  color: var(--primary);
+}
 .msg-content hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
 .msg-actions {
   display: flex;
@@ -463,17 +398,27 @@ body.agent-page {
 }
 .msg-action-btn.copied { color: var(--primary-alt); border-color: var(--primary-alt); }
 
-/* ── Thinking / tool indicators ───────────────────────── */
-.thinking-tools {
+/* ── Collapsible headers (plan + tools) ───────────────── */
+.thinking-tools,
+.plan-panel {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  background: none;
+  border: none;
+  box-shadow: none;
+  animation: agentFadeIn 0.3s ease;
 }
-.thinking-tools-summary {
+.thinking-tools-summary,
+.plan-panel-header {
   display: none;
   align-items: center;
   gap: 6px;
   font-size: 12px;
+  font-weight: 500;
   color: var(--text-muted);
   padding: 8px 12px;
   border: 1px solid var(--border);
@@ -482,18 +427,41 @@ body.agent-page {
   cursor: pointer;
   user-select: none;
   transition: background 0.2s;
+  margin: 0;
 }
-.thinking-tools.has-tools .thinking-tools-summary { display: flex; }
-.thinking-tools-summary:hover { background: var(--primary-light); }
-.thinking-tools-summary i { color: var(--primary); }
-.thinking-tools-summary .toggle-arrow {
+.thinking-tools.has-tools .thinking-tools-summary,
+.plan-panel .plan-panel-header { display: flex; }
+.thinking-tools-summary:hover,
+.plan-panel-header:hover { background: var(--primary-light); }
+.thinking-tools-summary > i:first-child,
+.plan-panel-header > i:first-child { color: var(--primary); }
+.thinking-tools-summary .toggle-arrow,
+.plan-panel-header .toggle-arrow {
   margin-left: auto;
+  color: var(--text-muted);
+  font-weight: 400;
   transition: transform 0.2s ease;
 }
-.thinking-tools:not(.collapsed) .thinking-tools-summary .toggle-arrow {
+.thinking-tools:not(.collapsed) .thinking-tools-summary .toggle-arrow,
+.plan-panel:not(.collapsed) .plan-panel-header .toggle-arrow {
   transform: rotate(180deg);
 }
 .thinking-tools.collapsed .tool-indicator { display: none; }
+.plan-panel.collapsed .plan-panel-details { display: none; }
+
+.plan-panel-details {
+  padding: 14px 18px;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 2px 10px rgba(14, 116, 211, 0.08);
+}
+.plan-panel-summary {
+  font-size: 12px;
+  color: var(--text-light);
+  margin-bottom: 12px;
+  line-height: 1.5;
+}
 
 /* ── Tool call indicators ─────────────────────────────── */
 .tool-indicator {
@@ -551,15 +519,6 @@ body.agent-page {
 }
 .tool-indicator.success .tool-status { color: var(--primary-alt); }
 .tool-indicator.error .tool-status { color: #c0392b; }
-.tool-indicator .spinner {
-  flex-shrink: 0;
-  width: 14px; height: 14px;
-  border: 2px solid var(--border);
-  border-top-color: var(--primary);
-  border-radius: 50%;
-  animation: agentSpin 0.8s linear infinite;
-}
-@keyframes agentSpin { to { transform: rotate(360deg); } }
 
 /* ── msg-content loading / streaming ──────────────────── */
 .msg-content.is-loading,
@@ -593,32 +552,7 @@ body.agent-page {
   50% { opacity: 0; }
 }
 
-/* ── Research plan panel ──────────────────────────────── */
-.plan-panel {
-  width: 100%;
-  margin: 0;
-  padding: 14px 18px;
-  background: rgba(255, 255, 255, 0.95);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  box-shadow: 0 2px 10px rgba(14, 116, 211, 0.08);
-  animation: agentFadeIn 0.3s ease;
-}
-.plan-panel-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--primary);
-  margin-bottom: 6px;
-}
-.plan-panel-summary {
-  font-size: 12px;
-  color: var(--text-light);
-  margin-bottom: 12px;
-  line-height: 1.5;
-}
+/* ── Research plan steps ──────────────────────────────── */
 .plan-steps { display: flex; flex-direction: column; gap: 8px; }
 .plan-step {
   display: flex;
@@ -763,7 +697,6 @@ body.agent-page {
   .input-wrapper { width: calc(100% - 32px); margin-bottom: 12px; }
   .example-grid { grid-template-columns: 1fr; }
   .message { max-width: 100%; }
-  .stage-bar { padding: 8px 12px; justify-content: flex-start; }
   .welcome-header {
     flex-direction: column;
     gap: 10px;
@@ -802,33 +735,6 @@ body.agent-page {
   </aside>
 
   <div class="agent-main">
-  <div class="stage-bar" id="stageBar">
-    <div class="stage-item" data-stage="idle">
-      <div class="stage-dot"></div>
-      <span>Start</span>
-    </div>
-    <span class="stage-arrow">→</span>
-    <div class="stage-item" data-stage="kinase">
-      <div class="stage-dot"></div>
-      <span>Stage 1: WHO</span>
-    </div>
-    <span class="stage-arrow">→</span>
-    <div class="stage-item" data-stage="conditions">
-      <div class="stage-dot"></div>
-      <span>Stage 2: WHEN</span>
-    </div>
-    <span class="stage-arrow">→</span>
-    <div class="stage-item" data-stage="where">
-      <div class="stage-dot"></div>
-      <span>Stage 3: WHERE</span>
-    </div>
-    <span class="stage-arrow">→</span>
-    <div class="stage-item" data-stage="function">
-      <div class="stage-dot"></div>
-      <span>Stage 4: WHY</span>
-    </div>
-  </div>
-
   <div class="chat-area" id="chatArea">
     <div class="welcome" id="welcome">
       <div class="welcome-header">
@@ -876,7 +782,6 @@ body.agent-page {
 <script>
 const CHAT_URL = '<?php echo htmlspecialchars($BACKEND_URL, ENT_QUOTES); ?>';
 const CONVERSATIONS_URL = CHAT_URL.replace(/\/chat\/?$/, '/conversations');
-const LOGO_URL = 'assets/img/logo.png';
 const CONV_STORAGE_KEY = 'qptm_agent_conversation_id';
 
 let sessionId = null;
@@ -884,13 +789,11 @@ let conversationId = localStorage.getItem(CONV_STORAGE_KEY) || null;
 let conversationList = [];
 let isStreaming = false;
 let chatHistory = [];
-const stageOrder = ['idle', 'kinase', 'conditions', 'where', 'function', 'synthesis'];
 
 const chatArea = document.getElementById('chatArea');
 const welcome = document.getElementById('welcome');
 const inputField = document.getElementById('inputField');
 const sendBtn = document.getElementById('sendBtn');
-const stageBar = document.getElementById('stageBar');
 const sidebarHistory = document.getElementById('sidebarHistory');
 
 function persistConversationId(id) {
@@ -934,7 +837,6 @@ function clearChatArea() {
   chatHistory = [];
   currentThinkingTools = null;
   currentPlanPanel = null;
-  updateStageIndicator('idle');
 }
 
 function startNewConversation() {
@@ -962,8 +864,11 @@ async function loadConversation(id, { force = false } = {}) {
     if (welcome) welcome.style.display = 'none';
     chatHistory = [];
     (data.messages || []).forEach((msg) => {
-      const contentDiv = addMessage(msg.role, msg.content);
-      if (msg.role === 'assistant') attachMessageActions(contentDiv, msg.content);
+      if (msg.role === 'assistant') {
+        addStoredAssistantMessage(msg.content, msg.meta);
+      } else {
+        addMessage(msg.role, msg.content);
+      }
       chatHistory.push({ role: msg.role, content: msg.content });
     });
     renderSidebar();
@@ -973,11 +878,16 @@ async function loadConversation(id, { force = false } = {}) {
   }
 }
 
+const messageRawText = new WeakMap();
+
 function attachMessageActions(contentDiv, rawText) {
   if (!contentDiv || contentDiv.querySelector('.msg-actions')) return;
   const actions = document.createElement('div');
   actions.className = 'msg-actions';
-  actions.dataset.rawText = rawText || '';
+  const text = rawText || '';
+  messageRawText.set(actions, text);
+  // Keep a short attribute fallback for tiny answers; large text stays in WeakMap.
+  if (text.length <= 1500) actions.dataset.rawText = text;
   const copyBtn = document.createElement('button');
   copyBtn.type = 'button';
   copyBtn.className = 'msg-action-btn';
@@ -995,9 +905,14 @@ function attachMessageActions(contentDiv, rawText) {
   contentDiv.appendChild(actions);
 }
 
-async function copyMessage(btn) {
+function getMessageRawText(btn) {
   const actions = btn.closest('.msg-actions');
-  const text = actions?.dataset.rawText || btn.closest('.msg-content')?.innerText || '';
+  if (!actions) return btn.closest('.msg-content')?.innerText || '';
+  return messageRawText.get(actions) || actions.dataset.rawText || btn.closest('.msg-content')?.innerText || '';
+}
+
+async function copyMessage(btn) {
+  const text = getMessageRawText(btn);
   try {
     await navigator.clipboard.writeText(text);
     btn.classList.add('copied');
@@ -1012,20 +927,309 @@ async function copyMessage(btn) {
   }
 }
 
-function downloadMessage(btn) {
-  const actions = btn.closest('.msg-actions');
-  const text = actions?.dataset.rawText || btn.closest('.msg-content')?.innerText || '';
+function loadScriptOnce(src) {
+  return new Promise((resolve, reject) => {
+    const existing = document.querySelector(`script[data-pdf-lib="${src}"]`);
+    if (existing) {
+      if (existing.dataset.loaded === '1') resolve();
+      else existing.addEventListener('load', () => resolve(), { once: true });
+      return;
+    }
+    const s = document.createElement('script');
+    s.src = src;
+    s.async = true;
+    s.dataset.pdfLib = src;
+    s.onload = () => {
+      s.dataset.loaded = '1';
+      resolve();
+    };
+    s.onerror = () => reject(new Error(`Failed to load ${src}`));
+    document.head.appendChild(s);
+  });
+}
+
+async function ensurePdfLibs() {
+  if (!window.html2canvas) {
+    await loadScriptOnce('https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js');
+  }
+  if (!window.jspdf?.jsPDF) {
+    await loadScriptOnce('https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js');
+  }
+}
+
+function loadImageDataUrl(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      canvas.getContext('2d').drawImage(img, 0, 0);
+      resolve({
+        dataUrl: canvas.toDataURL('image/png'),
+        width: img.naturalWidth,
+        height: img.naturalHeight,
+      });
+    };
+    img.onerror = () => reject(new Error(`Failed to load image: ${src}`));
+    img.src = src;
+  });
+}
+
+/** Build a per-row "has ink" mask so we can break pages between text lines. */
+function buildCanvasRowInkMask(canvas, alphaThreshold = 24) {
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const { width, height } = canvas;
+  const data = ctx.getImageData(0, 0, width, height).data;
+  const ink = new Uint8Array(height);
+  const stepX = Math.max(1, Math.floor(width / 400));
+  for (let y = 0; y < height; y++) {
+    const row = y * width * 4;
+    let hasInk = 0;
+    for (let x = 0; x < width; x += stepX) {
+      if (data[row + x * 4 + 3] > alphaThreshold) {
+        hasInk = 1;
+        break;
+      }
+    }
+    ink[y] = hasInk;
+  }
+  return ink;
+}
+
+/** Prefer cutting inside a blank gap near the ideal page end. */
+function findSafeCanvasCutY(ink, startY, idealEnd, minPagePx) {
+  const height = ink.length;
+  const hardEnd = Math.min(height, idealEnd);
+  if (hardEnd >= height) return height;
+  if (hardEnd - startY <= minPagePx) return hardEnd;
+
+  const searchFrom = Math.max(startY + minPagePx, hardEnd - Math.floor((hardEnd - startY) * 0.35));
+  let bestCut = hardEnd;
+  let bestGap = -1;
+  let y = hardEnd;
+  while (y > searchFrom) {
+    while (y > searchFrom && ink[y - 1]) y--;
+    if (y <= searchFrom) break;
+    const gapEnd = y;
+    while (y > searchFrom && !ink[y - 1]) y--;
+    const gapStart = y;
+    const gap = gapEnd - gapStart;
+    if (gap > bestGap) {
+      bestGap = gap;
+      bestCut = Math.min(hardEnd, gapStart + Math.ceil(gap / 2));
+    }
+    if (bestGap >= 4) break;
+  }
+  if (!ink[hardEnd - 1] && (hardEnd >= height || !ink[hardEnd])) return hardEnd;
+  return bestCut;
+}
+
+function sliceCanvasToDataUrl(sourceCanvas, srcY, sliceH) {
+  const sliceCanvas = document.createElement('canvas');
+  sliceCanvas.width = sourceCanvas.width;
+  sliceCanvas.height = sliceH;
+  const ctx = sliceCanvas.getContext('2d');
+  ctx.clearRect(0, 0, sliceCanvas.width, sliceCanvas.height);
+  ctx.drawImage(
+    sourceCanvas,
+    0, srcY, sliceCanvas.width, sliceH,
+    0, 0, sliceCanvas.width, sliceH,
+  );
+  return sliceCanvas.toDataURL('image/png');
+}
+
+/** Force tables/code to wrap; pin brand blues to match the live page. */
+function preparePdfExportStyles(root) {
+  const style = document.createElement('style');
+  style.textContent = `
+    .pdf-export, .pdf-export * { box-sizing: border-box !important; }
+    .pdf-export {
+      --primary: #0d57d6;
+      --primary-dark: #0d57d6;
+      --primary-light: #e0edff;
+      --primary-medium: #b3ccf5;
+      --primary-alt: #0868c2;
+      --text: #1e2022;
+      --text-light: #5e676f;
+      --text-muted: #8e97a0;
+      --border: #d4e1f5;
+      --bg: #f5f7fa;
+      width: 100% !important;
+      max-width: 100% !important;
+      overflow: hidden !important;
+      color: #1e2022 !important;
+      font-family: Georgia, "Times New Roman", serif !important;
+    }
+    .pdf-export img, .pdf-export pre, .pdf-export table {
+      max-width: 100% !important;
+    }
+    .pdf-export table {
+      width: 100% !important;
+      table-layout: fixed !important;
+      border-collapse: collapse !important;
+    }
+    .pdf-export th, .pdf-export td {
+      word-break: break-word !important;
+      overflow-wrap: anywhere !important;
+      white-space: normal !important;
+      vertical-align: top !important;
+    }
+    .pdf-export code, .pdf-export a {
+      word-break: break-all !important;
+      overflow-wrap: anywhere !important;
+      white-space: pre-wrap !important;
+    }
+    .pdf-export pre {
+      white-space: pre-wrap !important;
+      overflow: hidden !important;
+      word-break: break-word !important;
+    }
+    .pdf-export .msg-content a,
+    .pdf-export .msg-content h1,
+    .pdf-export .msg-content h2,
+    .pdf-export .msg-content h3,
+    .pdf-export .msg-content h4,
+    .pdf-export .msg-content h5,
+    .pdf-export .msg-content > p > strong:only-child {
+      color: #0d57d6 !important;
+    }
+    .pdf-export .msg-content a:hover {
+      color: #0d57d6 !important;
+    }
+  `;
+  root.prepend(style);
+}
+
+async function downloadMessage(btn) {
+  const contentDiv = btn.closest('.msg-content');
+  if (!contentDiv) return;
+
   const conv = conversationList.find((c) => c.id === conversationId);
-  const baseName = (conv?.title || 'qptm-agent').replace(/[^\w\-]+/g, '_').slice(0, 40);
-  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `${baseName || 'qptm-agent'}.txt`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+  const baseName = (conv?.title || 'qptm-agent').replace(/[^\w\-]+/g, '_').slice(0, 40) || 'qptm-agent';
+
+  const prevTitle = btn.title;
+  const prevHtml = btn.innerHTML;
+  btn.disabled = true;
+  btn.title = 'Generating PDF...';
+  btn.innerHTML = '<i class="ri-loader-4-line"></i>';
+
+  try {
+    await ensurePdfLibs();
+    const { jsPDF } = window.jspdf;
+
+    const exportEl = document.createElement('div');
+    exportEl.className = 'pdf-export';
+    exportEl.setAttribute('aria-hidden', 'true');
+    exportEl.style.cssText = [
+      'position:fixed',
+      'left:-10000px',
+      'top:0',
+      'width:680px',
+      'max-width:680px',
+      'padding:4px 2px',
+      'box-sizing:border-box',
+      'overflow:hidden',
+      'background:transparent',
+      'color:#1e2022',
+      'font-family:Georgia,"Times New Roman",serif',
+      'font-size:14px',
+      'line-height:1.65',
+    ].join(';');
+
+    const clone = contentDiv.cloneNode(true);
+    clone.classList.remove('is-loading', 'is-streaming');
+    clone.querySelector('.msg-actions')?.remove();
+    clone.querySelector('.msg-content-loading')?.remove();
+    clone.querySelector('.streaming-cursor')?.remove();
+    clone.style.cssText = [
+      'background:transparent',
+      'border:none',
+      'box-shadow:none',
+      'padding:0',
+      'margin:0',
+      'width:100%',
+      'max-width:100%',
+      'overflow:hidden',
+    ].join(';');
+    exportEl.appendChild(clone);
+    preparePdfExportStyles(exportEl);
+    document.body.appendChild(exportEl);
+
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+    const canvas = await window.html2canvas(exportEl, {
+      scale: 2,
+      backgroundColor: null,
+      useCORS: true,
+      logging: false,
+      width: 680,
+      windowWidth: 680,
+    });
+    exportEl.remove();
+
+    const logo = await loadImageDataUrl('assets/img/logo.png');
+    const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const pageW = pdf.internal.pageSize.getWidth();
+    const pageH = pdf.internal.pageSize.getHeight();
+    const margin = 16;
+    const footerH = 10;
+    const contentW = pageW - margin * 2;
+    const contentH = pageH - margin - footerH;
+    const imgW = contentW;
+    const pxPerMm = canvas.width / imgW;
+    const maxPagePx = Math.max(1, Math.floor(contentH * pxPerMm));
+    const minPagePx = Math.max(1, Math.floor(maxPagePx * 0.55));
+    const ink = buildCanvasRowInkMask(canvas);
+
+    const logoW = pageW * 0.42;
+    const logoH = logoW * (logo.height / logo.width);
+    const logoX = (pageW - logoW) / 2;
+    const logoY = (pageH - logoH) / 2;
+
+    let srcY = 0;
+    let page = 0;
+    while (srcY < canvas.height) {
+      if (page > 0) pdf.addPage();
+      pdf.setFillColor(255, 255, 255);
+      pdf.rect(0, 0, pageW, pageH, 'F');
+
+      pdf.saveGraphicsState();
+      pdf.setGState(new pdf.GState({ opacity: 0.14 }));
+      pdf.addImage(logo.dataUrl, 'PNG', logoX, logoY, logoW, logoH);
+      pdf.restoreGraphicsState();
+
+      const idealEnd = Math.min(canvas.height, srcY + maxPagePx);
+      const cutY = findSafeCanvasCutY(ink, srcY, idealEnd, minPagePx);
+      const sliceH = Math.max(1, cutY - srcY);
+      const sliceData = sliceCanvasToDataUrl(canvas, srcY, sliceH);
+      const sliceHmm = sliceH / pxPerMm;
+      pdf.addImage(sliceData, 'PNG', margin, margin, imgW, sliceHmm);
+
+      srcY = cutY;
+      page += 1;
+      if (page > 80) break;
+    }
+
+    const totalPages = pdf.internal.getNumberOfPages();
+    for (let i = 1; i <= totalPages; i++) {
+      pdf.setPage(i);
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(9);
+      pdf.setTextColor(140, 145, 155);
+      pdf.text(`${i} / ${totalPages}`, pageW / 2, pageH - 6, { align: 'center' });
+    }
+
+    pdf.save(`${baseName}.pdf`);
+  } catch (err) {
+    console.warn('PDF download failed:', err);
+    alert('Failed to generate PDF. Please try again.');
+  } finally {
+    btn.disabled = false;
+    btn.title = prevTitle;
+    btn.innerHTML = prevHtml;
+  }
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -1127,15 +1331,30 @@ function renderMarkdown(text) {
       continue;
     }
 
-    const h3 = trimmed.match(/^### (.+)$/);
-    const h2 = trimmed.match(/^## (.+)$/);
-    const h1 = trimmed.match(/^# (.+)$/);
-    if (h3 || h2 || h1) {
+    const heading = trimmed.match(/^(#{1,6})\s+(.+)$/);
+    if (heading) {
       closeList();
-      const tag = h3 ? 'h3' : h2 ? 'h2' : 'h1';
-      const content = h3 ? h3[1] : h2 ? h2[1] : h1[1];
-      result.push(`<${tag}>${applyInlineMarkdown(content)}</${tag}>`);
+      const level = heading[1].length;
+      result.push(`<h${level}>${applyInlineMarkdown(heading[2])}</h${level}>`);
       i++;
+      continue;
+    }
+
+    // Blockquotes: strip leading ">" — keep icons/emoji, never show the raw ">".
+    if (/^&gt;\s?/.test(trimmed) || /^>\s?/.test(trimmed)) {
+      closeList();
+      const quoteLines = [];
+      while (i < lines.length) {
+        const qTrim = lines[i].trim();
+        if (!/^&gt;\s?/.test(qTrim) && !/^>\s?/.test(qTrim)) break;
+        const body = qTrim.replace(/^(&gt;|>)\s?/, '');
+        if (body !== '') quoteLines.push(body);
+        i++;
+      }
+      if (quoteLines.length) {
+        const inner = quoteLines.map((l) => `<p>${applyInlineMarkdown(l)}</p>`).join('');
+        result.push(`<blockquote>${inner}</blockquote>`);
+      }
       continue;
     }
 
@@ -1183,20 +1402,6 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
-function createAvatar(role) {
-  const avatar = document.createElement('div');
-  avatar.className = 'msg-avatar';
-  if (role === 'user') {
-    avatar.textContent = 'U';
-  } else {
-    const img = document.createElement('img');
-    img.src = LOGO_URL;
-    img.alt = 'qPTM';
-    avatar.appendChild(img);
-  }
-  return avatar;
-}
-
 function addMessage(role, content) {
   if (welcome) welcome.style.display = 'none';
 
@@ -1207,10 +1412,89 @@ function addMessage(role, content) {
   contentDiv.className = 'msg-content';
   contentDiv.innerHTML = role === 'user' ? escapeHtml(content) : renderMarkdown(content);
 
-  msg.appendChild(createAvatar(role));
   msg.appendChild(contentDiv);
   chatArea.appendChild(msg);
   chatArea.scrollTop = chatArea.scrollHeight;
+  return contentDiv;
+}
+
+function createPlanPanelEl(data, collapsed = false) {
+  const panel = document.createElement('div');
+  panel.className = 'plan-panel' + (collapsed ? ' collapsed' : '');
+  const stepsHtml = (data.steps || []).map(s => `
+    <div class="plan-step${s.status ? ` ${escapeHtml(s.status)}` : ''}" data-step="${s.step}">
+      <div class="plan-step-num">${s.step}</div>
+      <div class="plan-step-body">
+        <div class="plan-step-title">${escapeHtml(s.title || '')}</div>
+        <div class="plan-step-meta">${escapeHtml(s.database || '')} · ${escapeHtml(s.tool || '')}</div>
+        <div class="plan-step-desc">${escapeHtml(s.description || '')}</div>
+      </div>
+    </div>
+  `).join('');
+  panel.innerHTML = `
+    <div class="plan-panel-header"><i class="ri-route-line"></i> Research Plan<i class="ri-arrow-down-s-line toggle-arrow"></i></div>
+    <div class="plan-panel-details">
+      <div class="plan-panel-summary">${escapeHtml(data.intent_summary || '')}</div>
+      <div class="plan-steps">${stepsHtml}</div>
+    </div>
+  `;
+  panel.querySelector('.plan-panel-header').addEventListener('click', () => {
+    panel.classList.toggle('collapsed');
+  });
+  return panel;
+}
+
+function createThinkingToolsEl(tools, collapsed = false) {
+  const el = document.createElement('div');
+  el.className = 'thinking-tools has-tools' + (collapsed ? ' collapsed' : '');
+  const count = tools.length;
+  const summary = document.createElement('div');
+  summary.className = 'thinking-tools-summary';
+  summary.innerHTML = `<i class="ri-database-2-line"></i><span class="thinking-summary-text">Queried ${count} data source${count > 1 ? 's' : ''}</span><i class="ri-arrow-down-s-line toggle-arrow"></i>`;
+  summary.addEventListener('click', () => el.classList.toggle('collapsed'));
+  el.appendChild(summary);
+
+  tools.forEach((t) => {
+    const success = t.success !== false;
+    const ind = document.createElement('div');
+    ind.className = 'tool-indicator ' + (success ? 'success' : 'error');
+    ind.innerHTML = `
+      <i class="ri-tools-line tool-icon"></i>
+      <div class="tool-indicator-body">
+        <span class="tool-name">${escapeHtml(t.tool_name || '')}</span>
+        <span class="tool-args">${escapeHtml(formatArgs(t.arguments || {}))}</span>
+        <span class="tool-summary">${escapeHtml((t.summary || '').substring(0, 120))}</span>
+      </div>
+      <span class="tool-status">${success ? '✓ Done' : '✗ Error'}</span>
+    `;
+    el.appendChild(ind);
+  });
+  return el;
+}
+
+function addStoredAssistantMessage(content, meta) {
+  if (welcome) welcome.style.display = 'none';
+
+  const msg = document.createElement('div');
+  msg.className = 'message assistant';
+
+  const body = document.createElement('div');
+  body.className = 'assistant-body';
+
+  if (meta?.plan) {
+    body.appendChild(createPlanPanelEl(meta.plan, true));
+  }
+  if (meta?.tools?.length) {
+    body.appendChild(createThinkingToolsEl(meta.tools, true));
+  }
+
+  const contentDiv = document.createElement('div');
+  contentDiv.className = 'msg-content';
+  contentDiv.innerHTML = renderMarkdown(content || '');
+  body.appendChild(contentDiv);
+  msg.appendChild(body);
+  chatArea.appendChild(msg);
+  attachMessageActions(contentDiv, content || '');
   return contentDiv;
 }
 
@@ -1239,7 +1523,6 @@ function beginAssistantTurn() {
 
   body.appendChild(thinkingTools);
   body.appendChild(contentDiv);
-  msg.appendChild(createAvatar('assistant'));
   msg.appendChild(body);
   chatArea.appendChild(msg);
 
@@ -1313,12 +1596,16 @@ function collapseThinkingTools() {
   currentThinkingTools.classList.add('collapsed');
 }
 
+function collapsePlanPanel() {
+  if (!currentPlanPanel) return;
+  currentPlanPanel.classList.add('collapsed');
+}
+
 function addToolIndicator(toolName, args) {
   if (!currentThinkingTools) return null;
   const ind = document.createElement('div');
   ind.className = 'tool-indicator';
   ind.innerHTML = `
-    <span class="spinner"></span>
     <i class="ri-tools-line tool-icon"></i>
     <div class="tool-indicator-body">
       <span class="tool-name">${escapeHtml(toolName)}</span>
@@ -1348,8 +1635,6 @@ function formatArgs(args) {
 function updateToolIndicator(ind, success, summary) {
   ind.classList.remove('success', 'error');
   ind.classList.add(success ? 'success' : 'error');
-  const spinner = ind.querySelector('.spinner');
-  if (spinner) spinner.remove();
   const status = ind.querySelector('.tool-status');
   status.textContent = success ? '✓ Done' : '✗ Error';
   if (summary) {
@@ -1360,23 +1645,7 @@ function updateToolIndicator(ind, success, summary) {
 }
 
 function addPlanPanel(data) {
-  const panel = document.createElement('div');
-  panel.className = 'plan-panel';
-  const stepsHtml = (data.steps || []).map(s => `
-    <div class="plan-step" data-step="${s.step}">
-      <div class="plan-step-num">${s.step}</div>
-      <div class="plan-step-body">
-        <div class="plan-step-title">${escapeHtml(s.title)}</div>
-        <div class="plan-step-meta">${escapeHtml(s.database)} · ${escapeHtml(s.tool)}</div>
-        <div class="plan-step-desc">${escapeHtml(s.description)}</div>
-      </div>
-    </div>
-  `).join('');
-  panel.innerHTML = `
-    <div class="plan-panel-header"><i class="ri-route-line"></i> Research Plan</div>
-    <div class="plan-panel-summary">${escapeHtml(data.intent_summary || '')}</div>
-    <div class="plan-steps">${stepsHtml}</div>
-  `;
+  const panel = createPlanPanelEl(data, false);
   const body = currentThinkingTools?.parentElement;
   if (body) {
     body.insertBefore(panel, currentThinkingTools);
@@ -1385,16 +1654,6 @@ function addPlanPanel(data) {
   }
   currentPlanPanel = panel;
   chatArea.scrollTop = chatArea.scrollHeight;
-}
-
-function updateStageIndicator(stage) {
-  const stageIdx = stageOrder.indexOf(stage);
-  const items = stageBar.querySelectorAll('.stage-item');
-  items.forEach((item, i) => {
-    item.classList.remove('active', 'done');
-    if (i < stageIdx) item.classList.add('done');
-    if (i === stageIdx) item.classList.add('active');
-  });
 }
 
 function updatePlanStep(stepData) {
@@ -1468,7 +1727,6 @@ async function sendMessage() {
           } else if (currentEvent === 'plan_created') {
             showContentLoading(assistantContent, 'Querying databases...');
             addPlanPanel(data);
-            if (data.steps && data.steps[0]) updateStageIndicator(data.steps[0].stage);
           } else if (currentEvent === 'step_started') {
             updatePlanStep(data);
           } else if (currentEvent === 'step_completed') {
@@ -1481,14 +1739,14 @@ async function sendMessage() {
             const lastInd = indicators[indicators.length - 1];
             if (lastInd) updateToolIndicator(lastInd, data.success, data.summary);
             showContentLoading(assistantContent, 'Generating answer...');
-          } else if (currentEvent === 'stage_update') {
-            updateStageIndicator(data.stage);
           } else if (currentEvent === 'done') {
             collapseThinkingTools();
+            collapsePlanPanel();
           } else if (currentEvent === 'error') {
             hideContentLoading(assistantContent);
             hideStreamingCursor(assistantContent);
             assistantContent.innerHTML = `<p style="color:#c0392b;">${data.message}</p>`;
+            collapsePlanPanel();
           }
 
           currentEvent = null;
@@ -1506,6 +1764,7 @@ async function sendMessage() {
       assistantContent.innerHTML = '<p style="color:var(--text-muted);">No response received.</p>';
     }
     collapseThinkingTools();
+    collapsePlanPanel();
     await loadConversationList();
 
   } catch (err) {
@@ -1513,6 +1772,7 @@ async function sendMessage() {
     hideStreamingCursor(assistantContent);
     assistantContent.innerHTML = `<p style="color:#c0392b;">Connection error: ${err.message}</p>
       <p style="font-size:13px;color:var(--text-muted);">Make sure the qPTM Agent backend is running at ${CHAT_URL}</p>`;
+    collapsePlanPanel();
   } finally {
     isStreaming = false;
     sendBtn.disabled = false;

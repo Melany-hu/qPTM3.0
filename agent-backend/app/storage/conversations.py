@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import uuid
 from datetime import datetime, timezone
@@ -42,12 +43,16 @@ def init_db() -> None:
                 conversation_id TEXT NOT NULL,
                 role TEXT NOT NULL,
                 content TEXT NOT NULL,
+                meta TEXT,
                 created_at TEXT NOT NULL,
                 FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
             );
             CREATE INDEX IF NOT EXISTS idx_msg_conv
                 ON messages(conversation_id, id ASC);
         """)
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(messages)").fetchall()}
+        if "meta" not in cols:
+            conn.execute("ALTER TABLE messages ADD COLUMN meta TEXT")
 
 
 def create_conversation(client_ip: str, title: str = "New conversation") -> dict[str, Any]:
@@ -73,6 +78,19 @@ def list_conversations(client_ip: str, limit: int = 50) -> list[dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
+def _parse_message_row(row: sqlite3.Row) -> dict[str, Any]:
+    msg = dict(row)
+    raw_meta = msg.pop("meta", None)
+    if raw_meta:
+        try:
+            msg["meta"] = json.loads(raw_meta)
+        except (TypeError, json.JSONDecodeError):
+            msg["meta"] = None
+    else:
+        msg["meta"] = None
+    return msg
+
+
 def get_conversation(conversation_id: str, client_ip: str) -> dict[str, Any] | None:
     with _connect() as conn:
         row = conn.execute(
@@ -82,12 +100,12 @@ def get_conversation(conversation_id: str, client_ip: str) -> dict[str, Any] | N
         if not row:
             return None
         messages = conn.execute(
-            "SELECT role, content, created_at FROM messages WHERE conversation_id = ? ORDER BY id ASC",
+            "SELECT role, content, meta, created_at FROM messages WHERE conversation_id = ? ORDER BY id ASC",
             (conversation_id,),
         ).fetchall()
     return {
         **dict(row),
-        "messages": [dict(m) for m in messages],
+        "messages": [_parse_message_row(m) for m in messages],
     }
 
 
@@ -100,12 +118,18 @@ def belongs_to_ip(conversation_id: str, client_ip: str) -> bool:
     return row is not None
 
 
-def add_message(conversation_id: str, role: str, content: str) -> None:
+def add_message(
+    conversation_id: str,
+    role: str,
+    content: str,
+    meta: dict[str, Any] | None = None,
+) -> None:
     now = _utcnow()
+    meta_json = json.dumps(meta, ensure_ascii=False) if meta else None
     with _connect() as conn:
         conn.execute(
-            "INSERT INTO messages (conversation_id, role, content, created_at) VALUES (?, ?, ?, ?)",
-            (conversation_id, role, content, now),
+            "INSERT INTO messages (conversation_id, role, content, meta, created_at) VALUES (?, ?, ?, ?, ?)",
+            (conversation_id, role, content, meta_json, now),
         )
         conn.execute(
             "UPDATE conversations SET updated_at = ? WHERE id = ?",

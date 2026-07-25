@@ -38,7 +38,9 @@ class Settings(BaseSettings):
     pubtator_api_base_url: str = "https://www.ncbi.nlm.nih.gov/research/pubtator3-api"
     pathbank_data_dir: str = str(_DATA_ROOT / "pathways" / "PathBank")
     subcell_data_dir: str = str(_DATA_ROOT / "localization" / "SubCELL")
-
+    # eKPI Quantitative matrices (per-site *.csv.gz; large — not copied into data/)
+    ekpi_data_dir: str = "/var/www/html/ekpi"
+    ekpi_final_result_dir: str = "/var/www/html/ekpi/final_result"
 
     # Local data root (aspect-classified PTM datasets)
     data_root: str = str(_DATA_ROOT)

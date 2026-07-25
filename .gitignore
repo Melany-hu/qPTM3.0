@@ -88,6 +88,9 @@ agent-backend/data/pathways/PathBank/tables/protein_pathways.tsv
 agent-backend/data/regulation/Funcscore/tables/functional_score.tsv
 agent-backend/data/regulation/PhosphoSitePlus/PTMVar.xlsx
 agent-backend/data/enzymes/GPS-SUMO2/tables/sumoylation_sites.tsv
+agent-backend/data/enzymes/KAKA/tables/events.tsv
+agent-backend/data/enzymes/eKPI/tables/sites.tsv
+agent-backend/data/enzymes/eKPI/ekpi_all_phosphosite.txt
 resource/hs.pkinase.protein.txt
 resource/hs.pkinase.txt
 agent-backend/data/interactions/PTMcode2/PTMcode2_associations_between_proteins.txt.gz

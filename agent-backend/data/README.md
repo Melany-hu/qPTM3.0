@@ -23,7 +23,9 @@ data/
 │   ├── UbiBrowser/              # E3/DUB–substrate ESI/DSI (PMID 34634807)
 │   ├── GPS-Uber/                # site-specific E3–substrate ssESRs (PMID 35037020)
 │   ├── GPS6.0/                  # predicted kinase-specific p-sites (PMID 37158278)
-│   └── GPS-SUMO2/               # curated SUMOylation sites / SIMs (PMID 38709873)
+│   ├── GPS-SUMO2/               # curated SUMOylation sites / SIMs (PMID 38709873)
+│   ├── KAKA/                    # kinase activity key alterations (PMID 41839313)
+│   └── eKPI/                    # quantitative KPS correlations (PMID 40194556)
 ├── regulation/
 │   ├── PhosphoSitePlus/         # Regulatory_sites + PTMVar (PMID 30445427)
 │   └── Funcscore/               # phosphosite functional scores (PMID 31819260)
@@ -575,6 +577,82 @@ enzymes/GPS-SUMO2/
 .venv/bin/python -m app.sources.build_index gpssumo2
 ```
 
+## KAKA (local — kinase activity–related key alterations)
+
+[KAKA](https://kaka.omicsbio.info/) curates experimentally validated kinase
+activity–related key alterations (KAKAs) from the literature — mutations
+classified as **increase**, **decrease**, **kinase-dead**, or **no-effect**
+(PMID **41839313** / DOI `10.1016/j.jgg.2026.03.010`).
+
+Dataset: 2553 curated rows across 421 proteins in 8 species
+(human, mouse, rat, yeast, fission yeast, arabidopsis, fly, worm).
+
+| Field | Meaning |
+|-------|---------|
+| gene / uniprot / mutation | Kinase identity and missense allele |
+| enzyme_activity | increase / decrease / kinase-dead / no effect |
+| organism / species | Short name + binomial |
+| pmids / description | Supporting literature + excerpt |
+
+```
+enzymes/KAKA/
+├── SOURCE.yaml
+├── qevent.xlsx
+├── tables/events.tsv
+└── indexes/events.sqlite
+```
+
+### Agent tool
+
+- `kaka_kinase_mutations` — query by kinase gene/UniProt (± mutation / position /
+  activity class); Stage 1 WHO + mutation-precision (**curated experimental**)
+
+```bash
+.venv/bin/python -m app.sources.prepare_kaka
+.venv/bin/python -m app.sources.build_index kaka
+```
+
+## eKPI (hybrid — Quantitative kinase–phosphosite correlations)
+
+[eKPI](https://ekpi.omicsbio.info/) integrates cancer multi-omics Spearman
+correlations between kinase abundance (mRNA / protein / kinase phosphosites)
+and substrate phosphosite levels across 23 tumor + 15 adjacent-normal datasets
+(Brief Bioinform 2025 — PMID **40194556** / DOI `10.1093/bib/bbaf143`).
+
+Agent indexes the **phosphosite lookup table** (~197k sites) and reads
+**Quantitative** matrices on demand from the local eKPI `final_result/` tree
+(per-site `*.csv.gz`; ~78 GB — not copied into `data/`).
+
+| Field | Meaning |
+|-------|---------|
+| kinase_gene / kinase_feature | Kinase identity; `Pro` / `mRNA` / `pS##` |
+| rho / pvalue / n | Spearman correlation, p-value, sample size |
+| cohort | `cancer Tumor` or `cancer Normal` |
+| pmid | Source multi-omics dataset |
+
+```
+enzymes/eKPI/
+├── SOURCE.yaml
+├── ekpi_all_phosphosite.txt     # provenance copy
+├── tables/sites.tsv             # lookup → file_key
+└── indexes/sites.sqlite
+
+# External (configure via env):
+EKPI_FINAL_RESULT_DIR=/var/www/html/ekpi/final_result
+```
+
+### Agent tools
+
+- `ekpi_kinases` — experimental literature KPIs (with PMIDs) + 7-tool predictions
+  (+ optional best quantitative hit). Preferred Stage 1 WHO tool
+- `ekpi_quantitative` — detailed Spearman correlations (default: tumor, p ≤ 0.05).
+  Stage 1 WHO / Stage 2 WHEN (**quantitative correlation** evidence)
+
+```bash
+.venv/bin/python -m app.sources.prepare_ekpi
+.venv/bin/python -m app.sources.build_index ekpi
+```
+
 ## InterPro / Pfam (API — protein domains & families)
 
 Protein architecture for Stage 3 WHERE (place a PTM site in domain context).
@@ -784,7 +862,7 @@ Catalog introspection:
 
 | Aspect | Stage | Sources | Access |
 |--------|-------|---------|--------|
-| enzymes / drug | WHO (kinase) | qPTM, **iPTMnet** (API), **PSP kinases**, **GPS 6.0** (predicted), **WERAM**, **UbiBrowser**, **GPS-Uber**, **GPS-SUMO 2.0** (curated SUMO/SIM), ActiveDriverDB, **PMADS**, **DrugBank**, decryptM | API / local |
+| enzymes / drug | WHO (kinase) | qPTM, **iPTMnet** (API), **PSP kinases**, **GPS 6.0** (predicted), **eKPI** (quantitative KPS correlations), **WERAM**, **UbiBrowser**, **GPS-Uber**, **GPS-SUMO 2.0** (curated SUMO/SIM), **KAKA** (mutation→kinase activity), ActiveDriverDB, **PMADS**, **DrugBank**, decryptM | API / local |
 | quantification (no local dir) | WHEN (conditions) | qPTM (API); **CancerProteome** under `disease/` | API / local |
 | localization | WHERE | **COMPARTMENTS**, **SubCELL**, NLSdb, **iNuLoC**, UniProt | local / API |
 | domains | WHERE (architecture) | **InterPro**, **Pfam** | API |

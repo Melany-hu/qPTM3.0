@@ -16,18 +16,20 @@ Endpoints:
 import asyncio
 import json
 import logging
+import re
 import uuid
 from typing import Any, AsyncGenerator, Optional
 
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from app.config import settings
 from app.llm.deepseek_client import get_llm_client
 from app.llm.prompts import build_synthesis_messages
-from app.models.schemas import ChatRequest, WorkflowStage, PlanStepStatus, ToolResult
+from app.models.schemas import ChatRequest, PdfExportRequest, WorkflowStage, PlanStepStatus, ToolResult
+from app.export.pdf import build_answer_pdf
 from app.tools.registry import registry
 from app.tools.qptm_tools import register_qptm_tools
 from app.tools.iptmnet_tools import register_iptmnet_tools
@@ -43,6 +45,8 @@ from app.tools.ubibrowser_tools import register_ubibrowser_tools
 from app.tools.gpsuber_tools import register_gpsuber_tools
 from app.tools.gps6_tools import register_gps6_tools
 from app.tools.gpssumo2_tools import register_gpssumo2_tools
+from app.tools.kaka_tools import register_kaka_tools
+from app.tools.ekpi_tools import register_ekpi_tools
 from app.tools.ptmphase_tools import register_ptmphase_tools
 from app.tools.dscope_tools import register_dscope_tools
 from app.tools.ptmd_tools import register_ptmd_tools
@@ -63,6 +67,9 @@ from app.workflow.planner import (
     build_research_plan,
     infer_tool_arguments,
     parse_query_entities,
+    classify_query_mode,
+    build_gate_reply,
+    QUERY_MODE_RESEARCH,
 )
 from app.workflow.stages import (
     advance_stage,
@@ -123,6 +130,8 @@ def register_all_tools() -> None:
     register_gpsuber_tools()
     register_gps6_tools()
     register_gpssumo2_tools()
+    register_kaka_tools()
+    register_ekpi_tools()
     register_ptmphase_tools()
     register_dscope_tools()
     register_ptmd_tools()
@@ -442,6 +451,91 @@ def _update_state_from_tools(
                     "destabilize_count": result.get("destabilize_count", 0),
                 }])
 
+        elif tool_name == "activedriver_mutations":
+            by_ds = result.get("mutations_by_dataset") or {}
+            rows: list[dict[str, Any]] = []
+            for ds, items in by_ds.items():
+                if isinstance(items, list):
+                    for item in items[:25]:
+                        row = dict(item) if isinstance(item, dict) else {"value": item}
+                        row["dataset"] = ds
+                        rows.append(row)
+            if rows:
+                state.add_disease([{
+                    "source": "ActiveDriverDB",
+                    "site_position": result.get("site_position"),
+                    "mutations": rows,
+                    "total": result.get("total"),
+                    "summary": result.get("summary"),
+                }])
+
+        elif tool_name == "psp_ptmvar":
+            hits = result.get("hits") or result.get("variants") or []
+            if hits:
+                state.add_disease([{
+                    "source": "PhosphoSitePlus PTMVar",
+                    "variants": hits if isinstance(hits, list) else [hits],
+                    "summary": result.get("summary"),
+                }])
+
+        elif tool_name == "kaka_kinase_mutations":
+            alts = result.get("alterations") or []
+            if alts:
+                state.add_disease([{
+                    "source": "KAKA",
+                    "alterations": alts if isinstance(alts, list) else [alts],
+                    "activity_counts": result.get("activity_counts"),
+                    "total": result.get("total"),
+                    "summary": result.get("summary"),
+                }])
+
+        elif tool_name == "ekpi_kinases":
+            kinases = result.get("kinases") or []
+            if kinases:
+                state.add_kinases([{
+                    "source": "eKPI",
+                    "site": result.get("site"),
+                    "position": result.get("position"),
+                    "experimental_kinases": result.get("experimental_kinases") or [],
+                    "predicted_only_kinases": result.get("predicted_only_kinases") or [],
+                    "kinases": kinases[:25],
+                    "summary": result.get("summary"),
+                }])
+
+        elif tool_name == "ekpi_quantitative":
+            corrs = result.get("correlations") or []
+            if corrs:
+                state.add_kinases([{
+                    "source": "eKPI Quantitative",
+                    "site": result.get("site"),
+                    "position": result.get("position"),
+                    "kinases": result.get("kinases_found") or [],
+                    "correlations": corrs[:25],
+                    "summary": result.get("summary"),
+                }])
+                state.add_conditions([{
+                    "source": "eKPI Quantitative",
+                    "site": result.get("site"),
+                    "cohort": result.get("cohort"),
+                    "correlations": corrs[:15],
+                    "summary": result.get("summary"),
+                }])
+
+        elif tool_name == "activedriver_kinase_network":
+            edges = (result.get("as_substrate") or []) + (result.get("as_kinase") or [])
+            if edges:
+                state.add_kinases(edges if isinstance(edges, list) else [edges])
+
+        elif tool_name == "psp_kinase_substrate":
+            kinases = (
+                result.get("kinases")
+                or result.get("hits")
+                or result.get("records")
+                or []
+            )
+            if kinases:
+                state.add_kinases(kinases if isinstance(kinases, list) else [kinases])
+
 
 # ── Agent loop (streaming generator) ──────────────────────────────
 
@@ -449,6 +543,9 @@ async def _stream_llm_events(
     llm,
     messages: list[dict[str, Any]],
     tools: list[dict[str, Any]],
+    *,
+    max_tokens: int = 8192,
+    disable_thinking: bool = False,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Run sync LLM streaming in a worker thread so the event loop stays responsive."""
     loop = asyncio.get_running_loop()
@@ -456,7 +553,12 @@ async def _stream_llm_events(
 
     def _producer() -> None:
         try:
-            for event in llm.chat_completion_stream(messages, tools=tools):
+            for event in llm.chat_completion_stream(
+                messages,
+                tools=tools,
+                max_tokens=max_tokens,
+                disable_thinking=disable_thinking,
+            ):
                 loop.call_soon_threadsafe(queue.put_nowait, event)
         except Exception as exc:
             logger.error(f"LLM stream error: {exc}", exc_info=True)
@@ -483,6 +585,7 @@ async def _agent_loop(
 ) -> AsyncGenerator[str, None]:
     """Planning-first agent loop.
 
+    Phase 0 — Gate:      greeting / help / clarify / off-topic → direct reply (no tools)
     Phase 1 — Planning:  route question → databases/tools → step1/2/3 plan
     Phase 2 — Execution: run each planned tool deterministically
     Phase 3 — Synthesis: LLM writes the final answer from collected results
@@ -491,10 +594,51 @@ async def _agent_loop(
     state.turn_count += 1
 
     entities = parse_query_entities(user_message)
-    state.plan_entities = entities
+    mode = classify_query_mode(user_message, entities, state)
+    entities["query_mode"] = mode
+
+    # ── Phase 0: Conversational gate (no database tools) ──────────
+    if mode != QUERY_MODE_RESEARCH:
+        plan = build_research_plan(user_message, state)  # empty steps
+        state.plan_entities = entities
+        state.current_plan = plan.model_dump()
+        yield _sse_plan_created(plan)
+        yield _sse_stage_update(
+            WorkflowStage.idle.value,
+            get_stage_label(WorkflowStage.idle),
+            plan.intent_summary,
+        )
+        reply = build_gate_reply(mode, user_message)
+        # Stream in small chunks so the UI still feels responsive
+        chunk_size = 80
+        for i in range(0, len(reply), chunk_size):
+            yield _sse_text_chunk(reply[i : i + chunk_size])
+        yield _sse_done()
+        return
+
+    # Early gene → UniProt so site-specific tools are not skipped before qptm_search
+    if entities.get("gene") and not entities.get("uniprot_ac"):
+        try:
+            from app.sources.uniprot_id import lookup_by_gene
+
+            organism = (entities.get("organism") or "human").lower()
+            tax = {"human": 9606, "mouse": 10090, "rat": 10116}.get(organism, 9606)
+            ident = lookup_by_gene(str(entities["gene"]), organism_id=tax)
+            if ident and ident.get("uniprot_ac"):
+                entities["uniprot_ac"] = ident["uniprot_ac"]
+                state.set_target(
+                    uniprot_ac=ident["uniprot_ac"],
+                    gene=ident.get("gene") or entities.get("gene"),
+                )
+        except Exception as exc:
+            logger.debug("Early UniProt resolve skipped: %s", exc)
 
     # ── Phase 1: Planning ───────────────────────────────────────
     plan = build_research_plan(user_message, state)
+    if "mutation → PTM" in (plan.intent_summary or ""):
+        entities["narrative"] = "mutation_precision"
+    # Keep planner-annotated gaps / skips visible to synthesis via plan text
+    state.plan_entities = entities
     state.current_plan = plan.model_dump()
 
     yield _sse_plan_created(plan)
@@ -532,23 +676,39 @@ async def _agent_loop(
 
             _update_state_from_tools(state, [(step.tool, result)])
 
-            # Propagate resolved identifiers to later steps
+            # Propagate resolved identifiers to later steps — prefer the
+            # user-requested site so we never drift to another residue (e.g. S315).
             if step.tool == "qptm_search":
-                events = result.get("events", [])
-                if events:
-                    first = events[0]
-                    if first.get("uniprot_ac"):
-                        entities["uniprot_ac"] = first["uniprot_ac"]
-                        state.set_target(uniprot_ac=first["uniprot_ac"])
-                    if first.get("gene"):
-                        entities["gene"] = first["gene"]
-                        state.set_target(gene=first["gene"])
-                    if first.get("position") and not entities.get("position"):
-                        entities["position"] = first["position"]
-                        state.set_target(position=first["position"])
-                    if first.get("ptm_type"):
-                        entities["ptm_type"] = first["ptm_type"]
-                        state.set_target(ptm_type=first["ptm_type"])
+                events = result.get("events", []) or []
+                requested_pos = entities.get("position")
+                chosen = None
+                if requested_pos is not None:
+                    for ev in events:
+                        try:
+                            if int(ev.get("position") or -1) == int(requested_pos):
+                                chosen = ev
+                                break
+                        except (TypeError, ValueError):
+                            continue
+                if chosen is None and events:
+                    chosen = events[0]
+                if chosen:
+                    if chosen.get("uniprot_ac"):
+                        entities["uniprot_ac"] = chosen["uniprot_ac"]
+                        state.set_target(uniprot_ac=chosen["uniprot_ac"])
+                    if chosen.get("gene"):
+                        entities["gene"] = chosen["gene"]
+                        state.set_target(gene=chosen["gene"])
+                    # Only adopt position from search when the user did not specify one
+                    if chosen.get("position") and not entities.get("position"):
+                        entities["position"] = chosen["position"]
+                        state.set_target(position=chosen["position"])
+                    if chosen.get("ptm_type") and not entities.get("ptm_type"):
+                        entities["ptm_type"] = chosen["ptm_type"]
+                        state.set_target(ptm_type=chosen["ptm_type"])
+                    elif chosen.get("ptm_type") and entities.get("position"):
+                        # Keep user's PTM type; do not overwrite with a drifted site type
+                        pass
 
             step.status = (
                 PlanStepStatus.completed if enriched.success else PlanStepStatus.failed
@@ -571,7 +731,16 @@ async def _agent_loop(
 
         messages = build_synthesis_messages(agent_context)
 
-        async for event in _stream_llm_events(llm, messages, tools=[]):
+        # Disable model "thinking" for synthesis: deepseek-v4-flash otherwise can
+        # exhaust max_tokens on reasoning_content and emit zero visible text
+        # (frontend then shows "No response received.").
+        async for event in _stream_llm_events(
+            llm,
+            messages,
+            tools=[],
+            max_tokens=8192,
+            disable_thinking=True,
+        ):
             if event["type"] == "text":
                 yield _sse_text_chunk(event["content"])
             elif event["type"] == "error":
@@ -623,20 +792,122 @@ def _collect_text_from_sse(chunk: str, accumulator: list[str]) -> None:
                 pass
 
 
+def _update_meta_plan_step(meta: dict[str, Any], step_data: dict[str, Any]) -> None:
+    plan = meta.get("plan")
+    if not isinstance(plan, dict):
+        return
+    step_num = step_data.get("step")
+    for step in plan.get("steps") or []:
+        if step.get("step") == step_num:
+            if step_data.get("status"):
+                step["status"] = step_data["status"]
+            break
+
+
+def _collect_turn_meta_from_sse(chunk: str, meta: dict[str, Any]) -> None:
+    """Accumulate plan/tool UI state from SSE events for conversation restore."""
+    event_type = None
+    for line in chunk.split("\n"):
+        if line.startswith("event: "):
+            event_type = line[7:].strip()
+        elif line.startswith("data: ") and event_type:
+            try:
+                data = json.loads(line[6:])
+            except json.JSONDecodeError:
+                event_type = None
+                continue
+
+            if event_type == "plan_created":
+                meta["plan"] = {
+                    "intent_summary": data.get("intent_summary") or "",
+                    "steps": data.get("steps") or [],
+                }
+            elif event_type in ("step_started", "step_completed"):
+                _update_meta_plan_step(meta, data)
+            elif event_type == "tool_call":
+                meta.setdefault("tools", []).append({
+                    "tool_name": data.get("tool_name") or "",
+                    "arguments": data.get("arguments") or {},
+                    "success": None,
+                    "summary": "",
+                })
+            elif event_type == "tool_result":
+                tools = meta.setdefault("tools", [])
+                payload = {
+                    "tool_name": data.get("tool_name") or "",
+                    "arguments": {},
+                    "success": bool(data.get("success")),
+                    "summary": data.get("summary") or "",
+                }
+                if tools and tools[-1].get("success") is None:
+                    tools[-1]["success"] = payload["success"]
+                    tools[-1]["summary"] = payload["summary"]
+                    if not tools[-1].get("tool_name"):
+                        tools[-1]["tool_name"] = payload["tool_name"]
+                else:
+                    tools.append(payload)
+
+            event_type = None
+
+
 async def _agent_loop_with_persist(
     user_message: str,
     history: list[dict[str, str]],
     session_id: str,
     conversation_id: str,
 ) -> AsyncGenerator[str, None]:
-    """Wrap agent loop and persist assistant reply when complete."""
+    """Wrap agent loop and persist assistant reply when complete.
+
+    Persist before yielding ``done`` (and again in ``finally`` as a safety net):
+    browsers close the SSE connection as soon as the stream ends, which can
+    cancel this generator before any code after the ``async for`` would run.
+    """
     text_parts: list[str] = []
-    async for chunk in _agent_loop(user_message, history, session_id):
-        _collect_text_from_sse(chunk, text_parts)
-        yield chunk
-    full_text = "".join(text_parts)
-    if full_text.strip():
-        conv_store.add_message(conversation_id, "assistant", full_text)
+    turn_meta: dict[str, Any] = {}
+    saved = False
+
+    def _persist_assistant() -> None:
+        nonlocal saved
+        if saved:
+            return
+        full_text = "".join(text_parts)
+        if not full_text.strip():
+            return
+        meta = turn_meta or None
+        if meta:
+            # Drop unresolved in-flight tool rows before save.
+            tools = [
+                t for t in (meta.get("tools") or [])
+                if t.get("success") is not None
+            ]
+            meta = {k: v for k, v in meta.items() if k != "tools"}
+            if tools:
+                meta["tools"] = tools
+            if not meta:
+                meta = None
+        try:
+            conv_store.add_message(conversation_id, "assistant", full_text, meta=meta)
+            saved = True
+        except Exception:
+            logger.exception(
+                "Failed to persist assistant message for conversation %s",
+                conversation_id,
+            )
+
+    try:
+        async for chunk in _agent_loop(user_message, history, session_id):
+            _collect_text_from_sse(chunk, text_parts)
+            _collect_turn_meta_from_sse(chunk, turn_meta)
+            # Save before the client can close on ``done``.
+            if chunk.startswith("event: done"):
+                _persist_assistant()
+            yield chunk
+        _persist_assistant()
+    except asyncio.CancelledError:
+        _persist_assistant()
+        raise
+    finally:
+        _persist_assistant()
 
 
 # ── Endpoints ─────────────────────────────────────────────────────
@@ -691,6 +962,34 @@ async def delete_conversation(conversation_id: str, request: Request) -> JSONRes
     if not conv_store.delete_conversation(conversation_id, client_ip):
         return JSONResponse({"error": "Conversation not found"}, status_code=404)
     return JSONResponse({"status": "deleted"})
+
+
+@app.post("/export/pdf")
+async def export_pdf(body: PdfExportRequest) -> Response:
+    """Render markdown answer to a sharp, compact PDF with qPTM watermark."""
+    md = (body.markdown or "").strip()
+    if not md:
+        return JSONResponse({"error": "markdown is required"}, status_code=400)
+    if len(md) > 400_000:
+        return JSONResponse({"error": "markdown too large"}, status_code=413)
+
+    try:
+        pdf_bytes = await asyncio.to_thread(build_answer_pdf, md)
+    except Exception as exc:
+        logger.exception("PDF export failed")
+        return JSONResponse({"error": f"PDF export failed: {exc}"}, status_code=500)
+
+    title = (body.title or "qptm-agent").strip() or "qptm-agent"
+    # HTTP headers are Latin-1 only; keep an ASCII filename (Chinese titles used to 500 here).
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "_", title).strip("._")[:40] or "qptm-agent"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{safe}.pdf"',
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 @app.post("/chat")
