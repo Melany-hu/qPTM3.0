@@ -1,0 +1,408 @@
+/**
+ * Stage 5 — inventory tabular files inside Stage-4 supplementary ZIPs.
+ */
+import { execFileSync } from "node:child_process"
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs"
+import { basename, dirname, extname, join } from "node:path"
+import XLSX from "xlsx"
+import { listZipEntries, type ZipEntry } from "../stage4/zip.js"
+import { parseCsv } from "../utils/io.js"
+
+export const TABLE_EXTS = new Set([".xlsx", ".xls", ".csv", ".tsv", ".txt"])
+
+const MAX_CANDIDATE_FILES = 10
+const MAX_SHEETS_PER_FILE = 8
+const PREVIEW_ROWS = 5
+/** Cap rows loaded for parsing (per sheet). */
+export const MAX_PARSE_ROWS = 40_000
+
+export interface SheetInventory {
+  name: string
+  headers: string[]
+  preview: string[][]
+  /** 0-based index of header row in the raw sheet */
+  headerRowIndex: number
+  /** Approximate data rows (excluding header), when known */
+  dataRowCount: number
+}
+
+export interface FileInventory {
+  entryPath: string
+  localPath: string
+  size: number
+  ext: string
+  sheets: SheetInventory[]
+  error?: string
+}
+
+export interface PmidTableInventory {
+  pmid: string
+  zipPath: string
+  files: FileInventory[]
+  inventoriedAt: string
+}
+
+function isTableEntry(path: string): boolean {
+  const base = basename(path)
+  if (base.startsWith(".") || base.startsWith("__MACOSX")) return false
+  const ext = extname(base).toLowerCase()
+  return TABLE_EXTS.has(ext)
+}
+
+function scoreTableEntry(entry: ZipEntry): number {
+  const name = basename(entry.path).toLowerCase()
+  let score = 0
+  if (/\.(xlsx|xls)$/i.test(name)) score += 3
+  else if (/\.(csv|tsv)$/i.test(name)) score += 2
+  else if (/\.txt$/i.test(name)) score += 1
+  if (/site|phospho|ptm|modif|ubiquit|acetyl|glyco|sumo|ratio|quant/i.test(name)) score += 4
+  if (/table|supp|mmc|dataset|peptide|protein/i.test(name)) score += 1
+  if (entry.size > 5_000) score += 1
+  if (entry.size > 50_000) score += 1
+  return score
+}
+
+export function pickCandidateEntries(zipPath: string, limit = MAX_CANDIDATE_FILES): ZipEntry[] {
+  const entries = listZipEntries(zipPath).filter((e) => isTableEntry(e.path))
+  return entries
+    .map((e) => ({ e, score: scoreTableEntry(e) }))
+    .sort((a, b) => b.score - a.score || b.e.size - a.e.size)
+    .slice(0, limit)
+    .map((x) => x.e)
+}
+
+/** Extract selected ZIP entries into destDir (preserves entry relative paths). */
+export function extractZipEntries(zipPath: string, entryPaths: string[], destDir: string): void {
+  if (entryPaths.length === 0) return
+  mkdirSync(destDir, { recursive: true })
+  // unzip can take multiple members; batch to avoid huge argv
+  const batch = 20
+  for (let i = 0; i < entryPaths.length; i += batch) {
+    const slice = entryPaths.slice(i, i + batch)
+    execFileSync("unzip", ["-o", "-q", zipPath, ...slice, "-d", destDir], {
+      maxBuffer: 40 * 1024 * 1024,
+      stdio: ["ignore", "pipe", "pipe"],
+    })
+  }
+}
+
+function walkFiles(dir: string): string[] {
+  if (!existsSync(dir)) return []
+  const out: string[] = []
+  const stack = [dir]
+  while (stack.length > 0) {
+    const cur = stack.pop()!
+    for (const name of readdirSync(cur)) {
+      const p = join(cur, name)
+      if (statSync(p).isDirectory()) stack.push(p)
+      else out.push(p)
+    }
+  }
+  return out
+}
+
+function resolveExtractedPath(destDir: string, entryPath: string): string | null {
+  const direct = join(destDir, entryPath)
+  if (existsSync(direct)) return direct
+  const base = basename(entryPath)
+  for (const p of walkFiles(destDir)) {
+    if (basename(p) === base) return p
+  }
+  return null
+}
+
+const HEADER_SCAN_ROWS = 30
+/** Pathological sheets with thousands of columns — keep mapping tractable */
+const MAX_HEADER_COLS = 400
+
+function scoreHeaderRow(row: unknown[]): number {
+  const cells = row.map((c) => String(c ?? "").trim())
+  const filled = cells.filter(Boolean)
+  if (filled.length < 2) return -10
+  let s = Math.min(filled.length, 20)
+  const blob = filled.join(" ").toLowerCase()
+  if (/uniprot|accession|protein\s*ids?|\bipi\b|gene\s*names?/.test(blob)) s += 6
+  if (/phospho_?location|position|site|residue|amino/.test(blob)) s += 5
+  if (/ratio|log\s*2|log2|fold\s*change|\bfc\b|significance|p-?value|q-?value/.test(blob)) s += 6
+  if (/average|stdev|peptides/.test(blob)) s += 2
+  // prose / legend rows
+  if (filled.some((c) => c.length > 100)) s -= 12
+  if (filled.length <= 2 && filled.some((c) => c.length > 40)) s -= 8
+  // mostly numeric → data row, not header
+  const numeric = filled.filter((c) => /^-?\d+(\.\d+)?([eE][-+]?\d+)?$/.test(c)).length
+  if (numeric >= filled.length * 0.5) s -= 10
+  return s
+}
+
+/** Merge group header (previous row) with column header when useful. */
+function buildHeaders(matrix: unknown[][], headerIdx: number): string[] {
+  const row = matrix[headerIdx] ?? []
+  const prev = headerIdx > 0 ? (matrix[headerIdx - 1] ?? []) : []
+  const width = Math.min(Math.max(row.length, prev.length), MAX_HEADER_COLS)
+  const headers: string[] = []
+  let lastGroup = ""
+  for (let i = 0; i < width; i++) {
+    const cur = String(row[i] ?? "").trim()
+    const p = String(prev[i] ?? "").trim()
+    if (p && p.length < 80) lastGroup = p
+    else if (p) lastGroup = ""
+    // forward-fill sparse group headers (merged cells → empty)
+    const group = p && p.length < 80 ? p : lastGroup && !cur ? lastGroup : p.length < 80 ? p : ""
+    if (group && cur && group.toLowerCase() !== cur.toLowerCase()) {
+      headers.push(`${group} ${cur}`.trim())
+    } else if (cur) {
+      headers.push(cur)
+    } else if (group) {
+      headers.push(group)
+    } else {
+      headers.push(`col_${i + 1}`)
+    }
+  }
+  // de-dupe identical headers by suffixing index
+  const seen = new Map<string, number>()
+  return headers.map((h) => {
+    const n = (seen.get(h) ?? 0) + 1
+    seen.set(h, n)
+    return n === 1 ? h : `${h}__${n}`
+  })
+}
+
+function detectHeaderIndex(matrix: unknown[][]): number {
+  const limit = Math.min(HEADER_SCAN_ROWS, matrix.length)
+  let bestIdx = 0
+  let bestScore = -999
+  for (let i = 0; i < limit; i++) {
+    const sc = scoreHeaderRow(matrix[i] ?? [])
+    if (sc > bestScore) {
+      bestScore = sc
+      bestIdx = i
+    }
+  }
+  return bestIdx
+}
+
+function asStringMatrix(rows: unknown[][], maxRows: number): string[][] {
+  return rows.slice(0, maxRows).map((r) => r.map((c) => String(c ?? "").trim()))
+}
+
+function sheetFromMatrix(
+  name: string,
+  matrix: unknown[][],
+  maxDataRows: number,
+): SheetInventory {
+  if (!matrix.length) {
+    return { name, headers: [], preview: [], headerRowIndex: 0, dataRowCount: 0 }
+  }
+  const headerRowIndex = detectHeaderIndex(matrix)
+  const headers = buildHeaders(matrix, headerRowIndex)
+  const data = asStringMatrix(matrix.slice(headerRowIndex + 1), maxDataRows).map((r) =>
+    headers.map((_, i) => r[i] ?? ""),
+  )
+  return {
+    name,
+    headers,
+    preview: data.slice(0, PREVIEW_ROWS),
+    headerRowIndex,
+    dataRowCount: data.length,
+  }
+}
+
+function readDelimited(path: string, maxRows: number): SheetInventory {
+  const text = readFileSync(path, "utf8")
+  const first = text.split(/\r?\n/, 1)[0] ?? ""
+  const tabCount = (first.match(/\t/g) ?? []).length
+  const commaCount = (first.match(/,/g) ?? []).length
+  let matrix: string[][]
+  if (tabCount > commaCount) {
+    matrix = text
+      .split(/\r?\n/)
+      .filter((l) => l.trim())
+      .slice(0, HEADER_SCAN_ROWS + maxRows)
+      .map((l) => l.split("\t"))
+  } else {
+    matrix = parseCsv(text).slice(0, HEADER_SCAN_ROWS + maxRows)
+  }
+  return sheetFromMatrix(basename(path), matrix, maxRows)
+}
+
+function readExcelSheets(
+  path: string,
+  opts: { previewOnly: boolean; maxSheets: number; maxRows: number },
+): SheetInventory[] {
+  const scan = opts.previewOnly ? HEADER_SCAN_ROWS + PREVIEW_ROWS + 2 : opts.maxRows + HEADER_SCAN_ROWS + 2
+  const wb = XLSX.readFile(path, {
+    sheetRows: scan,
+    cellDates: false,
+  })
+  const sheets: SheetInventory[] = []
+  for (const name of wb.SheetNames.slice(0, opts.maxSheets)) {
+    const sheet = wb.Sheets[name]
+    if (!sheet) continue
+    const matrix = XLSX.utils.sheet_to_json(sheet, {
+      header: 1,
+      defval: "",
+      raw: false,
+    }) as unknown[][]
+    sheets.push(sheetFromMatrix(name, matrix, opts.previewOnly ? PREVIEW_ROWS : opts.maxRows))
+  }
+  return sheets
+}
+
+export function inventoryFile(
+  localPath: string,
+  entryPath: string,
+  size: number,
+): FileInventory {
+  const ext = extname(localPath).toLowerCase()
+  try {
+    if (ext === ".xlsx" || ext === ".xls") {
+      const sheets = readExcelSheets(localPath, {
+        previewOnly: true,
+        maxSheets: MAX_SHEETS_PER_FILE,
+        maxRows: PREVIEW_ROWS,
+      })
+      return { entryPath, localPath, size, ext, sheets }
+    }
+    if (ext === ".csv" || ext === ".tsv" || ext === ".txt") {
+      const sheet = readDelimited(localPath, PREVIEW_ROWS)
+      return {
+        entryPath,
+        localPath,
+        size,
+        ext,
+        sheets: [sheet],
+      }
+    }
+    return {
+      entryPath,
+      localPath,
+      size,
+      ext,
+      sheets: [],
+      error: `unsupported extension ${ext}`,
+    }
+  } catch (err) {
+    return {
+      entryPath,
+      localPath,
+      size,
+      ext,
+      sheets: [],
+      error: err instanceof Error ? err.message : String(err),
+    }
+  }
+}
+
+/** Load full sheet rows (header excluded) for parsing. */
+export function loadSheetData(
+  localPath: string,
+  sheetName: string,
+  maxRows = MAX_PARSE_ROWS,
+  headerRowIndex?: number,
+): { headers: string[]; rows: string[][] } {
+  const ext = extname(localPath).toLowerCase()
+  if (ext === ".csv" || ext === ".tsv" || ext === ".txt") {
+    const text = readFileSync(localPath, "utf8")
+    const first = text.split(/\r?\n/, 1)[0] ?? ""
+    const tabCount = (first.match(/\t/g) ?? []).length
+    const commaCount = (first.match(/,/g) ?? []).length
+    const matrix: string[][] =
+      tabCount > commaCount
+        ? text
+            .split(/\r?\n/)
+            .filter((l) => l.trim())
+            .map((l) => l.split("\t"))
+        : parseCsv(text)
+    if (!matrix.length) return { headers: [], rows: [] }
+    const hdrIdx = headerRowIndex ?? detectHeaderIndex(matrix)
+    const headers = buildHeaders(matrix, hdrIdx)
+    const rows = asStringMatrix(matrix.slice(hdrIdx + 1), maxRows).map((r) =>
+      headers.map((_, i) => r[i] ?? ""),
+    )
+    return { headers, rows }
+  }
+  const wb = XLSX.readFile(localPath, {
+    sheetRows: maxRows + HEADER_SCAN_ROWS + 2,
+    cellDates: false,
+  })
+  const name = wb.SheetNames.includes(sheetName) ? sheetName : wb.SheetNames[0]
+  const sheet = name ? wb.Sheets[name] : undefined
+  if (!sheet) return { headers: [], rows: [] }
+  const matrix = XLSX.utils.sheet_to_json(sheet, {
+    header: 1,
+    defval: "",
+    raw: false,
+  }) as unknown[][]
+  if (!matrix.length) return { headers: [], rows: [] }
+  const hdrIdx = headerRowIndex ?? detectHeaderIndex(matrix)
+  const headers = buildHeaders(matrix, hdrIdx)
+  const rows = asStringMatrix(matrix.slice(hdrIdx + 1), maxRows).map((r) =>
+    headers.map((_, i) => r[i] ?? ""),
+  )
+  return { headers, rows }
+}
+
+export function buildPmidInventory(
+  pmid: string,
+  zipPath: string,
+  workDir: string,
+): PmidTableInventory {
+  if (existsSync(workDir)) {
+    rmSync(workDir, { recursive: true, force: true })
+  }
+  mkdirSync(workDir, { recursive: true })
+
+  const candidates = pickCandidateEntries(zipPath)
+  if (candidates.length === 0) {
+    return {
+      pmid,
+      zipPath,
+      files: [],
+      inventoriedAt: new Date().toISOString(),
+    }
+  }
+
+  extractZipEntries(
+    zipPath,
+    candidates.map((c) => c.path),
+    workDir,
+  )
+
+  const files: FileInventory[] = []
+  for (const c of candidates) {
+    const local = resolveExtractedPath(workDir, c.path)
+    if (!local) {
+      files.push({
+        entryPath: c.path,
+        localPath: "",
+        size: c.size,
+        ext: extname(c.path).toLowerCase(),
+        sheets: [],
+        error: "extract failed",
+      })
+      continue
+    }
+    files.push(inventoryFile(local, c.path, c.size))
+  }
+
+  return {
+    pmid,
+    zipPath,
+    files,
+    inventoriedAt: new Date().toISOString(),
+  }
+}
+
+export function writeInventoryJson(path: string, inv: PmidTableInventory): void {
+  mkdirSync(dirname(path), { recursive: true })
+  // Drop full local absolute paths noise? keep for debugging parse
+  writeFileSync(path, JSON.stringify(inv, null, 2) + "\n", "utf8")
+}

@@ -1,0 +1,465 @@
+/**
+ * Stage 5 — turn mapped sheet rows into qratio records.
+ */
+import type { LiteratureInfoRow } from "../types.js"
+import { resolveRowCondition } from "./condition.js"
+import { mapGenesToUniprot, normalizeGeneSymbol } from "./gene-uniprot.js"
+import type { ColumnMapping } from "./heuristic.js"
+import {
+  buildSilacGenotypeContrasts,
+  silacGenotypeLog2Fc,
+} from "./silac-contrast.js"
+import { isValidUniprotAccession, parsePhosphositeCombinedId } from "./phosphosite-id.js"
+import { loadSheetData } from "./tables.js"
+
+export interface QratioRow {
+  pmid: string
+  sample: string
+  sampleType: string
+  organism: string
+  ptms: string
+  condition: string
+  uniprotId: string
+  position: string
+  aminoAcid: string
+  log2RatioPeptide: string
+  pValuePeptide: string
+  log2RatioProtein: string
+  pValueProtein: string
+}
+
+export const QRATIO_CSV_HEADER = [
+  "PMID",
+  "Sample",
+  "Sample type",
+  "Organism",
+  "PTMs",
+  "Condition",
+  "UniProtID",
+  "Position",
+  "AminoAcid",
+  "Log2Ratio (peptide)",
+  "P value (peptide)",
+  "Log2Ratio (protein)",
+  "P value (protein)",
+] as const
+
+export function parseSiteToken(text: string): { aa: string; pos: string } | null {
+  const m = text.match(/\b([A-Za-z])(\d{1,5})\*?/)
+  if (!m) return null
+  const aa = m[1].toUpperCase()
+  if (!/^[ACDEFGHIKLMNPQRSTVWY]$/.test(aa)) return null
+  return { aa, pos: m[2] }
+}
+
+/**
+ * Infer modified amino acid from MaxQuant-style probability strings, e.g.
+ * `PEVSSK(1)GATISK` or `AK(0.998)K(0.002)PAAAAGAK` → K (highest probability).
+ */
+export function inferAaFromModSequence(text: string): string | null {
+  const t = (text || "").trim()
+  if (!t) return null
+  let bestAa: string | null = null
+  let bestP = -1
+  const re = /([A-Za-z])\(([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\)/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(t)) !== null) {
+    const aa = m[1].toUpperCase()
+    if (!/^[ACDEFGHIKLMNPQRSTVWY]$/.test(aa)) continue
+    const p = Number(m[2])
+    if (!Number.isFinite(p)) continue
+    if (p > bestP) {
+      bestP = p
+      bestAa = aa
+    }
+  }
+  return bestAa
+}
+
+function firstUniprot(raw: string): string {
+  const parts = raw.split(/[;,\s|/]+/).map((x) => x.trim()).filter(Boolean)
+  for (const p of parts) {
+    const combined = parsePhosphositeCombinedId(p)
+    if (combined?.isUniprotAcc) return combined.geneOrAcc
+    // Prefer first UniProt-like token; also accept IPI / yeast ORF as ID for Stage5
+    const m =
+      p.match(/(?:sp|tr)\|([A-Z0-9]+)/i) ||
+      p.match(/\bIPI:?\s*(IPI[0-9.]+)\b/i) ||
+      p.match(/\b([OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2})\b/) ||
+      p.match(/\b(Y[A-P][LR][0-9]{3}[CW])\b/i)
+    if (m) {
+      const id = (m[1] ?? m[0]).toUpperCase()
+      if (isValidUniprotAccession(id)) return id
+    }
+    if (/^IPI[0-9.]+$/i.test(p)) return p.toUpperCase()
+    if (isValidUniprotAccession(p)) return p.toUpperCase()
+    if (/^[A-Z0-9]{5,12}(?:-\d+)?$/i.test(p) && isValidUniprotAccession(p)) return p.toUpperCase()
+  }
+  return ""
+}
+
+function lookupGene(geneMap: Map<string, string> | undefined, symbol: string): string {
+  const g = normalizeGeneSymbol(symbol)
+  if (!g || !geneMap) return ""
+  return (
+    geneMap.get(g) ||
+    geneMap.get(g.toLowerCase()) ||
+    [...geneMap.entries()].find(([k]) => k.toLowerCase() === g.toLowerCase())?.[1] ||
+    ""
+  )
+}
+
+function colIndex(headers: string[], name: string | null): number {
+  if (!name) return -1
+  const i = headers.findIndex((h) => h === name)
+  if (i >= 0) return i
+  const n = name.toLowerCase()
+  return headers.findIndex((h) => h.toLowerCase() === n)
+}
+
+function findUniprotKbIndex(headers: string[]): number {
+  const exact = headers.findIndex((h) => /^uniprotkb$/i.test((h || "").trim()))
+  if (exact >= 0) return exact
+  return headers.findIndex((h) => /uniprotkb/i.test(h || ""))
+}
+
+function parseNumber(raw: string): number | null {
+  const t = raw.replace(/,/g, "").trim()
+  if (!t || t === "NA" || t === "NaN" || t === "#N/A" || t === "null") return null
+  const n = Number(t)
+  return Number.isFinite(n) ? n : null
+}
+
+function toLog2(value: number, isLog2: boolean): number | null {
+  if (isLog2) return value
+  if (value <= 0) return null
+  return Math.log2(value)
+}
+
+function fmtNum(n: number | null): string {
+  if (n == null || !Number.isFinite(n)) return ""
+  return String(Number(n.toPrecision(10)))
+}
+
+/**
+ * One sample per row.
+ * If Stage3 lists multiple samples ("A; B") and the table did not attribute a sample,
+ * leave blank rather than pasting the whole multi-sample string onto every row.
+ */
+export function resolveRowSample(stage3Sample: string, tableSample?: string): string {
+  const fromTable = (tableSample || "").trim()
+  if (fromTable && !fromTable.includes(";")) return fromTable
+
+  const parts = stage3Sample
+    .split(";")
+    .map((s) => s.trim())
+    .filter(Boolean)
+  if (parts.length === 1) return parts[0]
+  // Multiple samples without per-row attribution → empty (do not invent)
+  return ""
+}
+
+function pickPValue(
+  mapping: ColumnMapping,
+  headers: string[],
+  row: string[],
+  condition: string,
+  level: "peptide" | "protein",
+): string {
+  const condKey = condition.toLowerCase().replace(/\s+/g, "")
+  const candidates = mapping.pValueColumns.filter((p) => p.level === level)
+  let hit =
+    candidates.find((p) => p.condition.toLowerCase().replace(/\s+/g, "") === condKey) ??
+    candidates.find((p) => {
+      const pc = p.condition.toLowerCase().replace(/\s+/g, "")
+      return pc && (condKey.includes(pc) || pc.includes(condKey))
+    })
+  if (!hit && candidates.length === 1 && mapping.ratioColumns.filter((r) => r.level === level).length === 1) {
+    hit = candidates[0]
+  }
+  if (!hit) return ""
+  const idx = colIndex(headers, hit.column)
+  if (idx < 0) return ""
+  const n = parseNumber(row[idx] ?? "")
+  return fmtNum(n)
+}
+
+export function parseMappedSheet(opts: {
+  localPath: string
+  mapping: ColumnMapping
+  lit: LiteratureInfoRow
+  fallbackCondition: string
+  maxRows?: number
+  /** Precomputed gene→UniProt map (optional; built automatically when geneCol set) */
+  geneToUniprot?: Map<string, string>
+}): Promise<QratioRow[]> {
+  return parseMappedSheetAsync(opts)
+}
+
+async function parseMappedSheetAsync(opts: {
+  localPath: string
+  mapping: ColumnMapping
+  lit: LiteratureInfoRow
+  fallbackCondition: string
+  maxRows?: number
+  geneToUniprot?: Map<string, string>
+}): Promise<QratioRow[]> {
+  const { headers, rows } = loadSheetData(
+    opts.localPath,
+    opts.mapping.sheetName,
+    opts.maxRows,
+    opts.mapping.headerRowIndex,
+  )
+  if (!headers.length) return []
+
+  const m = opts.mapping
+  const uIdx = colIndex(headers, m.uniprotCol)
+  const gIdx = colIndex(headers, m.geneCol)
+  const posIdx = colIndex(headers, m.positionCol)
+  const aaIdx = colIndex(headers, m.aminoAcidCol)
+  const siteIdx = colIndex(headers, m.siteCombinedCol)
+  const modSeqIdx = colIndex(headers, m.modSeqCol ?? null)
+  const uniprotKbIdx = findUniprotKbIndex(headers)
+  if (uIdx < 0 && gIdx < 0 && siteIdx < 0 && uniprotKbIdx < 0) return []
+
+  let geneMap = opts.geneToUniprot
+  const genesForLookup: string[] = []
+  if (gIdx >= 0) {
+    for (const row of rows) {
+      const g = normalizeGeneSymbol(row[gIdx] ?? "")
+      if (g) genesForLookup.push(g)
+    }
+  }
+  if (uIdx >= 0) {
+    for (const row of rows) {
+      const combined = parsePhosphositeCombinedId(row[uIdx] ?? "")
+      if (combined && !combined.isUniprotAcc) genesForLookup.push(combined.geneOrAcc)
+    }
+  }
+  if (siteIdx >= 0 && siteIdx !== uIdx) {
+    for (const row of rows) {
+      const combined = parsePhosphositeCombinedId(row[siteIdx] ?? "")
+      if (combined && !combined.isUniprotAcc) genesForLookup.push(combined.geneOrAcc)
+    }
+  }
+  if (!geneMap && genesForLookup.length > 0) {
+    geneMap = await mapGenesToUniprot([...new Set(genesForLookup)], opts.lit.organism)
+  }
+
+  const peptideRatios = m.ratioColumns.filter((r) => r.level === "peptide")
+  const proteinRatios = m.ratioColumns.filter((r) => r.level === "protein")
+  // Drive row expansion from peptide ratios when present; else protein
+  const drivers = peptideRatios.length > 0 ? peptideRatios : proteinRatios
+  if (drivers.length === 0) return []
+
+  const useSilacContrasts = /silac/i.test(opts.lit.labelMethod || "")
+  const silacContrasts = useSilacContrasts ? buildSilacGenotypeContrasts(drivers) : []
+
+  const out: QratioRow[] = []
+  for (const row of rows) {
+    let uid = ""
+    let position = posIdx >= 0 ? (row[posIdx] ?? "").trim() : ""
+    let aminoAcid = aaIdx >= 0 ? (row[aaIdx] ?? "").trim() : ""
+
+    const combinedSources = [
+      uIdx >= 0 ? row[uIdx] : "",
+      siteIdx >= 0 && siteIdx !== uIdx ? row[siteIdx] : "",
+    ]
+    let geneFromCombined = ""
+    for (const raw of combinedSources) {
+      const combined = parsePhosphositeCombinedId(raw ?? "")
+      if (!combined) continue
+      if (!position) position = combined.position
+      if (!aminoAcid) aminoAcid = combined.aminoAcid
+      if (combined.isUniprotAcc) uid = combined.geneOrAcc
+      else if (!geneFromCombined) geneFromCombined = combined.geneOrAcc
+    }
+
+    if (!uid && uIdx >= 0) {
+      const rawU = row[uIdx] ?? ""
+      const combinedInU = parsePhosphositeCombinedId(rawU)
+      if (!combinedInU || combinedInU.isUniprotAcc) {
+        const u = firstUniprot(rawU)
+        if (u && isValidUniprotAccession(u)) uid = u
+      }
+    }
+
+    if (!uid && gIdx >= 0) {
+      uid = lookupGene(geneMap, row[gIdx] ?? "")
+    }
+    if (!uid && geneFromCombined) {
+      uid = lookupGene(geneMap, geneFromCombined)
+    }
+    if (!uid && uniprotKbIdx >= 0) {
+      const u = firstUniprot(row[uniprotKbIdx] ?? "")
+      if (u && isValidUniprotAccession(u)) uid = u
+    }
+    if (!uid || !isValidUniprotAccession(uid)) continue
+    if ((!position || !aminoAcid) && siteIdx >= 0) {
+      const combinedSite = parsePhosphositeCombinedId(row[siteIdx] ?? "")
+      if (combinedSite) {
+        if (!aminoAcid) aminoAcid = combinedSite.aminoAcid
+        if (!position) position = combinedSite.position
+      } else {
+        const site = parseSiteToken(row[siteIdx] ?? "")
+        if (site) {
+          if (!aminoAcid) aminoAcid = site.aa
+          if (!position) position = site.pos
+        }
+      }
+    }
+    // AminoAcid or Position cell may itself be "S624" / "Y132*"
+    if (aminoAcid && (!position || aminoAcid.length > 1)) {
+      const site = parseSiteToken(aminoAcid)
+      if (site) {
+        aminoAcid = site.aa
+        if (!position) position = site.pos
+      }
+    }
+    if (position && !aminoAcid) {
+      const site = parseSiteToken(position)
+      if (site) {
+        aminoAcid = site.aa
+        position = site.pos
+      }
+    }
+    // MaxQuant: AA hidden in "Lactylation Probabilities" / Modified sequence
+    if (!aminoAcid && modSeqIdx >= 0) {
+      aminoAcid = inferAaFromModSequence(row[modSeqIdx] ?? "") || ""
+    }
+    // Hard gate: site-level Position is required; AminoAcid may be filled later from sequence.
+    if (!position) continue
+    if (aminoAcid) {
+      if (aminoAcid.length > 1) aminoAcid = aminoAcid[0].toUpperCase()
+    }
+    // Strip non-digits from position when possible
+    if (position) {
+      const dig = position.match(/\d{1,5}/)
+      if (dig) position = dig[0]
+    }
+    if (!position) continue
+
+    if (silacContrasts.length > 0) {
+      for (const contrast of silacContrasts) {
+        const tIdx = colIndex(headers, contrast.treat.column)
+        const rIdx = colIndex(headers, contrast.ref.column)
+        if (tIdx < 0 || rIdx < 0) continue
+        const treatN = parseNumber(row[tIdx] ?? "")
+        const refN = parseNumber(row[rIdx] ?? "")
+        if (treatN == null || refN == null) continue
+        const log2 = silacGenotypeLog2Fc(
+          treatN,
+          refN,
+          Boolean(contrast.treat.isLog2),
+          Boolean(contrast.ref.isLog2),
+        )
+        if (log2 == null) continue
+        const condition = resolveRowCondition(
+          contrast.condition,
+          opts.lit.condition || opts.fallbackCondition || "",
+          opts.lit.detailCondition || "",
+        )
+        out.push({
+          pmid: opts.lit.pmid,
+          sample: resolveRowSample(opts.lit.sample),
+          sampleType: opts.lit.sampleType,
+          organism: opts.lit.organism,
+          ptms: opts.lit.ptms,
+          condition,
+          uniprotId: uid,
+          position,
+          aminoAcid,
+          log2RatioPeptide: fmtNum(log2),
+          pValuePeptide: "",
+          log2RatioProtein: "",
+          pValueProtein: "",
+        })
+      }
+      continue
+    }
+
+    for (const ratio of drivers) {
+      if (ratio.valueType === "intensity") continue
+      const rIdx = colIndex(headers, ratio.column)
+      if (rIdx < 0) continue
+      const rawN = parseNumber(row[rIdx] ?? "")
+      if (rawN == null) continue
+      const log2 = toLog2(rawN, ratio.isLog2)
+      if (log2 == null) continue
+
+      let log2Pep = ""
+      let pPep = ""
+      let log2Prot = ""
+      let pProt = ""
+
+      if (ratio.level === "peptide") {
+        log2Pep = fmtNum(log2)
+        pPep = pickPValue(m, headers, row, ratio.condition, "peptide")
+        // attach matching protein ratio for same condition if any
+        const prot = proteinRatios.find(
+          (p) =>
+            p.condition.toLowerCase().replace(/\s+/g, "") ===
+            ratio.condition.toLowerCase().replace(/\s+/g, ""),
+        )
+        if (prot && prot.valueType !== "intensity") {
+          const pIdx = colIndex(headers, prot.column)
+          if (pIdx >= 0) {
+            const pn = parseNumber(row[pIdx] ?? "")
+            if (pn != null) log2Prot = fmtNum(toLog2(pn, prot.isLog2))
+          }
+          pProt = pickPValue(m, headers, row, ratio.condition, "protein")
+        }
+      } else {
+        log2Prot = fmtNum(log2)
+        pProt = pickPValue(m, headers, row, ratio.condition, "protein")
+      }
+
+      const condition = resolveRowCondition(
+        ratio.condition?.trim() || "",
+        opts.lit.condition || opts.fallbackCondition || "",
+        opts.lit.detailCondition || "",
+      )
+
+      out.push({
+        pmid: opts.lit.pmid,
+        sample: resolveRowSample(opts.lit.sample),
+        sampleType: opts.lit.sampleType,
+        organism: opts.lit.organism,
+        ptms: opts.lit.ptms,
+        condition,
+        uniprotId: uid,
+        position,
+        aminoAcid,
+        log2RatioPeptide: log2Pep,
+        pValuePeptide: pPep,
+        log2RatioProtein: log2Prot,
+        pValueProtein: pProt,
+      })
+    }
+  }
+  return out
+}
+
+export function qratioToCsvLine(r: QratioRow): string {
+  const cells = [
+    r.pmid,
+    r.sample,
+    r.sampleType,
+    r.organism,
+    r.ptms,
+    r.condition,
+    r.uniprotId,
+    r.position,
+    r.aminoAcid,
+    r.log2RatioPeptide,
+    r.pValuePeptide,
+    r.log2RatioProtein,
+    r.pValueProtein,
+  ]
+  return cells.map(csvEscape).join(",")
+}
+
+function csvEscape(v: string): string {
+  if (/[",\n\r]/.test(v)) return `"${v.replace(/"/g, '""')}"`
+  return v
+}

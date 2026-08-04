@@ -1,0 +1,30 @@
+{
+  "name": "qptm-collection-agent",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "Interactive qPTM literature collection pipeline (Stage 1–6)",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "run-job": "tsx src/index.ts run-job",
+    "ingest-fulltext": "tsx src/index.ts ingest-fulltext",
+    "ingest-supp": "tsx src/index.ts ingest-supp",
+    "start": "tsx src/index.ts help"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "^0.80.10",
+    "@earendil-works/pi-coding-agent": "^0.80.10",
+    "pdfjs-dist": "^4.10.38",
+    "typebox": "^1.1.38",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  }
+}

@@ -1,0 +1,70 @@
+node_modules/
+dist/
+.env
+.DS_Store
+.pi/
+sessions/
+L2M3-master/
+AI-Agents-in-Depth-zh-CN.pdf
+
+# ---------------------------------------------------------------------------
+# Large / regenerable pipeline outputs (do not commit; re-run stages to rebuild)
+# ---------------------------------------------------------------------------
+
+# Shared
+data/logs/
+data/**/logs/
+*.log
+*.bak
+*.bak_*
+
+# Stage 1 — abstracts + bulk screen results
+data/abstracts/
+data/stage1/backups/
+data/stage1/stage1_run.log
+data/stage1/stage1_results.jsonl
+data/stage1/stage1_results.csv
+data/stage1/*.tmp
+
+# Stage 2 — fulltext XML/PDF
+data/stage2/fulltext/
+
+# Stage 4 — supplementary ZIP cache (~10GB)
+data/stage4/supp/
+
+# Stage 5 — parse workdir + qratio bulk
+data/stage5/work/
+data/stage5/qratio_rows.jsonl
+data/stage5/qratio.csv
+data/stage5/qratio_clean.csv
+data/stage5/inventory/
+data/stage5/cache/
+data/stage5/stage5_results.jsonl
+
+# Stage 6 — download cache + per-accession URL lists
+data/stage6/cache/
+data/stage6/urls/
+
+# Stage 7 — merged qratio export (~100MB+)
+data/stage7/qratio.csv
+
+# ---------------------------------------------------------------------------
+# validation/ — same rules (isolated dev runs)
+# ---------------------------------------------------------------------------
+validation/abstracts/
+validation/stage1/backups/
+validation/stage1/stage1_run.log
+validation/stage1/stage1_results.jsonl
+validation/stage1/stage1_results.csv
+validation/stage2/fulltext/
+validation/stage4/supp/
+validation/stage5/work/
+validation/stage5/qratio_rows.jsonl
+validation/stage5/qratio.csv
+validation/stage5/qratio_clean.csv
+validation/stage5/inventory/
+validation/stage5/cache/
+validation/stage5/stage5_results.jsonl
+validation/stage6/cache/
+validation/stage6/urls/
+validation/stage7/qratio.csv

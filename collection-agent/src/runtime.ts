@@ -1,0 +1,208 @@
+import { existsSync, mkdirSync, readFileSync } from "node:fs"
+import { join } from "node:path"
+import { ModelRuntime } from "@earendil-works/pi-coding-agent"
+import { getModel } from "@earendil-works/pi-ai/compat"
+import type { Model } from "@earendil-works/pi-ai"
+import { projectRoot } from "./utils/io.js"
+
+export interface LlmRuntime {
+  cwd: string
+  agentDir: string
+  modelRuntime: ModelRuntime
+  model: Model<any>
+  modelId: string
+}
+
+/** Known bare model ids → provider when MODEL has no "provider/" prefix */
+const BARE_MODEL_PROVIDER: Record<string, string> = {
+  "deepseek-v4-flash": "deepseek",
+  "deepseek-v4-pro": "deepseek",
+  "deepseek-chat": "deepseek",
+  "deepseek-reasoner": "deepseek",
+}
+
+/** Models available on OpenCode Go that share the same id as DeepSeek official */
+const OPENCODE_GO_DEEPSEEK_IDS = new Set(["deepseek-v4-flash", "deepseek-v4-pro"])
+
+export function loadDotEnv(cwd: string = projectRoot()): void {
+  const envPath = join(cwd, ".env")
+  if (!existsSync(envPath)) return
+  for (const line of readFileSync(envPath, "utf8").split("\n")) {
+    const t = line.trim()
+    if (!t || t.startsWith("#")) continue
+    const eq = t.indexOf("=")
+    if (eq < 0) continue
+    const key = t.slice(0, eq).trim()
+    let val = t.slice(eq + 1).trim()
+    if (
+      (val.startsWith('"') && val.endsWith('"')) ||
+      (val.startsWith("'") && val.endsWith("'"))
+    ) {
+      val = val.slice(1, -1)
+    }
+    if (!(key in process.env)) process.env[key] = val
+  }
+}
+
+/** Parse "opencode-go/deepseek-v4-flash" or bare "deepseek-v4-flash" */
+export function parseModelId(modelId: string): { provider: string; modelName: string } {
+  const trimmed = modelId.trim()
+  if (trimmed.includes("/")) {
+    const [provider, ...rest] = trimmed.split("/")
+    return { provider, modelName: rest.join("/") }
+  }
+  if (BARE_MODEL_PROVIDER[trimmed]) {
+    return { provider: BARE_MODEL_PROVIDER[trimmed], modelName: trimmed }
+  }
+  if (trimmed.startsWith("deepseek-")) {
+    return { provider: "deepseek", modelName: trimmed }
+  }
+  // Legacy default: bare ids without slash were treated as Anthropic
+  return { provider: "anthropic", modelName: trimmed }
+}
+
+/**
+ * Prefer OpenCode Go when:
+ * - MODEL already says opencode-go/…, or
+ * - OPENCODE_API_KEY is set and DEEPSEEK_API_KEY is not (for DeepSeek V4 ids)
+ */
+export function resolveModelId(rawModelId: string): string {
+  const { provider, modelName } = parseModelId(rawModelId)
+  if (provider === "opencode-go" || provider === "opencode") {
+    return `${provider}/${modelName}`
+  }
+  const hasOpenCode = Boolean(process.env.OPENCODE_API_KEY?.trim())
+  const hasDeepseek = Boolean(process.env.DEEPSEEK_API_KEY?.trim())
+  if (
+    hasOpenCode &&
+    !hasDeepseek &&
+    provider === "deepseek" &&
+    OPENCODE_GO_DEEPSEEK_IDS.has(modelName)
+  ) {
+    return `opencode-go/${modelName}`
+  }
+  return `${provider}/${modelName}`
+}
+
+function hasAnyApiKey(): boolean {
+  return Boolean(
+    process.env.OPENCODE_API_KEY?.trim() ||
+      process.env.DEEPSEEK_API_KEY?.trim() ||
+      process.env.ANTHROPIC_API_KEY?.trim() ||
+      process.env.OPENAI_API_KEY?.trim() ||
+      process.env.GOOGLE_API_KEY?.trim(),
+  )
+}
+
+function hasProviderApiKey(provider: string): boolean {
+  switch (provider) {
+    case "opencode-go":
+    case "opencode":
+      return Boolean(process.env.OPENCODE_API_KEY?.trim())
+    case "deepseek":
+      return Boolean(process.env.DEEPSEEK_API_KEY?.trim())
+    case "anthropic":
+      return Boolean(process.env.ANTHROPIC_API_KEY?.trim())
+    case "openai":
+      return Boolean(process.env.OPENAI_API_KEY?.trim())
+    case "google":
+      return Boolean(process.env.GOOGLE_API_KEY?.trim())
+    default:
+      return hasAnyApiKey()
+  }
+}
+
+export async function createLlmRuntime(options: {
+  model?: string
+  cwd?: string
+} = {}): Promise<LlmRuntime> {
+  const cwd = options.cwd ?? projectRoot()
+  loadDotEnv(cwd)
+
+  const agentDir = join(cwd, ".pi", "agent")
+  if (!existsSync(agentDir)) mkdirSync(agentDir, { recursive: true })
+
+  const modelRuntime = await ModelRuntime.create({
+    authPath: join(agentDir, "auth.json"),
+    modelsPath: join(agentDir, "models.json"),
+  })
+
+  // OpenCode Go (OpenAI-compatible: https://opencode.ai/zen/go/v1)
+  if (process.env.OPENCODE_API_KEY?.trim()) {
+    await modelRuntime.setRuntimeApiKey("opencode-go", process.env.OPENCODE_API_KEY.trim())
+    // Zen free/other models use provider id "opencode" with the same key
+    await modelRuntime.setRuntimeApiKey("opencode", process.env.OPENCODE_API_KEY.trim())
+  }
+  if (process.env.DEEPSEEK_API_KEY?.trim()) {
+    await modelRuntime.setRuntimeApiKey("deepseek", process.env.DEEPSEEK_API_KEY.trim())
+  }
+  if (process.env.ANTHROPIC_API_KEY) {
+    await modelRuntime.setRuntimeApiKey("anthropic", process.env.ANTHROPIC_API_KEY)
+  }
+  if (process.env.OPENAI_API_KEY) {
+    await modelRuntime.setRuntimeApiKey("openai", process.env.OPENAI_API_KEY)
+  }
+  if (process.env.GOOGLE_API_KEY) {
+    await modelRuntime.setRuntimeApiKey("google", process.env.GOOGLE_API_KEY)
+  }
+
+  if (!hasAnyApiKey()) {
+    throw new Error(
+      "No LLM API key found. Set OPENCODE_API_KEY (OpenCode Go) or DEEPSEEK_API_KEY in .env — see .env.example.",
+    )
+  }
+
+  const rawModelId =
+    options.model ?? process.env.MODEL ?? "opencode-go/deepseek-v4-flash"
+  const resolvedId = resolveModelId(rawModelId)
+  const { provider, modelName } = parseModelId(resolvedId)
+
+  if (!hasProviderApiKey(provider)) {
+    throw new Error(
+      `MODEL=${resolvedId} requires ${provider} API key (provider "${provider}" not configured in .env).`,
+    )
+  }
+
+  let model = modelRuntime.getModel(provider, modelName)
+  if (!model) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    model = getModel(provider as any, modelName)
+  }
+  if (!model) {
+    const available = await modelRuntime.getAvailable()
+    const hint =
+      available.length > 0
+        ? available
+            .slice(0, 12)
+            .map((m) => `${m.provider}/${m.id}`)
+            .join(", ")
+        : "(none — set OPENCODE_API_KEY or another provider key in .env)"
+    throw new Error(
+      `Model not found: ${rawModelId} (resolved as ${provider}/${modelName}). Available: ${hint}`,
+    )
+  }
+
+  return {
+    cwd,
+    agentDir,
+    modelRuntime,
+    model,
+    modelId: `${model.provider}/${model.id}`,
+  }
+}
+
+export function assistantText(message: {
+  content: Array<{ type: string; text?: string }>
+  errorMessage?: string
+  stopReason?: string
+}): string {
+  if (message.errorMessage) {
+    throw new Error(`LLM error (${message.stopReason}): ${message.errorMessage}`)
+  }
+  const parts = message.content
+    .filter((c) => c.type === "text" && typeof c.text === "string")
+    .map((c) => c.text as string)
+  const text = parts.join("\n").trim()
+  if (!text) throw new Error("LLM returned empty text content")
+  return text
+}
