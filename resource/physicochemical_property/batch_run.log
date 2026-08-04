@@ -1,0 +1,18 @@
+Resume: 0 proteins already in /var/www/html/qPTM2026/resource/physicochemical_property/human.parquet
+Total entries: 42562, pending: 42562, chunk_size: 5000
+[batch_0000] NetSurfP-3.0 on 5000 sequences ...
+# 2026-08-04 10:52 NetSurfP-3.0 Web: INFO     Started job batch_0000
+# 2026-08-04 10:52 NetSurfP-3.0 Web: INFO     Node: lzx-hk
+# 2026-08-04 10:52 NetSurfP-3.0 Web: INFO     Loaded model (17.1 s), starting predictions..
+Traceback (most recent call last):
+  File "/var/www/html/qPTM2026/resource/batch_compute_protein_properties.py", line 365, in <module>
+    sys.exit(main())
+  File "/var/www/html/qPTM2026/resource/batch_compute_protein_properties.py", line 332, in main
+    args.output_dir,
+  File "/var/www/html/qPTM2026/resource/batch_compute_protein_properties.py", line 170, in process_chunk
+    chunk_fasta, tmp_dir, chunk_name, netsurfp_root, netsurfp_model
+  File "/var/www/html/qPTM2026/resource/batch_compute_protein_properties.py", line 105, in run_netsurfp_chunk
+    cwd=str(netsurfp_root),
+  File "/usr/lib64/python3.6/subprocess.py", line 438, in run
+    output=stdout, stderr=stderr)
+subprocess.CalledProcessError: Command '['/usr/bin/python3', '/var/www/html/software/netsurfp-3.0/NetSurfP-3.0_standalone/nsp3.py', '-m', '/var/www/html/software/netsurfp-3.0/NetSurfP-3.0_standalone/models/nsp3.pth', '-i', '/tmp/batch_props_a_qlh4i6/batch_0000.fasta', '-o', '/tmp/batch_props_a_qlh4i6/nsp3_output', '-w', 'batch_0000']' died with <Signals.SIGKILL: 9>.
