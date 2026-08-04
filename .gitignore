@@ -5,6 +5,20 @@ __pycache__/
 .venv/
 *.egg-info/
 
+# Node.js
+node_modules/
+
+# User-downloaded FASTA sequences
+fasta_file/
+
+# Runtime / generated data (keep scripts and .gitkeep)
+agent-backend/data/_runtime/collection/
+agent-backend/data/_runtime/eval/results_*.jsonl
+agent-backend/data/_runtime/eval/summary_*.md
+!agent-backend/data/_runtime/eval/run_agent_eval.py
+!agent-backend/data/_runtime/eval/latest_results.json
+!agent-backend/data/_runtime/eval/latest_summary.md
+
 # Environment
 .env
 *.local
@@ -111,3 +125,4 @@ agent-backend/data/enzymes/WERAM/raw/Homo_sapiens_Acetylation_predicted_proteins
 agent-backend/data/enzymes/PhosphoSitePlus/Kinase_Substrate_Dataset
 agent-backend/data/enzymes/WERAM/raw/Homo_sapiens_Methylation_collected_proteins.fasta
 agent-backend/data/enzymes/WERAM/raw/Homo_sapiens_Methylation_predicted_proteins.fasta
+agent-backend/data/localization/SignalP/tables/predictions.tsv

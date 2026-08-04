@@ -1,0 +1,44 @@
+id: signalp
+name: SignalP
+aspect: localization
+access: local
+
+description: >
+  SignalP 6.0 proteome-scale predictions of secretory signal peptides (Sec/SPI)
+  and cleavage sites for human UniProt entries. Used to place PTM sites in
+  signal-peptide vs mature-protein context — modifications in the N-terminal
+  signal region may affect secretion or cleavage efficiency.
+  Web service: https://services.healthtech.dtu.dk/service.php?SignalP
+
+homepage: https://services.healthtech.dtu.dk/services/SignalP-6.0/
+api_base: null
+api_docs: https://services.healthtech.dtu.dk/services/SignalP-6.0/
+citation: >
+  Teufel F, et al. SignalP 6.0 predicts all five types of signal peptides
+  using protein language models. Nature Biotechnology.
+doi: 10.1038/s41587-021-01156-3
+pmid: "35132240"
+license: See https://services.healthtech.dtu.dk/services/SignalP-6.0/
+notes: >
+  Prepare: `python -m app.sources.prepare_signalp`
+  Build: `python -m app.sources.build_index signalp`
+  Raw upload: SignalP.txt (EntryID = UniProt accession).
+
+tools:
+  - signalp_prediction
+
+files:
+  - id: predictions
+    path: tables/predictions.tsv
+    description: SignalP 6.0 Sec/SPI predictions and cleavage-site coordinates
+    columns:
+      - uniprot
+      - prediction
+      - other_score
+      - sp_score
+      - cleavage_start
+      - cleavage_end
+      - cleavage_probability
+      - cs_position
+    index_keys: [uniprot, prediction]
+    approx_rows: 32900
