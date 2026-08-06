@@ -1,4 +1,5 @@
 import type { LiteratureInfoRow, MetaStatus, MetaTextSource } from "../../types.js"
+import { buildConditionSampleMap } from "../../stage5/sample-map.js"
 
 export class MetaParseError extends Error {
   constructor(
@@ -100,6 +101,11 @@ export function parseMetaOutput(
   let msDataSource = asStr(obj.msDataSource) || meta.fallbackMsDataSource || ""
   let identifier = asStr(obj.identifier) || meta.fallbackIdentifier || ""
   const notes = asStr(obj.notes)
+  const conditionSampleMap = buildConditionSampleMap(
+    sample,
+    condition,
+    asStr(obj.conditionSampleMap),
+  )
 
   // Soft check: empty core fields with high confidence → clamp
   const coreFilled = CORE_FIELDS.filter((k) => {
@@ -138,6 +144,7 @@ export function parseMetaOutput(
     labelMethod,
     condition,
     detailCondition,
+    conditionSampleMap,
     enrichmentMethod,
     massSpectrometer,
     msDataSource,

@@ -3,6 +3,7 @@
  */
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { extname, join } from "node:path"
+import { fetchEuropePmcMeta } from "../stage2/clients/europepmc.js"
 import type { FulltextRecord } from "../stage2/fulltext.js"
 import { fulltextPmidDir } from "../stage2/fulltext.js"
 
@@ -10,6 +11,8 @@ export interface IngestFulltextOptions {
   pmid: string
   filePath: string
   title?: string
+  /** Skip Europe PMC DOI/PMCID lookup (tests / offline). Default false. */
+  skipIdLookup?: boolean
 }
 
 function loadExistingMeta(metaPath: string): Partial<FulltextRecord> {
@@ -21,7 +24,9 @@ function loadExistingMeta(metaPath: string): Partial<FulltextRecord> {
   }
 }
 
-export function ingestManualFulltext(options: IngestFulltextOptions): FulltextRecord {
+export async function ingestManualFulltext(
+  options: IngestFulltextOptions,
+): Promise<FulltextRecord> {
   const pmid = options.pmid.trim()
   if (!pmid) throw new Error("PMID is required")
   if (!existsSync(options.filePath)) {
@@ -52,26 +57,43 @@ export function ingestManualFulltext(options: IngestFulltextOptions): FulltextRe
     throw new Error(`Unsupported fulltext type: ${ext} (use .pdf or .xml)`)
   }
 
+  let doi = prior.doi ?? null
+  let pmcid = prior.pmcid ?? null
+  let title = options.title ?? prior.title ?? ""
+  const noteBits = ["User-uploaded fulltext"]
+
+  if (!options.skipIdLookup && (!doi || !pmcid || !title)) {
+    try {
+      const epmc = await fetchEuropePmcMeta(pmid)
+      if (!doi && epmc.doi) doi = epmc.doi
+      if (!pmcid && epmc.pmcid) pmcid = epmc.pmcid
+      if (!title && epmc.title) title = epmc.title
+      if (epmc.doi || epmc.pmcid) noteBits.push("ids_from_europepmc")
+    } catch {
+      // offline / network — Stage4 will retry lookup
+    }
+  }
+
   const sources = [...new Set([...(prior.sources ?? []), "user_upload"])]
   const status = hasXml && hasPdf ? "ok" : hasXml || hasPdf ? "partial" : "unavailable"
   const fetchedAt = new Date().toISOString()
 
   const record: FulltextRecord = {
     pmid,
-    title: options.title ?? prior.title ?? "",
+    title,
     status,
-    doi: prior.doi ?? null,
-    pmcid: prior.pmcid ?? null,
+    doi,
+    pmcid,
     hasXml,
     hasPdf,
     xmlPath: hasXml ? xmlPath : null,
     pdfPath: hasPdf ? pdfPath : null,
     sources,
     urls: prior.urls ?? [],
-    notes: "User-uploaded fulltext",
+    notes: noteBits.join("; "),
     fetchedAt,
   }
 
-  writeFileSync(metaPath, JSON.stringify(record, null, 2), "utf8")
+  writeFileSync(metaPath, JSON.stringify(record, null, 2) + "\n", "utf8")
   return record
 }

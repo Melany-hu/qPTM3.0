@@ -315,6 +315,7 @@ QUERY_MODE_OFF_TOPIC = "off_topic"
 # Tool + LLM modes
 QUERY_MODE_LITERATURE = "literature"  # field/method survey via PubTator + LLM
 QUERY_MODE_PMID_LOOKUP = "pmid_lookup"  # summarize a specific PMID
+QUERY_MODE_COLLECTION = "collection"  # literature-mining pipeline (PMID → qratio CSV)
 QUERY_MODE_COMPARE = "compare"  # compare two sites on (usually) one protein
 QUERY_MODE_FOLLOWUP = "followup"  # continue prior target with a focused ask
 
@@ -445,6 +446,16 @@ _PMID_RE = re.compile(
     re.I,
 )
 
+_COLLECTION_RE = re.compile(
+    r"("
+    r"collect(?:ion)?|curat(?:e|ing)?|ingest|import|extract|mine|parse|scrap"
+    r"|qratio|quantitative\s+table|supplementary\s+table|literature\s+metadata"
+    r"|full\s*text|supplement(?:ary)?|data\s+collect"
+    r"|数据收集|文献收集|抽取|入库|解析|定量表|补充表|全文|元数据|策展"
+    r")",
+    re.I,
+)
+
 _COMPARE_RE = re.compile(
     r"("
     r"\b(compare|comparison|versus|vs\.?)\b|"
@@ -499,6 +510,33 @@ def _extract_site_positions(message: str) -> list[int]:
 def _extract_pmid(message: str) -> str | None:
     m = _PMID_RE.search(message or "")
     return m.group(1) if m else None
+
+
+def _is_collection_request(
+    message: str,
+    entities: dict[str, Any],
+    upload_filenames: list[str] | None = None,
+) -> bool:
+    """True when the user wants the PMID literature-mining / qratio pipeline."""
+    text = (message or "").strip()
+    if upload_filenames:
+        from app.collection.uploads import classify_upload_filename
+
+        for name in upload_filenames:
+            kind = classify_upload_filename(name)
+            if kind in ("fulltext", "supplementary"):
+                return True
+    if _COLLECTION_RE.search(text):
+        return True
+    pmid = entities.get("pmid") or _extract_pmid(text)
+    if pmid and re.search(
+        r"(collect|extract|curat|ingest|parse|qratio|收集|抽取|入库|解析)",
+        text,
+        re.I,
+    ):
+        entities["pmid"] = pmid
+        return True
+    return False
 
 
 def _is_concept_question(message: str, entities: dict[str, Any]) -> bool:
@@ -718,22 +756,30 @@ def classify_query_mode(
     message: str,
     entities: dict[str, Any] | None = None,
     state: Any = None,
+    upload_filenames: list[str] | None = None,
 ) -> str:
     """Gate query intent across static / literature / research modes.
 
     Gate tree::
 
         greeting / help / concept / capability / meta_db  → static
+        collection                                        → literature-mining job
         literature / pmid_lookup                          → PubTator + LLM
         clarify                                           → ask for gene/site
         followup / compare / research                     → tool chain
         off_topic                                         → refuse + redirect
     """
     text = (message or "").strip()
-    if not text:
+    if not text and not upload_filenames:
         return QUERY_MODE_CLARIFY
 
     entities = entities or parse_query_entities(text)
+
+    if _is_collection_request(text, entities, upload_filenames):
+        pmid = _extract_pmid(text)
+        if pmid:
+            entities["pmid"] = pmid
+        return QUERY_MODE_COLLECTION
 
     if _GREETING_RE.match(text):
         return QUERY_MODE_GREETING

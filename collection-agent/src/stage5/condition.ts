@@ -42,7 +42,13 @@ export function conditionLabelFromRatioHeader(h: string, sheetName = ""): string
     return formatSilacBiologyLabel(silacSuffix)
   }
 
-  let m = n.match(/ratio\s+([^/\s]+)\s*\/\s*([^/\s]+)/i)
+  // Proteome Discoverer: "Abundance Ratio: (Heavy) / (Light)"
+  let m = n.match(
+    /abundance\s*ratio\s*:?\s*\(?\s*(heavy|light|medium)\s*\)?\s*\/\s*\(?\s*(heavy|light|medium)/i,
+  )
+  if (m) return `${m[1]}/${m[2]}`
+
+  m = n.match(/ratio\s+([^/\s]+)\s*\/\s*([^/\s]+)/i)
   let base = ""
   if (m) base = `${m[1]}/${m[2]}`
   else {
@@ -63,7 +69,7 @@ export function conditionLabelFromRatioHeader(h: string, sheetName = ""): string
     }
   }
   if (!base) base = cleanMappedCondition(n) || n
-  base = base.replace(/^\(+/, "").replace(/\)+$/, "").trim()
+  base = base.replace(/^\(+/, "").replace(/\)+$/, "").replace(/^[:\-\s]+/, "").trim()
   if (/^B\d+\s*\/\s*B\d+$/i.test(base) && sheetName && /vs\.?/i.test(sheetName)) {
     return sheetName.replace(/\s+/g, " ").trim()
   }
@@ -71,10 +77,11 @@ export function conditionLabelFromRatioHeader(h: string, sheetName = ""): string
 }
 
 export function isChannelLabel(cond: string): boolean {
-  const c = cond.trim()
+  const c = cond.trim().replace(/^[:\-\s]+/, "")
   if (!c) return false
   if (/^(m\/l|h\/l|h\/m|l\/h|l\/m|m\/h|heavy\/light|light\/heavy|medium\/light|heavy\/medium)$/i.test(c))
     return true
+  if (/\(?heavy\)?\s*\/\s*\(?light\)?/i.test(c) || /\(?light\)?\s*\/\s*\(?heavy\)?/i.test(c)) return true
   if (/^(L|M|H|Light|Medium|Heavy)$/i.test(c)) return true
   if (/^\.\d+$/.test(c)) return true
   if (/^B\d+\s*\/\s*B\d+$/i.test(c)) return true
@@ -125,11 +132,43 @@ export function isTechnicalRatioLabel(cond: string): boolean {
   return false
 }
 
+/**
+ * Spreadsheet placeholder contrasts (A/B, AvsB, Group1/Group2) that carry no biology —
+ * replace with Stage3 Condition when available.
+ */
+export function isPlaceholderGroupLabel(cond: string): boolean {
+  const s = cleanMappedCondition(cond).trim()
+  if (!s) return false
+  // A/B, A / B, A_B (single-letter arms)
+  if (/^[A-Za-z]\s*[\/_]\s*[A-Za-z]$/.test(s)) return true
+  // A vs B / AvsB / A-versus-B
+  if (/^[A-Za-z]\s*(?:vs\.?|versus)\s*[A-Za-z]$/i.test(s)) return true
+  if (/^[A-Za-z]vs\.?[A-Za-z]$/i.test(s)) return true
+  // Group A / Group B, SampleA/SampleB, Cond1/Cond2
+  if (
+    /^(?:group|sample|cond(?:ition)?|set|batch|arm|cohort)\s*[A-Za-z0-9]+\s*[\/_]\s*(?:group|sample|cond(?:ition)?|set|batch|arm|cohort)?\s*[A-Za-z0-9]+$/i.test(
+      s,
+    )
+  ) {
+    return true
+  }
+  // Bare numeric / G1/G2 arms
+  if (/^(?:g)?\d{1,2}\s*[\/_]\s*(?:g)?\d{1,2}$/i.test(s)) return true
+  return false
+}
+
 /** Sheet / batch style labels that should be expanded via Detail condition. */
 export function isCrypticCondition(cond: string): boolean {
   const s = cleanMappedCondition(cond)
   if (!s) return true
-  if (isChannelLabel(s) || isGenericRatioLabel(s) || isTechnicalRatioLabel(s)) return true
+  if (
+    isChannelLabel(s) ||
+    isGenericRatioLabel(s) ||
+    isTechnicalRatioLabel(s) ||
+    isPlaceholderGroupLabel(s)
+  ) {
+    return true
+  }
   if (/\bvs\.?\b/i.test(s)) return true
   if (/^(is|rep|exp|group|batch|condition)\b/i.test(s)) return true
   // short title without A/B slash biology
@@ -224,10 +263,12 @@ export function biologicalConditionOverlap(mapped: string, stage3Part: string): 
  */
 export function hasExtraSpecificity(mapped: string, stage3Part: string): boolean {
   const cleaned = cleanMappedCondition(mapped)
-  if (!cleaned || isCrypticCondition(cleaned)) return false
+  if (!cleaned || isCrypticCondition(cleaned) || isPlaceholderGroupLabel(cleaned)) return false
   const a = normTokens(cleaned)
   const b = tokenSet(stage3Part)
   const extras = a.filter((t) => {
+    // Single-letter arms (A/B) are not biological specificity.
+    if (t.length <= 1 && !/^\d+$/.test(t)) return false
     if (b.has(t)) return false
     for (const e of expandToken(t)) if (b.has(e)) return false
     return true
@@ -428,8 +469,16 @@ export function resolveRowCondition(
 
   if (parts.length === 0) return mapped || (mappedCondition || "").trim()
 
+  const placeholderOrCryptic =
+    isChannelLabel(mapped) ||
+    isGenericRatioLabel(mapped) ||
+    isPlaceholderGroupLabel(mapped) ||
+    isTechnicalRatioLabel(mapped) ||
+    !mapped ||
+    isCrypticCondition(mapped)
+
   if (parts.length === 1) {
-    if (isChannelLabel(mapped) || isGenericRatioLabel(mapped) || !mapped || isCrypticCondition(mapped)) {
+    if (placeholderOrCryptic) {
       return parts[0]
     }
     if (hasExtraSpecificity(mapped, parts[0])) return mapped
@@ -437,7 +486,7 @@ export function resolveRowCondition(
     return mapped
   }
 
-  if (isChannelLabel(mapped) || isGenericRatioLabel(mapped) || !mapped || isCrypticCondition(mapped)) {
+  if (placeholderOrCryptic) {
     return (
       matchStage3Condition(mapped, stage3Condition, detailCondition) ||
       parts[0] ||

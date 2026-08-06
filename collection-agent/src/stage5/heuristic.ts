@@ -48,6 +48,17 @@ export interface ColumnMapping {
   /** Sheet appears to be intensity/abundance only (no true ratio) */
   intensityOnly?: boolean
   intensityColumns?: string[]
+  /**
+   * User-guided contrasts computed from intensity channels
+   * (e.g. log2(P5/P1) from columns "… P5" / "… P1").
+   */
+  derivedContrasts?: Array<{
+    condition: string
+    numeratorCol: string
+    denominatorCol: string
+    isLog2: boolean
+    level: RatioLevel
+  }>
   notes: string
 }
 
@@ -90,6 +101,9 @@ function scoreUniprot(n: string): number {
 }
 
 function scorePosition(n: string): number {
+  // Strong: residue modification site number columns
+  if (/modified\s*lysine|modfied\s*lysine|mod(?:ified)?\s*lys/.test(n)) return 12
+  if (/modified\s*(serine|threonine|tyrosine|residue)/.test(n)) return 12
   if (/phospho_?location/.test(n)) return 10
   if (/site\s*positions?/.test(n)) return 10
   if (/positions?\s+within\s+proteins?/.test(n)) return 10
@@ -97,9 +111,12 @@ function scorePosition(n: string): number {
   if (/^positions?$/.test(n) || /^pos$/.test(n)) return 9
   if (/residue\s*positions?/.test(n)) return 9
   if (/modification\s*positions?/.test(n)) return 8
+  // Peptide span in protein (P32783 [357-382]) — NOT the modification site
+  if (/positions?\s+in\s+(a\s+)?master\s*proteins?/.test(n)) return 0
+  if (/positions?\s+in\s+proteins?/.test(n) && /master|peptide/.test(n)) return 0
   // Protein-level position preferred over "position in peptide"
   if (/\bpositions?\b/.test(n) && /peptide/.test(n)) return 4
-  if (/\bpositions?\b/.test(n) && !/gene|chrom/.test(n)) return 7
+  if (/\bpositions?\b/.test(n) && !/gene|chrom|master|accession/.test(n)) return 7
   if (/\bsite\b/.test(n) && /pos/.test(n)) return 7
   return 0
 }
@@ -133,6 +150,10 @@ function scoreGene(n: string): number {
 }
 
 function scoreSiteCombined(n: string): number {
+  // Accession / UniProt ID columns are never combined site IDs
+  // (even if a section title mentions "modification sites")
+  if (/protein\s*accession|uniprot|\baccession\b/.test(n) && !/phosphosite|site\s*id/.test(n))
+    return 0
   if (/uniprot.*phosphosite|phosphosite.*uniprot|protein\s*\+\s*phosphosite|gene\s*name\s*\+\s*phosphosite/i.test(n))
     return 11
   if (/modification\s*sites?/.test(n)) return 10
@@ -141,6 +162,9 @@ function scoreSiteCombined(n: string): number {
   if (/^sites?$/.test(n)) return 8
   if (/phospho.?site|ptm.?site|mod.?site/.test(n)) return 9
   if (/site\s*id/.test(n)) return 5
+  // Peptide span columns are not combined site IDs
+  if (/positions?\s+in\s+(a\s+)?master\s*proteins?/.test(n)) return 0
+  if (/accession/.test(n) && !/site|phospho/.test(n)) return 0
   return 0
 }
 
@@ -151,26 +175,74 @@ function isLog2Header(n: string): boolean {
 /** Intensity / abundance columns — must NOT be treated as ratios. */
 export function scoreIntensity(n: string): number {
   if (/ratio|log\s*2|log2|fold\s*change|\bfc\b/.test(n)) return 0
+  // Dedupe suffixes from buildHeaders (P1__2 → p1)
+  const base = n.replace(/__\d+$/, "").trim()
   if (/peak\s*area|peakarea/.test(n)) return 10
   if (/normalized\s*abundance|abundance/.test(n)) return 9
   if (/\bintensity\b/.test(n)) return 9
+  // Per-sample quantitation blocks (often under group headers P1/P5/P7)
+  if (/\b(quantitation|quantity|quant\.?)\b/.test(n)) return 8
   // bare timepoint / channel labels like 0/5, 5/5 without ratio wording
-  if (/^\d+\s*\/\s*\d+$/.test(n)) return 8
-  if (/^(l|m|h|light|medium|heavy)$/.test(n)) return 5
+  if (/^\d+\s*\/\s*\d+$/.test(base)) return 8
+  // Postnatal / developmental day or bare sample channels: P1, P5, D7, Day1
+  // (PMID 38479452 mmc3 — these are intensities, not contrast ratios)
+  if (/^(p|d|day)\s*\d{1,2}$/.test(base)) return 8
+  if (/^(sample|rep|replicate|bio)\s*[-_]?\s*\d+$/.test(base)) return 8
+  if (/^(l|m|h|light|medium|heavy)$/.test(base)) return 5
   return 0
+}
+
+/**
+ * Drop ratioColumns that are actually intensity/abundance/sample channels.
+ * Used after heuristic + LLM so bare labels like P1/P5/P7 never become fake log2FC.
+ */
+export function stripIntensityRatioColumns(mapping: ColumnMapping): ColumnMapping {
+  const stripped: string[] = []
+  const ratioColumns = mapping.ratioColumns.filter((r) => {
+    if (r.valueType === "intensity") {
+      stripped.push(r.column)
+      return false
+    }
+    if (scoreIntensity(norm(r.column)) >= 8) {
+      stripped.push(r.column)
+      return false
+    }
+    return true
+  })
+  if (stripped.length === 0) return mapping
+  const intensityColumns = [
+    ...new Set([...(mapping.intensityColumns ?? []), ...stripped]),
+  ]
+  const intensityOnly =
+    Boolean(mapping.intensityOnly) ||
+    (ratioColumns.length === 0 && intensityColumns.length > 0)
+  const note = `stripped_intensity_as_ratio=${stripped.join("|")}`
+  const notes = mapping.notes ? `${mapping.notes}; ${note}` : note
+  return {
+    ...mapping,
+    ratioColumns,
+    intensityColumns,
+    intensityOnly,
+    notes,
+  }
 }
 
 function scoreRatio(n: string): number {
   // Hard reject intensity / abundance / peak area
   if (scoreIntensity(n) >= 8) return 0
+  // Never treat p-values / counts as ratios (even if the header mentions "ratio")
+  if (scorePValue(n) >= 7) return 0
   if (/variability|count|unique|razor|sequence\s*coverage|stdev|std\.?\s*dev|peptides$/.test(n))
     return 0
+  if (/number\s+of| #\s*|digly\s*peptides\s+in|peptides\s+in\s+protein/.test(n)) return 0
+  if (/adj\.?\s*p|p[- ]?value|pvalue|q[- ]?value|fdr/.test(n)) return 0
   // Inverse of a ratio is redundant when the forward ratio exists
   if (/^1\s*\/\s*/.test(n) || /1\s*\/\s*(nomolized|normalized)/.test(n)) return 3
   // Reject bare timepoint headers (0/5) — those are intensities in many supp tables
   if (/^\d+\s*\/\s*\d+$/.test(n) && !/ratio|log|fold|fc/.test(n)) return 0
   let s = 0
   if (/(log\s*2|log2|2log|2\s*log)/.test(n) && /(ratio|fc|fold)/.test(n)) s = 10
+  else if (/abundance\s*ratio/.test(n) && !/p[- ]?value|adj/.test(n)) s = 9
   else if (/^ratio\b/.test(n) || /\bratio\b/.test(n)) s = 8
   else if (/\bfold\s*change\b|\bfc\b/.test(n)) s = 7
   else if (/(log\s*2|log2|2log)/.test(n)) s = 6
@@ -443,11 +515,14 @@ export const HEURISTIC_MIN_PARSE = 0.55
 
 /** Parsable into qratio with UniProt (or gene→UniProt) + true ratio cols + site signal */
 export function mappingIsParsable(m: ColumnMapping): boolean {
-  if (m.intensityOnly) return false
-  if (m.ratioColumns.some((r) => r.valueType === "intensity")) return false
+  if (m.intensityOnly && !(m.derivedContrasts && m.derivedContrasts.length > 0)) return false
+  if (m.ratioColumns.some((r) => r.valueType === "intensity") && !(m.derivedContrasts?.length))
+    return false
   const hasSite = Boolean(m.positionCol || m.siteCombinedCol || m.aminoAcidCol || m.modSeqCol)
   const hasId = Boolean(m.uniprotCol || m.geneCol)
-  return hasId && m.ratioColumns.length > 0 && hasSite
+  const hasRatio =
+    m.ratioColumns.length > 0 || Boolean(m.derivedContrasts && m.derivedContrasts.length > 0)
+  return hasId && hasRatio && hasSite
 }
 
 export function mappingNeedsManual(m: ColumnMapping): boolean {
@@ -455,4 +530,49 @@ export function mappingNeedsManual(m: ColumnMapping): boolean {
   if (!mappingIsParsable(m)) return true
   if (m.confidence < 0.45) return true
   return false
+}
+
+/**
+ * Prefer true residue-number columns (e.g. "Protein: Modified lysine") over
+ * peptide-span / accession columns that LLMs often mis-map as Position.
+ */
+export function repairSiteColumnMapping(
+  mapping: ColumnMapping,
+  headers: string[],
+): ColumnMapping {
+  const bestPos = findBest(headers, [scorePosition], 5)
+  if (!bestPos) return mapping
+
+  const bestScore = scorePosition(norm(bestPos))
+  const curPos = mapping.positionCol
+  const curScore = curPos ? scorePosition(norm(curPos)) : 0
+  const curSite = mapping.siteCombinedCol
+  const curSiteScore = curSite ? scoreSiteCombined(norm(curSite)) : 0
+
+  // Upgrade when a much better residue-number column exists
+  if (bestScore >= 10 && bestScore > curScore + 2) {
+    const notes = `${mapping.notes}; repaired_position:${bestPos}`.replace(/^; /, "")
+    return {
+      ...mapping,
+      positionCol: bestPos,
+      // Drop weak peptide-span siteCombined when we have a real position col
+      siteCombinedCol:
+        curSiteScore <= 0 || (curSite != null && /master\s*proteins?|positions?\s+in/.test(norm(curSite)))
+          ? null
+          : mapping.siteCombinedCol,
+      notes,
+    }
+  }
+
+  // Drop siteCombined that is clearly a peptide span / accession
+  if (curSite && scoreSiteCombined(norm(curSite)) <= 0) {
+    return {
+      ...mapping,
+      siteCombinedCol: null,
+      positionCol: mapping.positionCol || (bestScore >= 7 ? bestPos : mapping.positionCol),
+      notes: `${mapping.notes}; dropped_bad_siteCombined`.replace(/^; /, ""),
+    }
+  }
+
+  return mapping
 }

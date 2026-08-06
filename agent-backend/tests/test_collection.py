@@ -31,7 +31,25 @@ def test_resolve_pmid_from_upload_only():
     assert resolve_pmid(message="", filenames=["39732660.pdf"]) == "39732660"
 
 
-def test_create_job_requires_pmid():
+def test_classify_collection_intent():
+    from app.agent.gate import classify_query_mode, QUERY_MODE_COLLECTION
+
+    mode = classify_query_mode("从 PMID 38101750 抽取 qratio 定量表")
+    assert mode == QUERY_MODE_COLLECTION
+
+    mode_upload = classify_query_mode("hello", upload_filenames=["39732660.pdf"])
+    assert mode_upload == QUERY_MODE_COLLECTION
+
+
+def test_classify_endpoint():
+    res = client.post(
+        "/classify",
+        json={"message": "Collect quantitative tables from PMID 39732660"},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["mode"] == "collection"
+    assert body["route_collection"] is True
     res = client.post("/collection/jobs", data={"message": "hello"})
     assert res.status_code == 200
     body = res.json()

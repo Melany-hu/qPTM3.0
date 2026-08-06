@@ -23,7 +23,12 @@ import { runStage6DownloadUrls } from "./stage6.js"
 import {
   loadAllScreenResults,
   parseCsv,
+  setDataRoot,
+  stage2FulltextDir,
   stage3LiteratureInfoPath,
+  stage4SuppDir,
+  stage5Dir,
+  stage6Dir,
 } from "../utils/io.js"
 import {
   nextStageAfter,
@@ -33,7 +38,20 @@ import {
   type CollectionJobState,
   type StageName,
 } from "./job-state.js"
-import { setDataRoot, stage4SuppDir } from "../utils/io.js"
+import {
+  messageFulltextMissing,
+  messageFulltextOk,
+  messageInclude,
+  messageMsUrlsComplete,
+  messageParseEmpty,
+  messageParseOk,
+  messageRejected,
+  messageSuppMissing,
+  messageSuppOk,
+  messageUncertain,
+  messageUserSuppReady,
+  UI_SEG,
+} from "./user-messages.js"
 
 export interface RunCollectionJobOptions {
   jobId: string
@@ -76,6 +94,44 @@ function needsSupplementaryUpload(pmid: string, scout: SuppScoutRecord | null): 
     scout.zipStatus === "not_found" ||
     scout.zipStatus === "error"
   )
+}
+
+/** Artifact availability for the interactive UI (download chips). */
+function artifactSummary(pmid: string): Record<string, unknown> {
+  const ftDir = join(stage2FulltextDir(), pmid)
+  const hasPdf = existsSync(join(ftDir, "fulltext.pdf"))
+  const hasXml = existsSync(join(ftDir, "fulltext.xml"))
+  const hasZip = existsSync(join(stage4SuppDir(), pmid, "supplementary.zip"))
+  const hasQratio = existsSync(join(stage5Dir(), "qratio.csv"))
+  const hasMsUrls = existsSync(join(stage6Dir(), "urls_all.csv"))
+  const fulltextUserUpload = (() => {
+    const metaPath = join(ftDir, "meta.json")
+    if (!existsSync(metaPath)) return false
+    try {
+      const meta = JSON.parse(readFileSync(metaPath, "utf8")) as {
+        sources?: string[]
+        notes?: string
+      }
+      if (Array.isArray(meta.sources) && meta.sources.includes("user_upload")) return true
+      const notes = String(meta.notes || "").toLowerCase()
+      return notes.includes("user-uploaded") || notes.includes("user_upload")
+    } catch {
+      return false
+    }
+  })()
+  const supplementaryUserUpload = existsSync(
+    join(stage4SuppDir(), pmid, "source_user_upload.txt"),
+  )
+  return {
+    artifacts: {
+      fulltextKind: hasPdf ? "pdf" : hasXml ? "xml" : null,
+      hasSupplementary: hasZip,
+      hasQratio,
+      hasMsUrls,
+      fulltextUserUpload,
+      supplementaryUserUpload,
+    },
+  }
 }
 
 function loadScoutRecord(outDir: string, pmid: string): SuppScoutRecord | null {
@@ -128,6 +184,10 @@ export async function runCollectionJob(options: RunCollectionJobOptions): Promis
     status: "running",
     awaitingUpload: null,
     nextStage: null,
+    // Keep the UI focused on the stage being resumed (avoid flashing prior stage).
+    ...(resumeFrom !== "auto"
+      ? { currentStage: resumeFrom as StageName }
+      : {}),
     message: "Starting collection agent…",
     stages: {},
   })
@@ -145,8 +205,9 @@ export async function runCollectionJob(options: RunCollectionJobOptions): Promis
     completedStage: StageName,
     message: string,
     summaryPatch: Record<string, unknown> = {},
+    nextOverride?: StageName | null,
   ): CollectionJobState => {
-    const next = nextStageAfter(completedStage)
+    const next = nextOverride !== undefined ? nextOverride : nextStageAfter(completedStage)
     return patchJobState(options.outDir, {
       jobId: options.jobId,
       pmid,
@@ -159,7 +220,12 @@ export async function runCollectionJob(options: RunCollectionJobOptions): Promis
     })
   }
 
-  const awaitUpload = (kind: AwaitingUpload, message: string, next: StageName): CollectionJobState => {
+  const awaitUpload = (
+    kind: AwaitingUpload,
+    message: string,
+    next: StageName,
+    summaryPatch: Record<string, unknown> = {},
+  ): CollectionJobState => {
     return patchJobState(options.outDir, {
       jobId: options.jobId,
       pmid,
@@ -167,13 +233,14 @@ export async function runCollectionJob(options: RunCollectionJobOptions): Promis
       awaitingUpload: kind,
       nextStage: next,
       message,
+      summary: summaryPatch,
     })
   }
 
   try {
     if (options.fulltextPath && existsSync(options.fulltextPath)) {
       log(`Ingesting user fulltext for ${pmid}`)
-      ingestManualFulltext({ pmid, filePath: options.fulltextPath })
+      await ingestManualFulltext({ pmid, filePath: options.fulltextPath })
     }
 
     if (options.supplementaryPath && existsSync(options.supplementaryPath)) {
@@ -229,9 +296,12 @@ export async function runCollectionJob(options: RunCollectionJobOptions): Promis
           status: "rejected",
           currentStage: "stage1",
           nextStage: null,
-          message:
-            `Screening result: this paper does not appear to contain quantitative PTM proteomics data. ` +
-            `Reason: ${screen.reason}`,
+          offerContribute: false,
+          message: messageRejected({
+            title: (paper.title as string) || screen.title,
+            reason: screen.reason,
+            ptmTypes: screen.ptmTypes,
+          }),
           stages: { stage1: "completed" },
           summary: { stage1: s1, stage1Screen: screen, paper },
         })
@@ -240,21 +310,61 @@ export async function runCollectionJob(options: RunCollectionJobOptions): Promis
       if (screen?.decision === "uncertain") {
         return pauseContinue(
           "stage1",
-          `Screening is uncertain for this paper (confidence ${screen.confidence}). ` +
-            `Reason: ${screen.reason} ` +
-            `Click Continue if you still want to proceed with data collection.`,
-          { stage1: s1, stage1Screen: screen, paper },
+          messageUncertain({
+            title: (paper.title as string) || screen.title,
+            abstract: paper.abstract as string | undefined,
+            reason: screen.reason,
+            confidence: screen.confidence,
+          }),
+          { stage1: s1, stage1Screen: screen, paper, ...artifactSummary(pmid) },
         )
       }
 
       markStage("stage1", "completed")
-      const ptmHint =
-        screen?.ptmTypes?.length ? ` Detected PTM types: ${screen.ptmTypes.join(", ")}.` : ""
+      const hasFulltext = !needsFulltextUpload(pmid)
+      // PDF/XML already present (user upload or prior fetch): skip Stage 2 UI → Stage 3 next.
+      if (hasFulltext) {
+        log("Stage 1: full text already present — skip Stage 2 pause, next is Stage 3")
+        let s2discover: unknown = { skipped: true }
+        try {
+          s2discover = await runStage2Discover({
+            pmid,
+            all: true,
+            concurrency,
+            resume: true,
+          })
+        } catch (err) {
+          log(`Stage 2 discover (silent): ${err instanceof Error ? err.message : String(err)}`)
+        }
+        markStage("stage2", "skipped")
+        return pauseContinue(
+          "stage1",
+          messageInclude({
+            title: (paper.title as string) || screen?.title,
+            abstract: paper.abstract as string | undefined,
+            ptmTypes: screen?.ptmTypes,
+            hasFulltext: true,
+          }),
+          {
+            stage1: s1,
+            stage1Screen: screen,
+            paper,
+            stage2Discover: s2discover,
+            stage2Fulltext: { skipped: true },
+            ...artifactSummary(pmid),
+          },
+          "stage3",
+        )
+      }
       return pauseContinue(
         "stage1",
-        `This paper contains quantitative PTM proteomics data.${ptmHint} ` +
-          `Click Continue to fetch the full text.`,
-        { stage1: s1, stage1Screen: screen, paper },
+        messageInclude({
+          title: (paper.title as string) || screen?.title,
+          abstract: paper.abstract as string | undefined,
+          ptmTypes: screen?.ptmTypes,
+          hasFulltext: false,
+        }),
+        { stage1: s1, stage1Screen: screen, paper, ...artifactSummary(pmid) },
       )
     }
 
@@ -270,48 +380,40 @@ export async function runCollectionJob(options: RunCollectionJobOptions): Promis
       })
 
       if (!needsFulltextUpload(pmid)) {
-        log("Stage 2: full text already present")
-        markStage("stage2", "completed")
+        // Full text already on disk — do not pause for Continue; fall through to Stage 3.
+        log("Stage 2: full text already present — continue to Stage 3")
+        markStage("stage2", "skipped")
         state = patchJobState(options.outDir, {
           jobId: options.jobId,
           pmid,
-          summary: { stage2Discover: s2discover, stage2Fulltext: { skipped: true } },
+          summary: {
+            stage2Discover: s2discover,
+            stage2Fulltext: { skipped: true },
+            ...artifactSummary(pmid),
+          },
         })
-        return pauseContinue(
-          "stage2",
-          "Full text is available (user upload or open-access fetch). " +
-            "Click Continue to extract literature metadata.",
-        )
+      } else {
+        log("Stage 2: open-access full text fetch")
+        const s2ft = await runStage2Fulltext({
+          pmid,
+          all: true,
+          concurrency,
+          resume: true,
+        })
+        state = patchJobState(options.outDir, {
+          jobId: options.jobId,
+          pmid,
+          summary: { stage2Discover: s2discover, stage2Fulltext: s2ft, ...artifactSummary(pmid) },
+        })
+
+        if (needsFulltextUpload(pmid)) {
+          markStage("stage2", "failed")
+          return awaitUpload("fulltext", messageFulltextMissing(), "stage2", artifactSummary(pmid))
+        }
+
+        markStage("stage2", "completed")
+        return pauseContinue("stage2", messageFulltextOk("oa"), artifactSummary(pmid))
       }
-
-      log("Stage 2: open-access full text fetch")
-      const s2ft = await runStage2Fulltext({
-        pmid,
-        all: true,
-        concurrency,
-        resume: true,
-      })
-      state = patchJobState(options.outDir, {
-        jobId: options.jobId,
-        pmid,
-        summary: { stage2Discover: s2discover, stage2Fulltext: s2ft },
-      })
-
-      if (needsFulltextUpload(pmid)) {
-        markStage("stage2", "failed")
-        return awaitUpload(
-          "fulltext",
-          "Open-access full text could not be retrieved automatically. " +
-            "Please upload a PDF or JATS XML file, then click Continue.",
-          "stage2",
-        )
-      }
-
-      markStage("stage2", "completed")
-      return pauseContinue(
-        "stage2",
-        "Full text retrieved successfully. Click Continue to extract literature metadata.",
-      )
     }
 
     // ── Stage 3: Literature metadata ────────────────────────────────────────
@@ -328,8 +430,12 @@ export async function runCollectionJob(options: RunCollectionJobOptions): Promis
       markStage("stage3", "completed")
       return pauseContinue(
         "stage3",
-        "Literature metadata extracted. Review the table below and click Continue to scout supplementary tables.",
-        { stage3: s3, stage3Row },
+        [
+          "Literature metadata extracted. Review the table below.",
+          UI_SEG.AFTER_META,
+          "Click Continue to scout supplementary quantitative tables.",
+        ].join("\n"),
+        { stage3: s3, stage3Row, ...artifactSummary(pmid) },
       )
     }
 
@@ -338,9 +444,11 @@ export async function runCollectionJob(options: RunCollectionJobOptions): Promis
       const userSuppUploaded = hasUserUploadedSupplementary(pmid)
       if (userSuppUploaded) {
         markStage("stage4", "skipped")
+        const scout = loadScoutRecord(options.outDir, pmid)
         return pauseContinue(
           "stage4",
-          "User-uploaded supplementary tables detected. Click Continue to parse quantitative data.",
+          messageUserSuppReady(),
+          { stage4Scout: scout, stage4Source: "user_upload", ...artifactSummary(pmid) },
         )
       }
 
@@ -358,24 +466,33 @@ export async function runCollectionJob(options: RunCollectionJobOptions): Promis
       if (needsSupplementaryUpload(pmid, scout)) {
         return awaitUpload(
           "supplementary",
-          "Supplementary quantitative tables could not be downloaded automatically. " +
-            "Please upload a ZIP, Excel, or CSV/TSV file, then click Continue.",
+          messageSuppMissing(),
           "stage5",
+          { stage4: s4, stage4Scout: scout, ...artifactSummary(pmid) },
         )
       }
 
       const verdict = scout?.verdict ?? "found"
       return pauseContinue(
         "stage4",
-        `Supplementary tables located (${verdict}). Click Continue to parse quantitative data.`,
-        { stage4: s4, stage4Scout: scout },
+        messageSuppOk(verdict),
+        { stage4: s4, stage4Scout: scout, ...artifactSummary(pmid) },
       )
     }
 
-    // ── Stage 5 + 6: Parse tables → MS download URLs (auto chain) ───────────
+    // ── Stage 5: Parse quantitative tables ──────────────────────────────────
     if (shouldRunStage(resumeFrom, "stage5")) {
       markStage("stage5", "running")
       log("Stage 5: parse quantitative tables")
+      const thinking: unknown[] = []
+      patchJobState(options.outDir, {
+        jobId: options.jobId,
+        pmid,
+        status: "running",
+        currentStage: "stage5",
+        message: "Parsing quantitative tables…",
+        summary: { stage5Thinking: [] },
+      })
       const s5 = await runStage5Parse({
         pmid,
         all: true,
@@ -384,6 +501,19 @@ export async function runCollectionJob(options: RunCollectionJobOptions): Promis
         concurrency,
         resume: true,
         model: options.model,
+        onThinking: (step) => {
+          thinking.push(step)
+          const trimmed = thinking.slice(-60)
+          patchJobState(options.outDir, {
+            jobId: options.jobId,
+            pmid,
+            status: "running",
+            currentStage: "stage5",
+            // Keep a stable user-facing status; detailed steps live in stage5Thinking (plan panel).
+            message: "Parsing quantitative tables…",
+            summary: { stage5Thinking: trimmed },
+          })
+        },
       })
       markStage("stage5", "completed")
 
@@ -392,65 +522,102 @@ export async function runCollectionJob(options: RunCollectionJobOptions): Promis
         return patchJobState(options.outDir, {
           jobId: options.jobId,
           pmid,
-          status: "completed",
+          status: "awaiting_upload",
           currentStage: "stage5",
-          nextStage: null,
-          message:
-            "No quantitative PTM site-level ratios were parsed from the supplementary tables. " +
-            "Please check the table format or upload a different file.",
-          summary: { stage5: s5, qratioRowCount: 0 },
+          nextStage: "stage5",
+          awaitingUpload: "supplementary",
+          offerContribute: false,
+          message: messageParseEmpty(),
+          summary: {
+            stage5: s5,
+            qratioRowCount: 0,
+            stage5Thinking: thinking.slice(-60),
+            needsTableHints: true,
+            ...artifactSummary(pmid),
+          },
         })
       }
 
+      return patchJobState(options.outDir, {
+        jobId: options.jobId,
+        pmid,
+        status: "awaiting_continue",
+        currentStage: "stage5",
+        nextStage: "stage6",
+        awaitingUpload: null,
+        offerContribute: true,
+        contribution: { willing: null },
+        message: messageParseOk(rowCount, {
+          proteinFilled: Number((s5 as { totalProteomeRows?: number }).totalProteomeRows || 0) || undefined,
+        }),
+        summary: {
+          stage5: s5,
+          qratioRowCount: rowCount,
+          stage5Thinking: thinking.slice(-60),
+          offerContribute: true,
+          allowTableHints: true,
+          needsTableHints: false,
+          stage3Row: loadStage3Row(pmid),
+          ...artifactSummary(pmid),
+        },
+      })
+    }
+
+    // ── Stage 6: MS repository download URLs ────────────────────────────────
+    if (shouldRunStage(resumeFrom, "stage6")) {
       markStage("stage6", "running")
       log("Stage 6: MS repository download URLs")
-      let s6: unknown
+      patchJobState(options.outDir, {
+        jobId: options.jobId,
+        pmid,
+        status: "running",
+        currentStage: "stage6",
+        message: "Resolving MS repository download URLs…",
+      })
+      let s6: { totalUrls?: number; error?: string; [k: string]: unknown }
       try {
-        s6 = await runStage6DownloadUrls({
+        s6 = (await runStage6DownloadUrls({
           pmid,
           all: true,
           concurrency,
           resume: true,
-        })
+        })) as { totalUrls?: number }
         markStage("stage6", "completed")
       } catch (err) {
         log(`Stage 6 warning: ${err instanceof Error ? err.message : String(err)}`)
         markStage("stage6", "failed")
-        s6 = { error: err instanceof Error ? err.message : String(err) }
+        s6 = { error: err instanceof Error ? err.message : String(err), totalUrls: 0 }
       }
 
+      const priorRows = Number((state.summary?.qratioRowCount as number) || 0)
+      const rowCount = priorRows > 0 ? priorRows : 0
+      const priorContribution = state.contribution
+      const alreadyChose =
+        priorContribution?.willing === true || priorContribution?.willing === false
       return patchJobState(options.outDir, {
         jobId: options.jobId,
         pmid,
         status: "completed",
         awaitingUpload: null,
         nextStage: null,
-        currentStage: null,
-        message:
-          `Collection complete. Parsed ${rowCount} qratio row(s). ` +
-          `Download literature metadata and qratio tables below.`,
-        summary: { stage5: s5, stage6: s6, qratioRowCount: rowCount },
-      })
-    }
-
-    // Resume after supplementary upload may jump straight to stage5
-    if (shouldRunStage(resumeFrom, "stage6") && !shouldRunStage(resumeFrom, "stage5")) {
-      markStage("stage6", "running")
-      const s6 = await runStage6DownloadUrls({
-        pmid,
-        all: true,
-        concurrency,
-        resume: true,
-      })
-      markStage("stage6", "completed")
-      return patchJobState(options.outDir, {
-        jobId: options.jobId,
-        pmid,
-        status: "completed",
-        nextStage: null,
-        currentStage: null,
-        message: "MS repository download links extracted. Collection complete.",
-        summary: { stage6: s6 },
+        currentStage: "stage6",
+        // Keep Stage5 contribution choice; only offer again if user never answered.
+        offerContribute: alreadyChose ? false : rowCount > 0,
+        ...(alreadyChose
+          ? {}
+          : { contribution: { willing: null } }),
+        message: messageMsUrlsComplete({
+          rowCount,
+          totalUrls: s6.totalUrls,
+          statusNote: s6.error ? `Note: ${s6.error}` : undefined,
+          offerContribute: !alreadyChose && rowCount > 0,
+        }),
+        summary: {
+          stage6: s6,
+          qratioRowCount: rowCount,
+          offerContribute: alreadyChose ? false : rowCount > 0,
+          ...artifactSummary(pmid),
+        },
       })
     }
 

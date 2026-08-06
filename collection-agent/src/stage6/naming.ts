@@ -58,15 +58,15 @@ const PTM_CODES: Array<{ re: RegExp; code: string }> = [
   { re: /proteome|^pro$/i, code: "pro" },
 ]
 
-/** Short PTM tag(s) for download URL filenames (phos, ace, lact, …). */
+/** Short PTM tag for download URL filenames (phos, ace, lact, …).
+ * Always one tag — qPTM Modification is a single type per quantitative table. */
 export function shortModification(ptms: string): string {
   const parts = ptms
-    .split(/[;,]/)
+    .split(/[;,|/]+/)
     .map((s) => s.trim())
     .filter(Boolean)
   if (parts.length === 0) return "unknown"
-  const tags = [...new Set(parts.map(shortOneModification))]
-  return tags.join("+")
+  return shortOneModification(parts[0])
 }
 
 function shortOneModification(ptm: string): string {

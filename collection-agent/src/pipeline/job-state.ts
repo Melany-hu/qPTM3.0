@@ -37,6 +37,13 @@ export interface CollectionJobState {
   message: string
   stages: Partial<Record<StageName, "pending" | "running" | "completed" | "skipped" | "failed">>
   summary: Record<string, unknown>
+  /** Ask user to contribute curated tables to qPTM after a successful parse */
+  offerContribute?: boolean
+  contribution?: {
+    willing: boolean | null
+    respondedAt?: string
+    note?: string
+  }
   error?: string
   updatedAt: string
 }
@@ -73,13 +80,22 @@ export function patchJobState(
     jobId: patch.jobId,
     pmid: patch.pmid,
     status: patch.status ?? prior?.status ?? "pending",
-    currentStage: patch.currentStage ?? prior?.currentStage ?? null,
-    nextStage: patch.nextStage ?? prior?.nextStage ?? null,
-    awaitingUpload: patch.awaitingUpload ?? prior?.awaitingUpload ?? null,
+    // Allow explicit null to clear stage pointers (do not use ?? — null would keep prior)
+    currentStage:
+      patch.currentStage !== undefined ? patch.currentStage : (prior?.currentStage ?? null),
+    nextStage: patch.nextStage !== undefined ? patch.nextStage : (prior?.nextStage ?? null),
+    awaitingUpload:
+      patch.awaitingUpload !== undefined ? patch.awaitingUpload : (prior?.awaitingUpload ?? null),
     message: patch.message ?? prior?.message ?? "",
     stages: { ...(prior?.stages ?? {}), ...(patch.stages ?? {}) },
     summary: { ...(prior?.summary ?? {}), ...(patch.summary ?? {}) },
-    error: patch.error ?? prior?.error,
+    offerContribute:
+      patch.offerContribute !== undefined
+        ? patch.offerContribute
+        : prior?.offerContribute,
+    contribution:
+      patch.contribution !== undefined ? patch.contribution : prior?.contribution,
+    error: patch.error !== undefined ? patch.error : prior?.error,
     updatedAt: new Date().toISOString(),
   }
   writeJobState(outDir, merged)

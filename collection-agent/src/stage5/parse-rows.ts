@@ -5,12 +5,23 @@ import type { LiteratureInfoRow } from "../types.js"
 import { resolveRowCondition } from "./condition.js"
 import { mapGenesToUniprot, normalizeGeneSymbol } from "./gene-uniprot.js"
 import type { ColumnMapping } from "./heuristic.js"
+import { resolveSingleModification } from "./ptm.js"
 import {
   buildSilacGenotypeContrasts,
   silacGenotypeLog2Fc,
 } from "./silac-contrast.js"
+import { derivedIntensityLog2Fc } from "./derived-ratio.js"
 import { isValidUniprotAccession, parsePhosphositeCombinedId } from "./phosphosite-id.js"
+import { resolveRowSample } from "./sample-map.js"
 import { loadSheetData } from "./tables.js"
+
+export { resolveRowSample } from "./sample-map.js"
+export {
+  buildConditionSampleMap,
+  inferSampleFromCondition,
+  lookupConditionSample,
+  parseConditionSampleMap,
+} from "./sample-map.js"
 
 export interface QratioRow {
   pmid: string
@@ -35,21 +46,101 @@ export const QRATIO_CSV_HEADER = [
   "Organism",
   "PTMs",
   "Condition",
-  "UniProtID",
+  "UniProt ID",
   "Position",
-  "AminoAcid",
-  "Log2Ratio (peptide)",
-  "P value (peptide)",
+  "Amino acid",
+  "Log2Ratio (site)",
+  "P value (site)",
   "Log2Ratio (protein)",
   "P value (protein)",
 ] as const
 
+/**
+ * Parse a site token like S15 / K374 / Y132*.
+ * Never treat a UniProt accession (P32783) or peptide span (P32783 [357-382]) as a site.
+ */
 export function parseSiteToken(text: string): { aa: string; pos: string } | null {
-  const m = text.match(/\b([A-Za-z])(\d{1,5})\*?/)
+  const t = (text || "").trim()
+  if (!t) return null
+  // UniProt accession alone (P32783, Q00955-2, …)
+  if (isValidUniprotAccession(t)) return null
+  // Peptide / protein span: "P32783 [357-382]" or "ACC[12-34]"
+  if (/^[A-Z0-9-]+\s*\[\d+\s*[-–]\s*\d+\]$/i.test(t)) return null
+  // Prefer explicit residue forms before a loose letter+digits match
+  const explicit =
+    t.match(/^([A-Za-z])(\d{1,5})\*?$/) ||
+    t.match(/\b([STYKROCN])(\d{1,5})\*?\b/i) ||
+    t.match(/\[([A-Za-z])(\d{1,5})\]/)
+  if (explicit) {
+    const aa = explicit[1].toUpperCase()
+    const pos = explicit[2]
+    if (!/^[ACDEFGHIKLMNPQRSTVWY]$/.test(aa)) return null
+    // Reject if letter+digits reconstitutes a UniProt accession (P + 32783)
+    if (isValidUniprotAccession(`${aa}${pos}`)) return null
+    return { aa, pos }
+  }
+  // Gene + site with AA after position: "Myh6 1772K", "Obscn 1601K", "1772K"
+  const aaAfter =
+    t.match(/\b[A-Za-z][\w.-]*\s+(\d{1,5})\s*([ACDEFGHIKLMNPQRSTVWY])\b/i) ||
+    t.match(/\b(\d{2,5})\s*([ACDEFGHIKLMNPQRSTVWY])\b/i)
+  if (aaAfter) {
+    const pos = aaAfter[1]
+    const aa = aaAfter[2].toUpperCase()
+    if (/^[ACDEFGHIKLMNPQRSTVWY]$/.test(aa) && !isValidUniprotAccession(`${aa}${pos}`)) {
+      return { aa, pos }
+    }
+  }
+  const m = t.match(/\b([A-Za-z])(\d{1,5})\*?/)
   if (!m) return null
   const aa = m[1].toUpperCase()
+  const pos = m[2]
   if (!/^[ACDEFGHIKLMNPQRSTVWY]$/.test(aa)) return null
-  return { aa, pos: m[2] }
+  if (isValidUniprotAccession(`${aa}${pos}`)) return null
+  return { aa, pos }
+}
+
+/** True when AA+Position is clearly a mis-parsed UniProt accession. */
+export function looksLikeUniprotAsSite(uid: string, aa: string, pos: string): boolean {
+  const a = (aa || "").trim().toUpperCase()
+  const p = (pos || "").trim()
+  const u = (uid || "").trim().toUpperCase()
+  if (!a || !p || !u) return false
+  if (u === `${a}${p}`) return true
+  if (isValidUniprotAccession(`${a}${p}`) && u.startsWith(a) && u.endsWith(p.replace(/^0+/, "") || p)) {
+    return true
+  }
+  return false
+}
+
+/** Infer AA from diGly / modification annotations, e.g. `1xGG [K18]` → K. */
+export function inferAaFromModAnnotation(text: string): string | null {
+  const t = (text || "").trim()
+  if (!t) return null
+  const gg = t.match(/(?:glygly|gg|ubi)\s*\[([A-Za-z])/i) || t.match(/\[([A-Za-z])\d*\]/)
+  if (gg) {
+    const aa = gg[1].toUpperCase()
+    if (/^[ACDEFGHIKLMNPQRSTVWY]$/.test(aa)) return aa
+  }
+  return null
+}
+
+/** Default residue letter from PTM type / position column name when only a number is known. */
+export function inferAaFromContext(opts: {
+  ptms?: string
+  positionCol?: string | null
+  modAnnotation?: string
+}): string {
+  const fromMod = inferAaFromModAnnotation(opts.modAnnotation || "")
+  if (fromMod) return fromMod
+  const col = (opts.positionCol || "").toLowerCase()
+  if (/lysine|\blys\b|\bk\b/.test(col)) return "K"
+  if (/serine|\bser\b/.test(col)) return "S"
+  if (/threonine|\bthr\b/.test(col)) return "T"
+  if (/tyrosine|\btyr\b/.test(col)) return "Y"
+  if (/arginine|\barg\b/.test(col)) return "R"
+  const ptm = (opts.ptms || "").toLowerCase()
+  if (/ubiquit|acetyl|succinyl|malonyl|crotonyl|lactyl|sumo|methyl/.test(ptm)) return "K"
+  return ""
 }
 
 /**
@@ -141,24 +232,6 @@ function fmtNum(n: number | null): string {
   return String(Number(n.toPrecision(10)))
 }
 
-/**
- * One sample per row.
- * If Stage3 lists multiple samples ("A; B") and the table did not attribute a sample,
- * leave blank rather than pasting the whole multi-sample string onto every row.
- */
-export function resolveRowSample(stage3Sample: string, tableSample?: string): string {
-  const fromTable = (tableSample || "").trim()
-  if (fromTable && !fromTable.includes(";")) return fromTable
-
-  const parts = stage3Sample
-    .split(";")
-    .map((s) => s.trim())
-    .filter(Boolean)
-  if (parts.length === 1) return parts[0]
-  // Multiple samples without per-row attribution → empty (do not invent)
-  return ""
-}
-
 function pickPValue(
   mapping: ColumnMapping,
   headers: string[],
@@ -213,6 +286,13 @@ async function parseMappedSheetAsync(opts: {
   if (!headers.length) return []
 
   const m = opts.mapping
+  // qPTM Modification column: exactly one PTM type per quantitative row
+  const singlePtm = resolveSingleModification({
+    litPtms: opts.lit.ptms,
+    sheetName: m.sheetName,
+    headers,
+    enrichmentMethod: opts.lit.enrichmentMethod,
+  })
   const uIdx = colIndex(headers, m.uniprotCol)
   const gIdx = colIndex(headers, m.geneCol)
   const posIdx = colIndex(headers, m.positionCol)
@@ -250,16 +330,35 @@ async function parseMappedSheetAsync(opts: {
   const proteinRatios = m.ratioColumns.filter((r) => r.level === "protein")
   // Drive row expansion from peptide ratios when present; else protein
   const drivers = peptideRatios.length > 0 ? peptideRatios : proteinRatios
-  if (drivers.length === 0) return []
+  const derivedContrasts = m.derivedContrasts ?? []
+  if (drivers.length === 0 && derivedContrasts.length === 0) return []
+
+  // Optional modification-annotation column (e.g. "Peptide: Modifications" with 1xGG [K18])
+  const modAnnIdx = headers.findIndex((h) => {
+    const n = (h || "").toLowerCase()
+    return (
+      /^peptide:\s*modifications$/.test(n) ||
+      /^modifications?$/.test(n) ||
+      (/modifications?/.test(n) && !/position|probability|prob/.test(n))
+    )
+  })
 
   const useSilacContrasts = /silac/i.test(opts.lit.labelMethod || "")
-  const silacContrasts = useSilacContrasts ? buildSilacGenotypeContrasts(drivers) : []
+  const silacContrasts =
+    useSilacContrasts && drivers.length > 0 ? buildSilacGenotypeContrasts(drivers) : []
 
   const out: QratioRow[] = []
   for (const row of rows) {
     let uid = ""
     let position = posIdx >= 0 ? (row[posIdx] ?? "").trim() : ""
     let aminoAcid = aaIdx >= 0 ? (row[aaIdx] ?? "").trim() : ""
+
+    // Position column that is actually a UniProt accession → ignore
+    if (position && (isValidUniprotAccession(position) || /^[OPQ][0-9]/i.test(position))) {
+      position = ""
+    }
+    // Non-numeric garbage / NA in Modified lysine
+    if (position && /^(na|n\/a|null|-|none)$/i.test(position)) position = ""
 
     const combinedSources = [
       uIdx >= 0 ? row[uIdx] : "",
@@ -327,6 +426,27 @@ async function parseMappedSheetAsync(opts: {
     if (!aminoAcid && modSeqIdx >= 0) {
       aminoAcid = inferAaFromModSequence(row[modSeqIdx] ?? "") || ""
     }
+    // Digits-only position (e.g. Modified lysine = 374) — keep digits, infer AA
+    if (position) {
+      const dig = position.match(/^\d{1,5}$/) || position.match(/\b(\d{1,5})\b/)
+      if (dig) position = dig[1] ?? dig[0]
+      else if (isValidUniprotAccession(position)) position = ""
+    }
+    if (!aminoAcid || aminoAcid.length > 1) {
+      const modAnn = modAnnIdx >= 0 ? (row[modAnnIdx] ?? "") : ""
+      aminoAcid =
+        inferAaFromContext({
+          ptms: singlePtm || opts.lit.ptms,
+          positionCol: m.positionCol,
+          modAnnotation: modAnn,
+        }) || (aminoAcid.length === 1 ? aminoAcid : "")
+    }
+    // Reject UniProt-as-site mis-parses (P32783 → P/32783)
+    if (looksLikeUniprotAsSite(uid, aminoAcid, position)) {
+      position = ""
+      aminoAcid = ""
+      continue
+    }
     // Hard gate: site-level Position is required; AminoAcid may be filled later from sequence.
     if (!position) continue
     if (aminoAcid) {
@@ -338,6 +458,12 @@ async function parseMappedSheetAsync(opts: {
       if (dig) position = dig[0]
     }
     if (!position) continue
+    // Final UniProt-as-site guard after digit strip
+    if (looksLikeUniprotAsSite(uid, aminoAcid, position)) continue
+    // Position must be a plausible residue index (not a 5-digit accession fragment)
+    const posN = Number(position)
+    if (!Number.isFinite(posN) || posN < 1 || posN > 50000) continue
+    if (position.length >= 5 && isValidUniprotAccession(`${aminoAcid || "X"}${position}`)) continue
 
     if (silacContrasts.length > 0) {
       for (const contrast of silacContrasts) {
@@ -361,10 +487,52 @@ async function parseMappedSheetAsync(opts: {
         )
         out.push({
           pmid: opts.lit.pmid,
-          sample: resolveRowSample(opts.lit.sample),
+          sample: resolveRowSample(opts.lit.sample, {
+            condition,
+            conditionSampleMap: opts.lit.conditionSampleMap,
+          }),
           sampleType: opts.lit.sampleType,
           organism: opts.lit.organism,
-          ptms: opts.lit.ptms,
+          ptms: singlePtm,
+          condition,
+          uniprotId: uid,
+          position,
+          aminoAcid,
+          log2RatioPeptide: fmtNum(log2),
+          pValuePeptide: "",
+          log2RatioProtein: "",
+          pValueProtein: "",
+        })
+      }
+      continue
+    }
+
+    if (derivedContrasts.length > 0) {
+      for (const contrast of derivedContrasts) {
+        const nIdx = colIndex(headers, contrast.numeratorCol)
+        const dIdx = colIndex(headers, contrast.denominatorCol)
+        if (nIdx < 0 || dIdx < 0) continue
+        const numN = parseNumber(row[nIdx] ?? "")
+        const denN = parseNumber(row[dIdx] ?? "")
+        if (numN == null || denN == null) continue
+        const value = derivedIntensityLog2Fc(numN, denN, Boolean(contrast.isLog2))
+        if (value == null) continue
+        const log2 = contrast.isLog2 ? value : toLog2(value, false)
+        if (log2 == null) continue
+        const condition = resolveRowCondition(
+          contrast.condition,
+          opts.lit.condition || opts.fallbackCondition || "",
+          opts.lit.detailCondition || "",
+        )
+        out.push({
+          pmid: opts.lit.pmid,
+          sample: resolveRowSample(opts.lit.sample, {
+            condition,
+            conditionSampleMap: opts.lit.conditionSampleMap,
+          }),
+          sampleType: opts.lit.sampleType,
+          organism: opts.lit.organism,
+          ptms: singlePtm,
           condition,
           uniprotId: uid,
           position,
@@ -422,10 +590,13 @@ async function parseMappedSheetAsync(opts: {
 
       out.push({
         pmid: opts.lit.pmid,
-        sample: resolveRowSample(opts.lit.sample),
+        sample: resolveRowSample(opts.lit.sample, {
+          condition,
+          conditionSampleMap: opts.lit.conditionSampleMap,
+        }),
         sampleType: opts.lit.sampleType,
         organism: opts.lit.organism,
-        ptms: opts.lit.ptms,
+        ptms: singlePtm,
         condition,
         uniprotId: uid,
         position,

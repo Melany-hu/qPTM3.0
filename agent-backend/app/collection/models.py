@@ -34,8 +34,35 @@ class CollectionJobResponse(BaseModel):
     message: str = ""
     stages: dict[str, str] = Field(default_factory=dict)
     summary: dict[str, Any] = Field(default_factory=dict)
+    offer_contribute: bool = False
+    contribution: dict[str, Any] | None = None
     error: str | None = None
     needs_pmid: bool = False
+
+
+class CollectionContributeRequest(BaseModel):
+    willing: bool
+    note: str | None = None
+
+
+class CollectionTableSelection(BaseModel):
+    entryPath: str
+    sheetName: str | None = None
+
+
+class CollectionTableHintsRequest(BaseModel):
+    selections: list[CollectionTableSelection] = Field(default_factory=list)
+    note: str | None = None
+    prefer_protein_log2: bool | None = None
+    # When true, resume Stage 5 after saving hints.
+    resume: bool = True
+
+
+class CollectionGuidanceRequest(BaseModel):
+    """Free-text Stage5 feedback → table hints + optional re-parse."""
+
+    message: str
+    resume: bool = True
 
 
 class CollectionUploadResponse(BaseModel):

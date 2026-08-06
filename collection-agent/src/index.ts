@@ -103,7 +103,7 @@ async function runIngestFulltext(opts: CliArgs): Promise<void> {
   if (!opts.pmid || !opts.filePath) {
     throw new Error("ingest-fulltext requires --pmid and --file")
   }
-  const record = ingestManualFulltext({ pmid: opts.pmid, filePath: opts.filePath })
+  const record = await ingestManualFulltext({ pmid: opts.pmid, filePath: opts.filePath })
   console.log(JSON.stringify(record, null, 2))
 }
 

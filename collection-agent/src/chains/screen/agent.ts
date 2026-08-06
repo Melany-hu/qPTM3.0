@@ -1,6 +1,6 @@
 import type { AbstractRecord, ScreenResult } from "../../types.js"
 import type { LlmRuntime } from "../../runtime.js"
-import { assistantText } from "../../runtime.js"
+import { assistantText, completeSimpleWithFallback } from "../../runtime.js"
 import { SCREEN_SYSTEM, buildScreenUserPrompt } from "./prompt.js"
 import { parseScreenOutput, ScreenParseError } from "./parse.js"
 
@@ -39,8 +39,8 @@ export class ScreenChain {
       ? "\n\nYour previous answer was not valid JSON. Reply with ONLY one JSON object matching the schema."
       : ""
 
-    const message = await this.runtime.modelRuntime.completeSimple(
-      this.runtime.model,
+    const message = await completeSimpleWithFallback(
+      this.runtime,
       {
         systemPrompt: SCREEN_SYSTEM,
         messages: [

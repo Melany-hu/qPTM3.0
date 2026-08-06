@@ -19,7 +19,8 @@ import { parseCsv } from "../utils/io.js"
 export const TABLE_EXTS = new Set([".xlsx", ".xls", ".csv", ".tsv", ".txt"])
 
 const MAX_CANDIDATE_FILES = 10
-const MAX_SHEETS_PER_FILE = 8
+const MAX_SHEETS_PER_FILE = 40
+
 const PREVIEW_ROWS = 5
 /** Cap rows loaded for parsing (per sheet). */
 export const MAX_PARSE_ROWS = 40_000
@@ -70,13 +71,46 @@ function scoreTableEntry(entry: ZipEntry): number {
   return score
 }
 
-export function pickCandidateEntries(zipPath: string, limit = MAX_CANDIDATE_FILES): ZipEntry[] {
+export function pickCandidateEntries(
+  zipPath: string,
+  limit = MAX_CANDIDATE_FILES,
+  forceIncludePaths: string[] = [],
+): ZipEntry[] {
   const entries = listZipEntries(zipPath).filter((e) => isTableEntry(e.path))
-  return entries
+  const ranked = entries
     .map((e) => ({ e, score: scoreTableEntry(e) }))
     .sort((a, b) => b.score - a.score || b.e.size - a.e.size)
-    .slice(0, limit)
-    .map((x) => x.e)
+
+  const picked: ZipEntry[] = []
+  const seen = new Set<string>()
+  const push = (e: ZipEntry) => {
+    const key = e.path.replace(/\\/g, "/").toLowerCase()
+    if (seen.has(key)) return
+    seen.add(key)
+    picked.push(e)
+  }
+
+  const matchesForce = (path: string) => {
+    if (!forceIncludePaths.length) return false
+    const ep = path.replace(/\\/g, "/").toLowerCase()
+    const base = basename(ep)
+    return forceIncludePaths.some((f) => {
+      const ff = (f || "").replace(/\\/g, "/").toLowerCase().trim()
+      if (!ff) return false
+      return ff === ep || ep.endsWith("/" + ff) || ff.endsWith("/" + ep) || basename(ff) === base
+    })
+  }
+
+  // Always keep user-forced paths even when they fall outside the Top-N score window.
+  for (const { e } of ranked) {
+    if (matchesForce(e.path)) push(e)
+  }
+  // Fill remaining slots with top-scored tabular files.
+  for (const { e } of ranked) {
+    if (picked.length >= limit) break
+    push(e)
+  }
+  return picked
 }
 
 /** Extract selected ZIP entries into destDir (preserves entry relative paths). */
@@ -130,16 +164,72 @@ function scoreHeaderRow(row: unknown[]): number {
   let s = Math.min(filled.length, 20)
   const blob = filled.join(" ").toLowerCase()
   if (/uniprot|accession|protein\s*ids?|\bipi\b|gene\s*names?/.test(blob)) s += 6
-  if (/phospho_?location|position|site|residue|amino/.test(blob)) s += 5
+  if (/phospho_?location|position|site|residue|amino|modified\s*lysine/.test(blob)) s += 5
   if (/ratio|log\s*2|log2|fold\s*change|\bfc\b|significance|p-?value|q-?value/.test(blob)) s += 6
   if (/average|stdev|peptides/.test(blob)) s += 2
   // prose / legend rows
+  if (/table\s*legend|official name of the|unique protein identifier from/i.test(blob)) s -= 20
   if (filled.some((c) => c.length > 100)) s -= 12
   if (filled.length <= 2 && filled.some((c) => c.length > 40)) s -= 8
   // mostly numeric → data row, not header
   const numeric = filled.filter((c) => /^-?\d+(\.\d+)?([eE][-+]?\d+)?$/.test(c)).length
   if (numeric >= filled.length * 0.5) s -= 10
+  // Compact column-name headers (Protein: X / Peptide: Y) score higher
+  const compact = filled.filter((c) => c.length <= 60 && /:/.test(c)).length
+  if (compact >= 3) s += 8
   return s
+}
+
+function looksLikeLegendCell(text: string): boolean {
+  const t = text.trim()
+  if (!t) return false
+  // Multi-row Excel group headers for quantitative blocks — keep for merge
+  // (e.g. "Lactylation sites quantitation" / "Normalized … quantitation" over P1/P5/P7)
+  if (
+    /\b(quantitation|quantity|abundance|intensity|normalized|nomolized|ratio|fold\s*change|log\s*2|log2)\b/i.test(
+      t,
+    )
+  ) {
+    return false
+  }
+  if (/\b(modification\s*sites?|site\s*information|sites?\s*information)\b/i.test(t)) {
+    return false
+  }
+  if (t.length > 60) return true
+  if (/^(table\s*)?legend/i.test(t)) return true
+  if (/\b(official name|unique protein identifier|according to information|calculated based|sequence of peptide|modifications found|quality scores|level of confidence)\b/i.test(t))
+    return true
+  // Multi-word prose without short column-name shape (e.g. "Confidence of peptide identification")
+  const words = t.split(/\s+/).filter(Boolean)
+  if (words.length >= 3 && !/^(protein|peptide|gene|site|mod|sample)[:\s]/i.test(t) && !/\bratio\b/i.test(t)) {
+    return true
+  }
+  if (t.length > 28 && /\s/.test(t) && !/^(protein|peptide|gene|site|mod):/i.test(t) && !/ratio|log2|fold|p-?value/i.test(t)) {
+    return true
+  }
+  return false
+}
+
+/** Whether a multi-row group header should be prefixed onto the column name. */
+function shouldMergeGroupHeader(group: string, cur: string): boolean {
+  if (!group || !cur) return false
+  if (group.toLowerCase() === cur.toLowerCase()) return false
+  if (looksLikeLegendCell(group)) return false
+  // Quantitative blocks over sample channels (P1/P5/P7 under "… quantitation")
+  if (
+    /\b(quantitation|quantity|abundance|intensity|normalized|nomolized|ratio|fold\s*change|log\s*2|log2)\b/i.test(
+      group,
+    )
+  ) {
+    return true
+  }
+  // Short channel / timepoint labels under a section header
+  if (/^(p|d|day)\s*\d{1,2}$/i.test(cur)) return true
+  if (/^\d+\s*\/\s*\d+$/.test(cur)) return true
+  if (/^(sample|rep|replicate|bio)\s*[-_]?\s*\d+$/i.test(cur)) return true
+  // Do NOT glue section titles like "Modification sites information" onto
+  // "Protein accession" / "position" / "name" — those are already good column names.
+  return false
 }
 
 /** Merge group header (previous row) with column header when useful. */
@@ -151,16 +241,17 @@ function buildHeaders(matrix: unknown[][], headerIdx: number): string[] {
   let lastGroup = ""
   for (let i = 0; i < width; i++) {
     const cur = String(row[i] ?? "").trim()
-    const p = String(prev[i] ?? "").trim()
+    const pRaw = String(prev[i] ?? "").trim()
+    // Never merge legend / prose from the previous row into column names
+    const p = looksLikeLegendCell(pRaw) ? "" : pRaw
     if (p && p.length < 80) lastGroup = p
-    else if (p) lastGroup = ""
-    // forward-fill sparse group headers (merged cells → empty)
-    const group = p && p.length < 80 ? p : lastGroup && !cur ? lastGroup : p.length < 80 ? p : ""
-    if (group && cur && group.toLowerCase() !== cur.toLowerCase()) {
+    // forward-fill sparse group headers (merged cells → empty under the same block)
+    const group = p && p.length < 80 ? p : lastGroup
+    if (shouldMergeGroupHeader(group, cur)) {
       headers.push(`${group} ${cur}`.trim())
     } else if (cur) {
       headers.push(cur)
-    } else if (group) {
+    } else if (group && !looksLikeLegendCell(group)) {
       headers.push(group)
     } else {
       headers.push(`col_${i + 1}`)
@@ -233,6 +324,15 @@ function readDelimited(path: string, maxRows: number): SheetInventory {
   return sheetFromMatrix(basename(path), matrix, maxRows)
 }
 
+function isRealExcelSheetName(name: string): boolean {
+  const n = (name || "").trim()
+  if (!n) return false
+  // Excel defined-name / filter / Power Query junk that SheetJS sometimes surfaces
+  if (n.startsWith("_xlnm.")) return false
+  if (/^microsoft\.com:/i.test(n)) return false
+  return true
+}
+
 function readExcelSheets(
   path: string,
   opts: { previewOnly: boolean; maxSheets: number; maxRows: number },
@@ -243,7 +343,8 @@ function readExcelSheets(
     cellDates: false,
   })
   const sheets: SheetInventory[] = []
-  for (const name of wb.SheetNames.slice(0, opts.maxSheets)) {
+  const names = wb.SheetNames.filter(isRealExcelSheetName)
+  for (const name of names.slice(0, opts.maxSheets)) {
     const sheet = wb.Sheets[name]
     if (!sheet) continue
     const matrix = XLSX.utils.sheet_to_json(sheet, {
@@ -354,13 +455,14 @@ export function buildPmidInventory(
   pmid: string,
   zipPath: string,
   workDir: string,
+  forceIncludePaths: string[] = [],
 ): PmidTableInventory {
   if (existsSync(workDir)) {
     rmSync(workDir, { recursive: true, force: true })
   }
   mkdirSync(workDir, { recursive: true })
 
-  const candidates = pickCandidateEntries(zipPath)
+  const candidates = pickCandidateEntries(zipPath, MAX_CANDIDATE_FILES, forceIncludePaths)
   if (candidates.length === 0) {
     return {
       pmid,

@@ -5,7 +5,10 @@
  */
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import { fetchEuropePmcSupplementaryZip } from "../stage2/clients/europepmc.js"
+import {
+  fetchEuropePmcMeta,
+  fetchEuropePmcSupplementaryZip,
+} from "../stage2/clients/europepmc.js"
 import {
   fetchDoiSupplementaryFiles,
   packSupplementaryZip,
@@ -94,6 +97,49 @@ function loadFulltextMeta(pmid: string): {
     }
   } catch {
     return { doi: null, pmcid: null, title: "" }
+  }
+}
+
+/**
+ * When Stage2 meta lacks DOI/PMCID (common after user-uploaded PDF),
+ * resolve them from Europe PMC by PMID and persist back into meta.json.
+ */
+async function resolveMissingIds(
+  pmid: string,
+  meta: { doi: string | null; pmcid: string | null; title: string },
+): Promise<{ doi: string | null; pmcid: string | null; title: string; resolved: boolean }> {
+  if (meta.doi && meta.pmcid && meta.title) {
+    return { ...meta, resolved: false }
+  }
+  try {
+    const epmc = await fetchEuropePmcMeta(pmid)
+    const doi = meta.doi || epmc.doi
+    const pmcid = meta.pmcid || epmc.pmcid
+    const title = meta.title || epmc.title || ""
+    const resolved = Boolean(
+      (doi && doi !== meta.doi) || (pmcid && pmcid !== meta.pmcid) || (title && !meta.title),
+    )
+    if (resolved) {
+      const metaPath = join(stage2FulltextDir(), pmid, "meta.json")
+      if (existsSync(metaPath)) {
+        try {
+          const raw = JSON.parse(readFileSync(metaPath, "utf8")) as Record<string, unknown>
+          if (!raw.doi && doi) raw.doi = doi
+          if (!raw.pmcid && pmcid) raw.pmcid = pmcid
+          if (!(raw.title as string)?.trim() && title) raw.title = title
+          writeFileSync(metaPath, JSON.stringify(raw, null, 2) + "\n", "utf8")
+        } catch {
+          // non-fatal — scout can still use in-memory ids
+        }
+      }
+    }
+    return { doi, pmcid, title, resolved }
+  } catch (err) {
+    console.error(
+      `  Europe PMC ID lookup failed for PMID ${pmid}:`,
+      err instanceof Error ? err.message : String(err),
+    )
+    return { ...meta, resolved: false }
   }
 }
 
@@ -259,10 +305,11 @@ export function loadStage4Inputs(options: {
 }
 
 async function scoutOne(row: LiteratureInfoRow): Promise<SuppScoutRecord> {
-  const meta = loadFulltextMeta(row.pmid)
-  const title = row.title || meta.title
-  const pmcid = meta.pmcid
-  const doi = meta.doi
+  const meta0 = loadFulltextMeta(row.pmid)
+  const resolved = await resolveMissingIds(row.pmid, meta0)
+  const title = row.title || resolved.title
+  const pmcid = resolved.pmcid
+  const doi = resolved.doi
   const scoutedAt = new Date().toISOString()
   const xml = scanLocalXmlSupp(row.pmid)
 
@@ -272,6 +319,11 @@ async function scoutOne(row: LiteratureInfoRow): Promise<SuppScoutRecord> {
   let error: string | undefined
   let viaDoi = false
   const noteBits: string[] = []
+  if (resolved.resolved) {
+    noteBits.push(
+      `ids_from_europepmc${pmcid ? `:${pmcid}` : ""}${doi ? `:${doi}` : ""}`,
+    )
+  }
 
   const pmidDir = join(stage4SuppDir(), row.pmid)
   const localZip = join(pmidDir, "supplementary.zip")
@@ -288,7 +340,7 @@ async function scoutOne(row: LiteratureInfoRow): Promise<SuppScoutRecord> {
     // Heuristic: prior DOI packs write a marker
     viaDoi = existsSync(join(pmidDir, "source_doi.txt"))
   } else {
-    // 1) Europe PMC OA ZIP when PMCID present
+    // 1) Europe PMC OA ZIP when PMCID present (looked up by PMID if meta lacked it)
     if (pmcid) {
       const fetched = await fetchEuropePmcSupplementaryZip(pmcid)
       zipStatus = fetched.status === "ok" ? "ok" : fetched.status
@@ -339,6 +391,7 @@ async function scoutOne(row: LiteratureInfoRow): Promise<SuppScoutRecord> {
       }
     } else if (!pmcid && !doi) {
       zipStatus = zipStatus === "ok" ? zipStatus : "none"
+      noteBits.push("no_pmcid_or_doi_after_lookup")
     }
   }
 
@@ -352,8 +405,8 @@ async function scoutOne(row: LiteratureInfoRow): Promise<SuppScoutRecord> {
 
   const topFiles = zipHits
     .slice(0, 8)
-    .map((h) => `${h.path}[${h.kind};${h.score}]`)
-    .join("; ")
+    .map((h) => `${h.path}[${h.kind} score=${h.score}]`)
+    .join(" | ")
   const clues = [
     ...xml.textClues,
     ...xml.hits.flatMap((h) => h.clues.map((c) => `xml:${c}`)),

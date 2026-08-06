@@ -1,8 +1,9 @@
-import type {
-  ColumnMapping,
-  MappedPValueColumn,
-  MappedRatioColumn,
-  ValueType,
+import {
+  stripIntensityRatioColumns,
+  type ColumnMapping,
+  type MappedPValueColumn,
+  type MappedRatioColumn,
+  type ValueType,
 } from "../../stage5/heuristic.js"
 
 export class QratioMapParseError extends Error {
@@ -117,7 +118,7 @@ export function parseQratioMapOutput(
   const confidence = Math.max(0, Math.min(1, asNum(o.confidence, 0)))
   const intensityColumns = parseStringArray(o.intensityColumns)
   const ratioColumns = parseRatioCols(o.ratioColumns)
-  return {
+  const mapped: ColumnMapping & { skip: boolean } = {
     entryPath: meta.entryPath,
     sheetName: meta.sheetName,
     headerRowIndex: meta.headerRowIndex ?? 0,
@@ -135,5 +136,10 @@ export function parseQratioMapOutput(
     intensityColumns,
     notes: asStr(o.reason) || "",
     skip: skip || intensityOnly,
+  }
+  const cleaned = stripIntensityRatioColumns(mapped)
+  return {
+    ...cleaned,
+    skip: Boolean(mapped.skip || cleaned.intensityOnly),
   }
 }

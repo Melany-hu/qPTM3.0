@@ -34,7 +34,7 @@ export function registerManualSuppJob(options: {
   const scoutedAt = new Date().toISOString()
   const topFiles = options.zipHits
     .slice(0, 8)
-    .map((h) => `${h.path}[${h.kind};${h.score}]`)
+    .map((h) => `${h.path}[${h.kind} score=${h.score}]`)
     .join("; ")
   const clues = options.zipHits
     .slice(0, 8)

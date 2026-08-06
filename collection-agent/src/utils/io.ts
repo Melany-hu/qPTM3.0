@@ -14,6 +14,7 @@ import type {
   ScreenDecision,
   ScreenResult,
 } from "../types.js"
+import { buildConditionSampleMap } from "../stage5/sample-map.js"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -923,7 +924,11 @@ export function loadStage3Results(): LiteratureInfoRow[] {
     const t = line.trim()
     if (!t) continue
     try {
-      out.push(JSON.parse(t) as LiteratureInfoRow)
+      const row = JSON.parse(t) as LiteratureInfoRow
+      if (!row.conditionSampleMap) {
+        row.conditionSampleMap = buildConditionSampleMap(row.sample || "", row.condition || "")
+      }
+      out.push(row)
     } catch {
       // skip
     }
@@ -960,6 +965,7 @@ export function rebuildStage3Outputs(): void {
     "Label method",
     "Condition",
     "Detail condition",
+    "Condition-Sample map",
     "Enrichment method",
     "Mass spectrometer",
     "MS data source",
@@ -984,6 +990,7 @@ export function rebuildStage3Outputs(): void {
         csvEscape(r.labelMethod),
         csvEscape(r.condition),
         csvEscape(r.detailCondition),
+        csvEscape(r.conditionSampleMap || ""),
         csvEscape(r.enrichmentMethod),
         csvEscape(r.massSpectrometer),
         csvEscape(r.msDataSource),
@@ -1009,6 +1016,7 @@ export function rebuildStage3Outputs(): void {
     "Label method",
     "Condition",
     "Detail condition",
+    "Condition-Sample map",
     "Enrichment method",
     "Mass spectrometer",
     "MS data source",
@@ -1027,6 +1035,7 @@ export function rebuildStage3Outputs(): void {
         csvEscape(r.labelMethod),
         csvEscape(r.condition),
         csvEscape(r.detailCondition),
+        csvEscape(r.conditionSampleMap || ""),
         csvEscape(r.enrichmentMethod),
         csvEscape(r.massSpectrometer),
         csvEscape(r.msDataSource),

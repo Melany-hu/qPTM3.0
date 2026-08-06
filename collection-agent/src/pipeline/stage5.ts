@@ -21,8 +21,24 @@ import {
   alignConditionsToStage3,
   heuristicMapSheet,
   mappingIsParsable,
+  repairSiteColumnMapping,
+  stripIntensityRatioColumns,
   type ColumnMapping,
 } from "../stage5/heuristic.js"
+import {
+  applyDerivedRatiosToMapping,
+  parseDerivedRatioSpecs,
+  type DerivedRatioSpec,
+} from "../stage5/derived-ratio.js"
+import {
+  entryPathMatches,
+  extractSheetHintsFromText,
+  isHintedSheet,
+  loadUserTableHints,
+  noteWantsProteinLog2,
+  resolveForceIncludePaths,
+  type UserTableHints,
+} from "../stage5/user-hints.js"
 import {
   parseMappedSheet,
   QRATIO_CSV_HEADER,
@@ -43,6 +59,7 @@ import {
   writeInventoryJson,
   type PmidTableInventory,
 } from "../stage5/tables.js"
+import { listZipEntries } from "../stage4/zip.js"
 import type { LiteratureInfoRow, Stage5Result, Stage5Status } from "../types.js"
 import {
   csvEscape,
@@ -77,6 +94,30 @@ export interface Stage5Options {
   strictLlm?: boolean
   onResult?: (row: Stage5Result, index: number, total: number) => void
   onError?: (pmid: string, error: unknown, index: number) => void
+  /** Live progress for interactive UI (file / sheet / column decisions). */
+  onThinking?: (step: Stage5ThinkingStep) => void
+}
+
+export interface Stage5ThinkingStep {
+  step:
+    | "start"
+    | "inventory"
+    | "candidates"
+    | "try_sheet"
+    | "mapping"
+    | "parsed"
+    | "skip"
+    | "summary"
+  message: string
+  entryPath?: string
+  sheet?: string
+  kind?: string
+  mappingSource?: string
+  confidence?: number
+  columns?: Record<string, unknown>
+  rowsAdded?: number
+  status?: string
+  at?: string
 }
 
 export interface Stage5RunSummary {
@@ -88,6 +129,29 @@ export interface Stage5RunSummary {
   byStatus: Record<string, number>
   totalRows: number
   totalProteomeRows: number
+}
+
+function mappingColumnsBrief(mapping: ColumnMapping): Record<string, unknown> {
+  return {
+    uniprotCol: mapping.uniprotCol,
+    geneCol: mapping.geneCol,
+    positionCol: mapping.positionCol,
+    aminoAcidCol: mapping.aminoAcidCol,
+    siteCombinedCol: mapping.siteCombinedCol,
+    modSeqCol: mapping.modSeqCol,
+    ratioColumns: mapping.ratioColumns.map((r) => ({
+      column: r.column,
+      condition: r.condition,
+      level: r.level,
+      valueType: r.valueType,
+    })),
+    pValueColumns: mapping.pValueColumns.map((p) => ({
+      column: p.column,
+      condition: p.condition,
+    })),
+    intensityOnly: Boolean(mapping.intensityOnly),
+    notes: mapping.notes,
+  }
 }
 
 function loadSuppJobs(): SuppScoutRecord[] {
@@ -183,6 +247,71 @@ function appendQratioRows(rows: QratioRow[]): void {
     appendFileSync(rowsPath, part.map((r) => JSON.stringify(r)).join("\n") + "\n", "utf8")
     appendFileSync(csvPath, part.map(qratioToCsvLine).join("\n") + "\n", "utf8")
   }
+}
+
+/**
+ * Drop prior qratio rows + Stage5 result for one PMID before a re-parse
+ * (hints / free-text guidance), so append does not duplicate.
+ */
+export function clearPmidStage5Data(pmid: string): { removedRows: number } {
+  const id = (pmid || "").trim()
+  if (!id) return { removedRows: 0 }
+  const rowsPath = join(stage5Dir(), "qratio_rows.jsonl")
+  let removedRows = 0
+  if (existsSync(rowsPath)) {
+    const kept: string[] = []
+    for (const line of readFileSync(rowsPath, "utf8").split("\n")) {
+      const t = line.trim()
+      if (!t) continue
+      try {
+        const row = JSON.parse(t) as QratioRow
+        if ((row.pmid || "").trim() === id) {
+          removedRows++
+          continue
+        }
+        kept.push(t)
+      } catch {
+        kept.push(t)
+      }
+    }
+    writeFileSync(rowsPath, kept.length ? kept.join("\n") + "\n" : "", "utf8")
+  }
+
+  const resultsPath = stage5ResultsJsonlPath()
+  if (existsSync(resultsPath)) {
+    const kept: string[] = []
+    for (const line of readFileSync(resultsPath, "utf8").split("\n")) {
+      const t = line.trim()
+      if (!t) continue
+      try {
+        const row = JSON.parse(t) as Stage5Result
+        if ((row.pmid || "").trim() === id) continue
+        kept.push(t)
+      } catch {
+        kept.push(t)
+      }
+    }
+    writeFileSync(resultsPath, kept.length ? kept.join("\n") + "\n" : "", "utf8")
+  }
+
+  // Rebuild CSV header-only; rows are re-appended after parse. Other PMIDs restored from jsonl.
+  const csvPath = stage5QratioCsvPath()
+  if (existsSync(rowsPath) || existsSync(csvPath)) {
+    writeFileSync(csvPath, QRATIO_CSV_HEADER.join(",") + "\n", "utf8")
+    if (existsSync(rowsPath)) {
+      for (const line of readFileSync(rowsPath, "utf8").split("\n")) {
+        const t = line.trim()
+        if (!t) continue
+        try {
+          const row = JSON.parse(t) as QratioRow
+          appendFileSync(csvPath, qratioToCsvLine(row) + "\n", "utf8")
+        } catch {
+          // skip
+        }
+      }
+    }
+  }
+  return { removedRows }
 }
 
 /** Stream-rebuild qratio.csv from jsonl (avoids V8 max string length). */
@@ -376,13 +505,23 @@ async function resolveMapping(opts: {
   entryPath: string
   sheet: { name: string; headers: string[]; preview: string[][]; headerRowIndex: number }
 }): Promise<ColumnMapping & { skip?: boolean }> {
-  let heuristic = heuristicMapSheet(opts.entryPath, {
-    name: opts.sheet.name,
-    headers: opts.sheet.headers,
-    preview: opts.sheet.preview,
-    headerRowIndex: opts.sheet.headerRowIndex,
-    dataRowCount: opts.sheet.preview.length,
-  })
+  const finish = (m: ColumnMapping & { skip?: boolean }) => {
+    const cleaned = stripIntensityRatioColumns(m)
+    if (m.skip || cleaned.intensityOnly) {
+      return { ...cleaned, skip: true }
+    }
+    return repairSiteColumnMapping(cleaned, opts.sheet.headers)
+  }
+
+  let heuristic = stripIntensityRatioColumns(
+    heuristicMapSheet(opts.entryPath, {
+      name: opts.sheet.name,
+      headers: opts.sheet.headers,
+      preview: opts.sheet.preview,
+      headerRowIndex: opts.sheet.headerRowIndex,
+      dataRowCount: opts.sheet.preview.length,
+    }),
+  )
   heuristic = alignConditionsToStage3(
     heuristic,
     opts.lit.condition,
@@ -399,11 +538,11 @@ async function resolveMapping(opts: {
     heuristic.confidence >= HEURISTIC_HIGH &&
     mappingIsParsable(heuristic)
   ) {
-    return heuristic
+    return finish(heuristic)
   }
 
   if (!opts.chain) {
-    return heuristic
+    return finish(heuristic)
   }
 
   try {
@@ -445,10 +584,10 @@ async function resolveMapping(opts: {
 
     if (llm.skip) {
       if (mappingIsParsable(heuristic) && heuristic.confidence >= HEURISTIC_MIN_PARSE) {
-        return {
+        return finish({
           ...heuristic,
           notes: `${heuristic.notes}; llm-skip-kept-heuristic: ${llm.notes}`.replace(/^; /, ""),
-        }
+        })
       }
       return {
         ...heuristic,
@@ -459,18 +598,18 @@ async function resolveMapping(opts: {
     }
 
     if (mappingIsParsable(llmMapped) && llmMapped.confidence >= heuristic.confidence - 0.05) {
-      return llmMapped
+      return finish(llmMapped)
     }
     if (mappingIsParsable(heuristic) && heuristic.confidence >= HEURISTIC_MIN_PARSE) {
-      return heuristic
+      return finish(heuristic)
     }
-    if (mappingIsParsable(llmMapped)) return llmMapped
-    return heuristic
+    if (mappingIsParsable(llmMapped)) return finish(llmMapped)
+    return finish(heuristic)
   } catch (err) {
-    return {
+    return finish({
       ...heuristic,
       notes: `${heuristic.notes}; llm-error: ${err instanceof Error ? err.message : String(err)}`,
-    }
+    })
   }
 }
 
@@ -478,6 +617,7 @@ async function processOnePmid(opts: {
   job: SuppScoutRecord
   lit: LiteratureInfoRow | undefined
   chain: QratioMapChain | null
+  onThinking?: (step: Stage5ThinkingStep) => void
 }): Promise<{
   result: Stage5Result
   rows: QratioRow[]
@@ -485,6 +625,9 @@ async function processOnePmid(opts: {
   inventory: PmidTableInventory | null
 }> {
   const { job } = opts
+  const think = (step: Omit<Stage5ThinkingStep, "at">) => {
+    opts.onThinking?.({ ...step, at: new Date().toISOString() })
+  }
   const lit: LiteratureInfoRow =
     opts.lit ??
     ({
@@ -497,6 +640,7 @@ async function processOnePmid(opts: {
       labelMethod: "",
       condition: "",
       detailCondition: "",
+      conditionSampleMap: "",
       enrichmentMethod: "",
       massSpectrometer: "",
       msDataSource: "",
@@ -524,8 +668,18 @@ async function processOnePmid(opts: {
     ...(error ? { error } : {}),
   })
 
+  think({
+    step: "start",
+    message: `Starting quantitative table parse for PMID ${job.pmid} (verdict=${job.verdict}).`,
+  })
+
   const zipPath = job.zipPath ? resolvePortablePath(job.zipPath) : job.zipPath
   if (!zipPath || !existsSync(zipPath) || job.zipStatus !== "ok") {
+    think({
+      step: "summary",
+      message: `No local supplementary ZIP available (zipStatus=${job.zipStatus}).`,
+      status: "unavailable",
+    })
     return {
       result: emptyResult("unavailable", `no local zip (zipStatus=${job.zipStatus})`),
       rows: [],
@@ -535,10 +689,62 @@ async function processOnePmid(opts: {
   }
 
   const workDir = join(stage5WorkDir(), job.pmid)
+  const hints: UserTableHints | null = (() => {
+    const h = loadUserTableHints(job.pmid)
+    if (h && noteWantsProteinLog2(h.note)) h.preferProteinLog2 = true
+    return h
+  })()
+
+  const derivedSpecs: DerivedRatioSpec[] = (() => {
+    if (hints?.derivedRatios?.length) {
+      return hints.derivedRatios.map((d) => ({
+        numerator: d.numerator,
+        denominator: d.denominator,
+        isLog2: d.isLog2 !== false,
+        condition: d.condition || `${d.numerator}/${d.denominator}`,
+      }))
+    }
+    return parseDerivedRatioSpecs(hints?.note || "")
+  })()
+
+  // Attach sheet names from free-text "file → Sheet" when selections lack sheetName
+  if (hints?.note && hints.selections?.length) {
+    const sheetHints = extractSheetHintsFromText(hints.note)
+    if (sheetHints.size) {
+      for (const sel of hints.selections) {
+        if (sel.sheetName) continue
+        for (const [file, sheet] of sheetHints) {
+          if (entryPathMatches(file, sel.entryPath)) {
+            sel.sheetName = sheet
+            break
+          }
+        }
+        if (!sel.sheetName && sheetHints.size === 1) {
+          sel.sheetName = [...sheetHints.values()][0]
+        }
+      }
+    }
+  }
+
   let inventory: PmidTableInventory
   try {
-    inventory = buildPmidInventory(job.pmid, zipPath, workDir)
+    const allTablePaths = listZipEntries(zipPath)
+      .filter((e) => /\.(xlsx|xls|csv|tsv|txt)$/i.test(e.path))
+      .map((e) => e.path)
+    const forcePaths = resolveForceIncludePaths(hints, allTablePaths)
+    if (forcePaths.length) {
+      think({
+        step: "inventory",
+        message: `Force-including user-hinted table file(s): ${forcePaths.join("; ")}.`,
+      })
+    }
+    inventory = buildPmidInventory(job.pmid, zipPath, workDir, forcePaths)
   } catch (err) {
+    think({
+      step: "summary",
+      message: `Inventory failed: ${err instanceof Error ? err.message : String(err)}`,
+      status: "error",
+    })
     return {
       result: emptyResult(
         "error",
@@ -553,6 +759,15 @@ async function processOnePmid(opts: {
 
   writeInventoryJson(join(stage5InventoryDir(), `${job.pmid}.json`), inventory)
 
+  const fileNames = inventory.files.map((f) => f.entryPath)
+  think({
+    step: "inventory",
+    message:
+      inventory.files.length === 0
+        ? "Scanned the ZIP: no tabular files (.xlsx/.xls/.csv/.tsv) were found."
+        : `Identified ${inventory.files.length} candidate tabular file(s): ${fileNames.slice(0, 8).join("; ")}${fileNames.length > 8 ? "…" : ""}.`,
+  })
+
   if (inventory.files.length === 0) {
     return {
       result: emptyResult("manual", "no tabular files in zip"),
@@ -562,11 +777,19 @@ async function processOnePmid(opts: {
     }
   }
 
+  if (hints?.selections?.length || hints?.note) {
+    think({
+      step: "candidates",
+      message: `Using user table guidance${hints.selections?.length ? ` (${hints.selections.length} selection(s))` : ""}${hints.note ? `: ${hints.note}` : ""}${hints.preferProteinLog2 ? " [prefer protein Log2Ratio]" : ""}${derivedSpecs.length ? ` [derived ${derivedSpecs.map((d) => (d.isLog2 ? `log2(${d.condition})` : d.condition)).join(", ")}]` : ""}.`,
+    })
+  }
+
   type Candidate = {
     entryPath: string
     localPath: string
     sheet: { name: string; headers: string[]; preview: string[][]; headerRowIndex: number }
     score: number
+    hinted: boolean
   }
   const candidates: Candidate[] = []
   for (const f of inventory.files) {
@@ -583,10 +806,74 @@ async function processOnePmid(opts: {
           headerRowIndex: sh.headerRowIndex ?? 0,
         },
         score: scoreSheetForTry(sh.headers),
+        hinted: isHintedSheet(hints, f.entryPath, sh.name),
       })
     }
   }
-  candidates.sort((a, b) => b.score - a.score)
+
+  // Prefer user-hinted sheets; otherwise prefer site_ptm sheets over proteome/legends.
+  // When guidance is protein-Log2Ratio oriented, keep site sheets in the try list too
+  // so proteome ratios can still be joined onto site rows.
+  if (hints?.selections?.length) {
+    const hinted = candidates.filter((c) => c.hinted)
+    const rest = candidates.filter((c) => !c.hinted).sort((a, b) => b.score - a.score)
+    if (hinted.length > 0) {
+      candidates.length = 0
+      candidates.push(...hinted.sort((a, b) => b.score - a.score), ...rest)
+    } else {
+      candidates.sort((a, b) => b.score - a.score)
+      think({
+        step: "candidates",
+        message:
+          "User hints did not match any inventoried sheet names; falling back to automatic ranking.",
+      })
+    }
+  } else {
+    candidates.sort((a, b) => {
+      const ak = classifySheetKind(a.sheet.name, a.sheet.headers)
+      const bk = classifySheetKind(b.sheet.name, b.sheet.headers)
+      const rank = (k: string) => (k === "site_ptm" ? 0 : k === "proteome" ? 2 : 1)
+      const d = rank(ak) - rank(bk)
+      if (d !== 0) return d
+      return b.score - a.score
+    })
+  }
+
+  const MAX_SHEETS_TO_TRY = Number.parseInt(process.env.STAGE5_MAX_SHEETS_TRY ?? "40", 10) || 40
+  const hintedOnly = candidates.filter((c) => c.hinted)
+  const preferProtein = Boolean(hints?.preferProteinLog2 || noteWantsProteinLog2(hints?.note))
+  let tryList: typeof candidates
+  if (hints?.selections?.length && hintedOnly.length > 0) {
+    if (preferProtein) {
+      const siteExtras = candidates.filter(
+        (c) =>
+          !c.hinted &&
+          classifySheetKind(c.sheet.name, c.sheet.headers) === "site_ptm",
+      )
+      const merged: typeof candidates = []
+      const seen = new Set<string>()
+      for (const c of [...hintedOnly, ...siteExtras, ...candidates]) {
+        const key = `${c.entryPath}#${c.sheet.name}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        merged.push(c)
+        if (merged.length >= MAX_SHEETS_TO_TRY) break
+      }
+      tryList = merged
+    } else {
+      tryList = hintedOnly.slice(0, MAX_SHEETS_TO_TRY)
+    }
+  } else {
+    tryList = candidates.slice(0, MAX_SHEETS_TO_TRY)
+  }
+
+  think({
+    step: "candidates",
+    message: `Will inspect ${tryList.length} sheet(s) (of ${candidates.length} available). Top: ${tryList
+      .slice(0, 8)
+      .map((c) => `${c.entryPath}#${c.sheet.name}${c.hinted ? "★" : ""}`)
+      .join("; ")}${tryList.length > 8 ? "…" : ""}.`,
+  })
 
   const allRows: QratioRow[] = []
   const usedSheets: string[] = []
@@ -600,15 +887,39 @@ async function processOnePmid(opts: {
   let tried = 0
   let bestScore = -1
 
-  for (const c of candidates.slice(0, 8)) {
+  for (const c of tryList) {
     tried++
     const kind = classifySheetKind(c.sheet.name, c.sheet.headers)
+    think({
+      step: "try_sheet",
+      message: `Examining ${c.entryPath} → sheet “${c.sheet.name}” (kind=${kind}, headerScore=${c.score}${c.hinted ? ", user-hinted" : ""}). Headers: ${c.sheet.headers.slice(0, 12).join(" | ")}${c.sheet.headers.length > 12 ? " …" : ""}.`,
+      entryPath: c.entryPath,
+      sheet: c.sheet.name,
+      kind,
+    })
+
     if (kind === "ptm_no_site") {
       sawPtmNoSite = true
       mappingNotes.push(`${c.entryPath}#${c.sheet.name}:ptm_no_site(skip-not-proteome)`)
+      think({
+        step: "skip",
+        message: `Skipped “${c.sheet.name}”: looks like PTM peptide data without site-level Position columns.`,
+        entryPath: c.entryPath,
+        sheet: c.sheet.name,
+        kind,
+        status: "ptm_no_site",
+      })
     }
     if (kind === "proteome") {
       mappingNotes.push(`${c.entryPath}#${c.sheet.name}:proteome(defer)`)
+      think({
+        step: "skip",
+        message: `Deferred “${c.sheet.name}” as whole-proteome (will try later for protein-level ratios only).`,
+        entryPath: c.entryPath,
+        sheet: c.sheet.name,
+        kind,
+        status: "proteome_defer",
+      })
       continue
     }
 
@@ -618,39 +929,108 @@ async function processOnePmid(opts: {
       entryPath: c.entryPath,
       sheet: c.sheet,
     })
-    bestConf = Math.max(bestConf, mapping.confidence)
+    let effectiveMapping = mapping
+    if (derivedSpecs.length > 0) {
+      effectiveMapping = applyDerivedRatiosToMapping(mapping, c.sheet.headers, derivedSpecs)
+      if (effectiveMapping.derivedContrasts?.length) {
+        think({
+          step: "mapping",
+          message: `Applied user-derived contrasts on “${c.sheet.name}”: ${effectiveMapping.derivedContrasts
+            .map(
+              (d) =>
+                `${d.isLog2 ? "log2" : "fc"}(${d.numeratorCol} / ${d.denominatorCol}) → ${d.condition}`,
+            )
+            .join("; ")}.`,
+          entryPath: c.entryPath,
+          sheet: c.sheet.name,
+        })
+      }
+    }
+    bestConf = Math.max(bestConf, effectiveMapping.confidence)
     mappingNotes.push(
-      `${c.entryPath}#${c.sheet.name}:${mapping.source}@${mapping.confidence.toFixed(2)}${mapping.notes ? `(${mapping.notes})` : ""}`,
+      `${c.entryPath}#${c.sheet.name}:${effectiveMapping.source}@${effectiveMapping.confidence.toFixed(2)}${effectiveMapping.notes ? `(${effectiveMapping.notes})` : ""}`,
     )
 
-    if (mapping.intensityOnly || /intensity_only/i.test(mapping.notes)) {
+    const colBrief = mappingColumnsBrief(effectiveMapping)
+    think({
+      step: "mapping",
+      message: `Mapped columns for “${c.sheet.name}” via ${effectiveMapping.source} (confidence ${effectiveMapping.confidence.toFixed(2)}): ID=${effectiveMapping.uniprotCol || effectiveMapping.geneCol || "—"}, Position=${effectiveMapping.positionCol || effectiveMapping.siteCombinedCol || "—"}, AA=${effectiveMapping.aminoAcidCol || effectiveMapping.modSeqCol || "—"}, ratios=[${effectiveMapping.ratioColumns.map((r) => r.column).slice(0, 6).join(", ") || "—"}]${effectiveMapping.derivedContrasts?.length ? `, derived=[${effectiveMapping.derivedContrasts.map((d) => d.condition).join(", ")}]` : ""}${effectiveMapping.notes ? `. Notes: ${effectiveMapping.notes}` : ""}.`,
+      entryPath: c.entryPath,
+      sheet: c.sheet.name,
+      kind,
+      mappingSource: effectiveMapping.source,
+      confidence: effectiveMapping.confidence,
+      columns: colBrief,
+    })
+
+    if (
+      (effectiveMapping.intensityOnly || /intensity_only/i.test(effectiveMapping.notes)) &&
+      !(effectiveMapping.derivedContrasts && effectiveMapping.derivedContrasts.length > 0)
+    ) {
       sawIntensity = true
+      think({
+        step: "skip",
+        message: `Skipped “${c.sheet.name}”: intensity/abundance only (no ratio / Log2FC).`,
+        entryPath: c.entryPath,
+        sheet: c.sheet.name,
+        status: "intensity_only",
+      })
       continue
     }
-    if (/no_site_level/i.test(mapping.notes) && !mappingIsParsable(mapping)) {
+    if (/no_site_level/i.test(effectiveMapping.notes) && !mappingIsParsable(effectiveMapping)) {
       sawNoSite = true
     }
 
-    if (!mappingIsParsable(mapping)) continue
+    if (!mappingIsParsable(effectiveMapping)) {
+      think({
+        step: "skip",
+        message: `Skipped “${c.sheet.name}”: mapping not parsable as site-level quantitative PTM (need ID + site + ratio).`,
+        entryPath: c.entryPath,
+        sheet: c.sheet.name,
+        status: "not_parsable",
+      })
+      continue
+    }
     anyParsable = true
 
     const rows = await parseMappedSheet({
       localPath: c.localPath,
-      mapping,
+      mapping: effectiveMapping,
       lit,
       fallbackCondition: lit.condition,
     })
-    if (rows.length === 0) continue
+    if (rows.length === 0) {
+      think({
+        step: "skip",
+        message: `Mapped “${c.sheet.name}” but extracted 0 data rows.`,
+        entryPath: c.entryPath,
+        sheet: c.sheet.name,
+        status: "empty_rows",
+        rowsAdded: 0,
+      })
+      continue
+    }
 
-    const score = scoreParseResult(mapping, rows)
+    const score = scoreParseResult(effectiveMapping, rows)
     pushAll(allRows, rows)
     usedSheets.push(`${c.entryPath}#${c.sheet.name}`)
     if (score > bestScore) {
       bestScore = score
-      mappingSource = mapping.source
+      mappingSource = effectiveMapping.source
     }
+    think({
+      step: "parsed",
+      message: `Extracted ${rows.length} site-level row(s) from “${c.sheet.name}” (running total ${allRows.length}).`,
+      entryPath: c.entryPath,
+      sheet: c.sheet.name,
+      mappingSource: mapping.source,
+      confidence: mapping.confidence,
+      rowsAdded: rows.length,
+      columns: colBrief,
+    })
 
-    if (allRows.length >= 20_000) break
+    // Soft cap only — keep parsing remaining PTM sheets when possible.
+    if (allRows.length >= 500_000) break
   }
 
   // Whole-proteome pass — never accepts ptm_no_site sheets
@@ -757,6 +1137,17 @@ async function processOnePmid(opts: {
     mappingNotes.push(
       `protein_cols_filled=${join.filled};matched_proteins=${join.matchedProteins}`,
     )
+    think({
+      step: "summary",
+      message: `Joined protein-level Log2Ratio onto site rows: filled ${join.filled} row(s) across ${join.matchedProteins} UniProt ID(s) from ${proteomeRows.length} proteome row(s).`,
+      rowsAdded: join.filled,
+    })
+  } else if (proteomeRows.length > 0 && allRows.length === 0) {
+    think({
+      step: "summary",
+      message: `Parsed ${proteomeRows.length} protein-level ratio row(s), but qPTM stores site-level records — protein-only tables cannot become Quantitative_data rows without a matching site table.`,
+      status: "manual",
+    })
   }
 
   writeInventoryJson(join(stage5InventoryDir(), `${job.pmid}.json`), {
@@ -770,6 +1161,16 @@ async function processOnePmid(opts: {
       proteomeRowCount: proteomeFilled,
     } as object),
   } as PmidTableInventory)
+
+  think({
+    step: "summary",
+    message:
+      allRows.length > 0
+        ? `Finished: status=${status}, extracted ${allRows.length} site-level row(s) from ${usedSheets.length} sheet(s): ${usedSheets.join("; ") || "—"}. Tried ${tried} candidate sheet(s).`
+        : `Finished: status=${status}, 0 site-level quantitative rows. Tried ${tried} sheet(s). ${usedSheets.length ? `Used: ${usedSheets.join("; ")}.` : "No sheet produced parsable site+ratio rows."}`,
+    status,
+    rowsAdded: allRows.length,
+  })
 
   return {
     result: {
@@ -876,10 +1277,15 @@ export async function runStage5Parse(options: Stage5Options = {}): Promise<Stage
 
   await mapPool(jobs, concurrency, async (job, index) => {
     try {
+      // Single-PMID / hint-driven re-parse must replace prior rows, not append duplicates.
+      if (options.pmid || loadUserTableHints(job.pmid)) {
+        clearPmidStage5Data(job.pmid)
+      }
       const { result, rows } = await processOnePmid({
         job,
         lit: litByPmid.get(job.pmid),
         chain,
+        onThinking: options.onThinking,
       })
       pending.push(result)
       pushAll(pendingRows, rows)

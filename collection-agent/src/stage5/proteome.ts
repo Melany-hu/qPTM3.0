@@ -19,6 +19,7 @@ import {
   type MappedRatioColumn,
 } from "./heuristic.js"
 import { resolveRowSample, type QratioRow } from "./parse-rows.js"
+import { resolveSingleModification } from "./ptm.js"
 import { loadSheetData } from "./tables.js"
 
 export type SheetKind = "site_ptm" | "proteome" | "ptm_no_site" | "intensity" | "other"
@@ -365,6 +366,12 @@ export async function parseProteomeSheet(opts: {
   if (classifySheetKind(opts.mapping.sheetName, headers) !== "proteome") return []
 
   const m = opts.mapping
+  const singlePtm = resolveSingleModification({
+    litPtms: opts.lit.ptms,
+    sheetName: m.sheetName,
+    headers,
+    enrichmentMethod: opts.lit.enrichmentMethod,
+  })
   const uIdx = colIndex(headers, m.uniprotCol)
   const gIdx = colIndex(headers, m.geneCol)
   if (uIdx < 0 && gIdx < 0) return []
@@ -433,10 +440,13 @@ export async function parseProteomeSheet(opts: {
 
       out.push({
         pmid: opts.lit.pmid,
-        sample: resolveRowSample(opts.lit.sample),
+        sample: resolveRowSample(opts.lit.sample, {
+          condition,
+          conditionSampleMap: opts.lit.conditionSampleMap,
+        }),
         sampleType: opts.lit.sampleType,
         organism: opts.lit.organism,
-        ptms: opts.lit.ptms,
+        ptms: singlePtm,
         condition,
         uniprotId: uid,
         log2Ratio: fmtNum(log2),
@@ -547,6 +557,11 @@ export function enrichSiteRowsWithProteome(
     }
     // Last resort: empty-condition proteome entry
     if (!hit) hit = cmap.get("")
+    // Condition labels often diverge (Stage3-aligned site vs table-header proteome).
+    // Still fill Log2Ratio (protein) from any UniProt match when keys disagree.
+    if (!hit && cmap.size > 0) {
+      hit = [...cmap.values()][0]
+    }
     if (!hit) continue
 
     r.log2RatioProtein = hit.log2

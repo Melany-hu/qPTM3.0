@@ -10,19 +10,37 @@ export interface LlmRuntime {
   agentDir: string
   modelRuntime: ModelRuntime
   model: Model<any>
+  /** Resolved models in preference order (primary first). */
+  models: Model<any>[]
   modelId: string
 }
 
 /** Known bare model ids → provider when MODEL has no "provider/" prefix */
 const BARE_MODEL_PROVIDER: Record<string, string> = {
-  "deepseek-v4-flash": "deepseek",
-  "deepseek-v4-pro": "deepseek",
+  "deepseek-v4-flash": "opencode-go",
+  "deepseek-v4-pro": "opencode-go",
   "deepseek-chat": "deepseek",
   "deepseek-reasoner": "deepseek",
+  "gpt-5": "opencode",
+  "gemini-3.6-flash": "opencode",
+  "gemini-3.5-flash": "opencode",
+  "kimi-k3": "opencode-go",
+  "claude-sonnet-5": "opencode",
+  "qwen3.7-max": "opencode-go",
+  "qwen3.6-plus": "opencode-go",
+  "qwen3.7-plus": "opencode-go",
 }
 
 /** Models available on OpenCode Go that share the same id as DeepSeek official */
 const OPENCODE_GO_DEEPSEEK_IDS = new Set(["deepseek-v4-flash", "deepseek-v4-pro"])
+
+const DEFAULT_FALLBACKS = [
+  "opencode/gpt-5",
+  "opencode/gemini-3.6-flash",
+  "opencode-go/kimi-k3",
+  "opencode/claude-sonnet-5",
+  "opencode-go/qwen3.7-max",
+]
 
 export function loadDotEnv(cwd: string = projectRoot()): void {
   const envPath = join(cwd, ".env")
@@ -81,7 +99,36 @@ export function resolveModelId(rawModelId: string): string {
   ) {
     return `opencode-go/${modelName}`
   }
+  if (BARE_MODEL_PROVIDER[modelName] && !rawModelId.includes("/")) {
+    return `${BARE_MODEL_PROVIDER[modelName]}/${modelName}`
+  }
   return `${provider}/${modelName}`
+}
+
+function parseFallbackList(raw: string | undefined): string[] {
+  if (!raw?.trim()) return [...DEFAULT_FALLBACKS]
+  return raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+}
+
+/** Primary MODEL plus MODEL_FALLBACKS (deduped, resolved). */
+export function modelCandidateIds(primaryRaw?: string): string[] {
+  const primary =
+    primaryRaw?.trim() ||
+    process.env.MODEL?.trim() ||
+    "opencode-go/deepseek-v4-flash"
+  const fallbacks = parseFallbackList(process.env.MODEL_FALLBACKS)
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const raw of [primary, ...fallbacks]) {
+    const id = resolveModelId(raw)
+    if (seen.has(id)) continue
+    seen.add(id)
+    out.push(id)
+  }
+  return out
 }
 
 function hasAnyApiKey(): boolean {
@@ -110,6 +157,19 @@ function hasProviderApiKey(provider: string): boolean {
     default:
       return hasAnyApiKey()
   }
+}
+
+function lookupModel(
+  modelRuntime: ModelRuntime,
+  provider: string,
+  modelName: string,
+): Model<any> | undefined {
+  let model = modelRuntime.getModel(provider, modelName)
+  if (!model) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    model = getModel(provider as any, modelName)
+  }
+  return model || undefined
 }
 
 export async function createLlmRuntime(options: {
@@ -152,23 +212,25 @@ export async function createLlmRuntime(options: {
     )
   }
 
-  const rawModelId =
-    options.model ?? process.env.MODEL ?? "opencode-go/deepseek-v4-flash"
-  const resolvedId = resolveModelId(rawModelId)
-  const { provider, modelName } = parseModelId(resolvedId)
+  const candidates = modelCandidateIds(options.model)
+  const models: Model<any>[] = []
+  const missing: string[] = []
 
-  if (!hasProviderApiKey(provider)) {
-    throw new Error(
-      `MODEL=${resolvedId} requires ${provider} API key (provider "${provider}" not configured in .env).`,
-    )
+  for (const candidate of candidates) {
+    const { provider, modelName } = parseModelId(candidate)
+    if (!hasProviderApiKey(provider)) {
+      missing.push(`${candidate} (no ${provider} key)`)
+      continue
+    }
+    const model = lookupModel(modelRuntime, provider, modelName)
+    if (!model) {
+      missing.push(`${candidate} (not in catalog)`)
+      continue
+    }
+    models.push(model)
   }
 
-  let model = modelRuntime.getModel(provider, modelName)
-  if (!model) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    model = getModel(provider as any, modelName)
-  }
-  if (!model) {
+  if (models.length === 0) {
     const available = await modelRuntime.getAvailable()
     const hint =
       available.length > 0
@@ -178,17 +240,55 @@ export async function createLlmRuntime(options: {
             .join(", ")
         : "(none — set OPENCODE_API_KEY or another provider key in .env)"
     throw new Error(
-      `Model not found: ${rawModelId} (resolved as ${provider}/${modelName}). Available: ${hint}`,
+      `No usable LLM models from candidates [${candidates.join(", ")}]. ` +
+        `Skipped: ${missing.join("; ") || "n/a"}. Available: ${hint}`,
     )
   }
 
+  if (missing.length > 0) {
+    console.error(
+      `  llm: using ${models.map((m) => `${m.provider}/${m.id}`).join(" → ")}; ` +
+        `skipped ${missing.join("; ")}`,
+    )
+  }
+
+  const primary = models[0]
   return {
     cwd,
     agentDir,
     modelRuntime,
-    model,
-    modelId: `${model.provider}/${model.id}`,
+    model: primary,
+    models,
+    modelId: `${primary.provider}/${primary.id}`,
   }
+}
+
+type CompleteSimpleArgs = Parameters<ModelRuntime["completeSimple"]>
+
+/**
+ * Call completeSimple on the primary model, then fallbacks on failure.
+ */
+export async function completeSimpleWithFallback(
+  runtime: LlmRuntime,
+  context: CompleteSimpleArgs[1],
+  options?: CompleteSimpleArgs[2],
+): Promise<Awaited<ReturnType<ModelRuntime["completeSimple"]>>> {
+  const errors: string[] = []
+  for (let i = 0; i < runtime.models.length; i++) {
+    const model = runtime.models[i]
+    const label = `${model.provider}/${model.id}`
+    try {
+      if (i > 0) {
+        console.error(`  llm: falling back to ${label}`)
+      }
+      return await runtime.modelRuntime.completeSimple(model, context, options)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      errors.push(`${label}: ${msg}`)
+      console.error(`  llm: ${label} failed (${msg})`)
+    }
+  }
+  throw new Error(`All LLM models failed. ${errors.join(" | ")}`)
 }
 
 export function assistantText(message: {

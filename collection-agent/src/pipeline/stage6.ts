@@ -28,6 +28,7 @@ import {
   shortOrganism,
   stage6UrlsBasename,
 } from "../stage6/naming.js"
+import { resolveSingleModification } from "../stage5/ptm.js"
 import {
   downloadIproxXml,
   downloadPrideListingHtml,
@@ -328,7 +329,8 @@ async function processPaper(
   getUrlDir: string | undefined,
 ): Promise<Stage6Result> {
   const organism = shortOrganism(organismRaw)
-  const modification = shortModification(ptmsRaw)
+  // Download URL basename uses one Modification tag (same rule as qratio PTMs column)
+  const modification = shortModification(resolveSingleModification({ litPtms: ptmsRaw }))
   const ids = splitIdentifiers(identifier)
   const accessionResults: Stage6AccessionResult[] = []
 

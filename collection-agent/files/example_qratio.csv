@@ -1,4 +1,4 @@
-﻿PMID,Sample,Sample type,Organism,PTMs,Condition,UniProtID,Position,AminoAcid,Log2Ratio (peptide),P value (peptide),Log2Ratio (protein),P value (protein)
+﻿PMID,Sample,Sample type,Organism,PTMs,Condition,UniProt ID,Position,Amino acid,Log2Ratio (site),P value (site),Log2Ratio (protein),P value (protein)
 37649075,hiPSC-CMs,Cell,Homo sapiens (Human),Phosphorylation,siPINK1/siNC,P17661,28,S,0.694230056,0.000398677,0.166989081,0.238571873
 37649075,hiPSC-CMs,Cell,Homo sapiens (Human),Phosphorylation,siPINK1/siNC,P17252,497,T,0.479722229,0.022540882,-0.368554861,0.002552313
 37649075,hiPSC-CMs,Cell,Homo sapiens (Human),Phosphorylation,siPINK1/siNC,P16989,286,T,1.350405617,0.026657832,0.005233969,0.949533323

@@ -126,3 +126,7 @@ agent-backend/data/enzymes/PhosphoSitePlus/Kinase_Substrate_Dataset
 agent-backend/data/enzymes/WERAM/raw/Homo_sapiens_Methylation_collected_proteins.fasta
 agent-backend/data/enzymes/WERAM/raw/Homo_sapiens_Methylation_predicted_proteins.fasta
 agent-backend/data/localization/SignalP/tables/predictions.tsv
+resource/properties/yeast.parquet
+resource/properties/rat.parquet
+resource/properties/mouse.parquet
+resource/properties/human.parquet

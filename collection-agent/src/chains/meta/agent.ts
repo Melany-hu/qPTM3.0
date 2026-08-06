@@ -1,6 +1,6 @@
 import type { LiteratureInfoRow, MetaTextSource } from "../../types.js"
 import type { LlmRuntime } from "../../runtime.js"
-import { assistantText } from "../../runtime.js"
+import { assistantText, completeSimpleWithFallback } from "../../runtime.js"
 import { META_SYSTEM, buildMetaUserPrompt } from "./prompt.js"
 import { MetaParseError, parseMetaOutput } from "./parse.js"
 
@@ -57,8 +57,8 @@ export class MetaChain {
       ? "\n\nYour previous answer was not valid JSON. Reply with ONLY one JSON object matching the schema."
       : ""
 
-    const message = await this.runtime.modelRuntime.completeSimple(
-      this.runtime.model,
+    const message = await completeSimpleWithFallback(
+      this.runtime,
       {
         systemPrompt: META_SYSTEM,
         messages: [

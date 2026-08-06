@@ -4,12 +4,20 @@ from __future__ import annotations
 
 import csv
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 
-from app.collection.models import CollectionJobCreate, CollectionJobResponse, CollectionUploadResponse
+from app.collection.models import (
+    CollectionContributeRequest,
+    CollectionGuidanceRequest,
+    CollectionJobCreate,
+    CollectionJobResponse,
+    CollectionUploadResponse,
+    CollectionTableHintsRequest,
+)
 from app.collection.runner import (
     ingest_fulltext,
     ingest_supplementary,
@@ -20,7 +28,27 @@ from app.collection.runner import (
 )
 from app.collection.pmid_from_files import resolve_pmid_from_uploads
 from app.collection.uploads import classify_upload_filename
-from app.collection.store import job_dir, new_job_id, resolve_pmid, stage3_artifact, stage5_artifact, uploads_dir
+from app.collection.store import (
+    fulltext_artifact,
+    job_dir,
+    looks_like_stage5_guidance,
+    mark_upload_ready,
+    new_job_id,
+    note_wants_protein_log2,
+    parse_derived_ratio_specs,
+    read_csv_preview,
+    read_job_json,
+    read_supp_previews,
+    read_table_candidates,
+    resolve_guidance_selections,
+    resolve_pmid,
+    stage3_artifact,
+    stage5_artifact,
+    stage6_urls_artifact,
+    supplementary_zip_artifact,
+    uploads_dir,
+    write_user_table_hints,
+)
 from app.config import settings
 
 router = APIRouter(prefix="/collection", tags=["collection"])
@@ -77,14 +105,14 @@ async def create_job(
     if fulltext and fulltext.filename:
         name, content = await _read_upload(fulltext)
         if classify_upload_filename(name) != "fulltext":
-            raise HTTPException(400, f"fulltext 字段仅支持 PDF/XML，收到: {name}")
+            raise HTTPException(400, f"fulltext field accepts PDF/XML only, got: {name}")
         upload_names.append(name)
         fulltext_blob = (name, content)
 
     if supplementary and supplementary.filename:
         name, content = await _read_upload(supplementary)
         if classify_upload_filename(name) != "supplementary":
-            raise HTTPException(400, f"supplementary 字段仅支持 ZIP/Excel/CSV，收到: {name}")
+            raise HTTPException(400, f"supplementary field accepts ZIP/Excel/CSV only, got: {name}")
         upload_names.append(name)
         supplementary_blob = (name, content)
 
@@ -107,8 +135,10 @@ async def create_job(
             job_id=new_job_id(),
             status="error",
             message=(
-                "Could not resolve PMID. Upload a PDF/XML that contains a PMID, "
-                "enter a PMID in the message box, or rename the file (e.g. 39732660.pdf)."
+                "Could not resolve PMID from the upload. "
+                "The PDF/XML had no readable PMID or DOI we could map to PubMed. "
+                "Please enter a PMID in the message (e.g. Collect PMID 38670996), "
+                "or rename the file like 38670996.pdf."
             ),
             needs_pmid=True,
         )
@@ -151,39 +181,64 @@ async def stream_job(job_id: str) -> StreamingResponse:
         async for item in watch_job_events(job_id):
             yield f"event: {item['event']}\ndata: {json.dumps(item['data'])}\n\n"
 
-    return StreamingResponse(event_gen(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
-@router.post("/jobs/{job_id}/upload", response_model=CollectionUploadResponse)
+@router.post("/jobs/{job_id}/upload", response_model=CollectionJobResponse)
 async def upload_file(
     job_id: str,
-    upload_type: str = Form(...),
+    upload_type: str = Form(""),
     file: UploadFile = File(...),
-) -> CollectionUploadResponse:
+) -> CollectionJobResponse:
     if not job_dir(job_id).exists():
         raise HTTPException(404, "Job not found")
-    if upload_type not in ("fulltext", "supplementary"):
-        raise HTTPException(400, "upload_type must be fulltext or supplementary")
 
     state = job_state_to_response(job_id)
     pmid = state.get("pmid")
     if not pmid:
         raise HTTPException(400, "Job has no PMID")
 
-    saved = await _save_upload(job_id, file, upload_type)
-    if upload_type == "fulltext":
+    kind = (upload_type or "").strip().lower()
+    if kind not in ("fulltext", "supplementary"):
+        # Infer from job state or filename when the client omits / loses upload_type.
+        awaiting = state.get("awaiting_upload")
+        if awaiting in ("fulltext", "supplementary"):
+            kind = awaiting
+        else:
+            kind = classify_upload_filename(file.filename or "") or ""
+            if kind not in ("fulltext", "supplementary"):
+                stage = state.get("current_stage") or ""
+                if stage == "stage2":
+                    kind = "fulltext"
+                elif stage in ("stage4", "stage5"):
+                    kind = "supplementary"
+    if kind not in ("fulltext", "supplementary"):
+        raise HTTPException(400, "upload_type must be fulltext or supplementary")
+
+    saved = await _save_upload(job_id, file, kind)
+    if kind == "fulltext":
         await ingest_fulltext(job_id, pmid, str(saved))
-        msg = "Full text uploaded. Click Continue to proceed."
+        msg = (
+            "Full text is ready, "
+            "then click Continue to extract literature metadata."
+        )
     else:
         await ingest_supplementary(job_id, pmid, str(saved))
-        msg = "Supplementary file uploaded. Click Continue to proceed."
+        msg = (
+            "User-uploaded supplementary tables detected, "
+            "then click Continue to parse quantitative data."
+        )
 
-    return CollectionUploadResponse(
-        job_id=job_id,
-        upload_type=upload_type,  # type: ignore[arg-type]
-        filename=file.filename or saved.name,
-        message=msg,
-    )
+    mark_upload_ready(job_id, upload_type=kind, message=msg)
+    return CollectionJobResponse(**job_state_to_response(job_id, str(pmid)))
 
 
 @router.post("/jobs/{job_id}/resume", response_model=CollectionJobResponse)
@@ -196,6 +251,53 @@ async def resume_collection_job(job_id: str) -> CollectionJobResponse:
         raise HTTPException(400, "Job has no PMID")
     await resume_job(job_id, pmid)
     return CollectionJobResponse(**job_state_to_response(job_id, pmid))
+
+
+@router.post("/jobs/{job_id}/contribute", response_model=CollectionJobResponse)
+async def contribute_collection_job(
+    job_id: str,
+    body: CollectionContributeRequest,
+) -> CollectionJobResponse:
+    """Record whether the user is willing to contribute curated tables to qPTM."""
+    root = job_dir(job_id)
+    if not root.exists():
+        raise HTTPException(404, "Job not found")
+    state = read_job_json(job_id) or {}
+    row_count = int((state.get("summary") or {}).get("qratioRowCount") or 0)
+    status = state.get("status")
+    # Allow after Stage5 parse (awaiting_continue) or final completion.
+    if status not in ("completed", "awaiting_continue") or row_count <= 0:
+        raise HTTPException(
+            400,
+            "Contribution is only available after quantitative tables have been parsed",
+        )
+    if body.willing and row_count <= 0:
+        raise HTTPException(400, "No qratio rows available to contribute")
+
+    state["contribution"] = {
+        "willing": body.willing,
+        "respondedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "note": (body.note or "").strip() or None,
+    }
+    state["offerContribute"] = False
+    if body.willing:
+        state["message"] = (
+            (state.get("message") or "").rstrip()
+            + "\n\nThank you for offering to contribute to qPTM! "
+        )
+    else:
+        state["message"] = (
+            (state.get("message") or "").rstrip()
+            + "\n\nNoted: not contributing for now. "
+            "You can still download the curated CSV files for your own use."
+        )
+    state["updatedAt"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    (root / "job.json").write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    # Also append a lightweight audit line for curators
+    audit = root / "contribution.jsonl"
+    with audit.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps({"pmid": state.get("pmid"), **state["contribution"]}, ensure_ascii=False) + "\n")
+    return CollectionJobResponse(**job_state_to_response(job_id))
 
 
 @router.get("/jobs/{job_id}/artifacts/metadata")
@@ -217,17 +319,296 @@ async def get_metadata_artifact(job_id: str) -> dict:
     raise HTTPException(404, "Metadata row not found")
 
 
+@router.get("/jobs/{job_id}/artifacts/table-candidates")
+async def get_table_candidates(job_id: str) -> dict:
+    """List supplementary file/sheet candidates for user teaching / selection."""
+    if not job_dir(job_id).exists():
+        raise HTTPException(404, "Job not found")
+    state = job_state_to_response(job_id)
+    pmid = state.get("pmid")
+    if not pmid:
+        raise HTTPException(400, "Job has no PMID")
+    candidates = read_table_candidates(job_id, str(pmid))
+    summary = state.get("summary") or {}
+    return {
+        "pmid": pmid,
+        "candidates": candidates,
+        "stage4Scout": summary.get("stage4Scout"),
+        "stage5Thinking": summary.get("stage5Thinking") or [],
+        "needsTableHints": bool(summary.get("needsTableHints")),
+    }
+
+
+@router.get("/jobs/{job_id}/artifacts/supp-preview")
+async def get_supp_preview(job_id: str) -> dict:
+    """Peek top supplementary tables: column names + first rows for Stage4 UI."""
+    if not job_dir(job_id).exists():
+        raise HTTPException(404, "Job not found")
+    state = job_state_to_response(job_id)
+    pmid = state.get("pmid")
+    if not pmid:
+        raise HTTPException(400, "Job has no PMID")
+    files = read_supp_previews(job_id, str(pmid))
+    return {"pmid": pmid, "files": files}
+
+
+@router.get("/jobs/{job_id}/artifacts/qratio-preview")
+async def get_qratio_preview(job_id: str, max_rows: int = 10) -> dict:
+    """First N rows of stage5/qratio.csv for Stage5 UI."""
+    if not job_dir(job_id).exists():
+        raise HTTPException(404, "Job not found")
+    path = stage5_artifact(job_id)
+    if not path:
+        raise HTTPException(404, "qratio.csv not ready")
+    rows = max(1, min(int(max_rows or 10), 50))
+    preview = read_csv_preview(path, max_rows=rows)
+    return {"pmid": (job_state_to_response(job_id) or {}).get("pmid"), **preview}
+
+
+@router.get("/jobs/{job_id}/artifacts/ms-urls-preview")
+async def get_ms_urls_preview(job_id: str, max_rows: int = 5) -> dict:
+    """First N rows of stage6/urls_all.csv for Stage6 UI."""
+    if not job_dir(job_id).exists():
+        raise HTTPException(404, "Job not found")
+    path = stage6_urls_artifact(job_id)
+    if not path:
+        raise HTTPException(404, "urls_all.csv not ready")
+    rows = max(1, min(int(max_rows or 5), 50))
+    preview = read_csv_preview(path, max_rows=rows, drop_columns=["is_raw"])
+    return {"pmid": (job_state_to_response(job_id) or {}).get("pmid"), **preview}
+
+
+@router.post("/jobs/{job_id}/table-hints")
+async def post_table_hints(job_id: str, body: CollectionTableHintsRequest) -> dict:
+    """Save user-selected tables/sheets, optionally resume Stage 5 parse."""
+    if not job_dir(job_id).exists():
+        raise HTTPException(404, "Job not found")
+    state = job_state_to_response(job_id)
+    pmid = state.get("pmid")
+    if not pmid:
+        raise HTTPException(400, "Job has no PMID")
+
+    selections = [s.model_dump() for s in body.selections]
+    prefer = body.prefer_protein_log2
+    if prefer is None:
+        prefer = note_wants_protein_log2(body.note or "")
+
+    derived = parse_derived_ratio_specs(body.note or "")
+
+    # Allow note-only guidance: resolve filenames mentioned in the note.
+    if not selections and body.note:
+        resolved, prefer_note, _matched, derived_note = resolve_guidance_selections(
+            job_id, str(pmid), body.note
+        )
+        selections = resolved
+        prefer = prefer or prefer_note
+        if not derived:
+            derived = derived_note
+
+    if not selections and not (body.note or "").strip():
+        raise HTTPException(400, "Select at least one file/sheet, or describe it in the note")
+
+    # Fill sheet names from note "file → Sheet" when checkbox selection omitted sheet
+    if body.note and selections:
+        resolved, _p, _m, derived_note = resolve_guidance_selections(
+            job_id, str(pmid), body.note
+        )
+        if not derived:
+            derived = derived_note
+        by_entry = {
+            str(r.get("entryPath") or "").lower(): r for r in resolved if r.get("sheetName")
+        }
+        for sel in selections:
+            if sel.get("sheetName"):
+                continue
+            hit = by_entry.get(str(sel.get("entryPath") or "").lower())
+            if hit and hit.get("sheetName"):
+                sel["sheetName"] = hit["sheetName"]
+
+    hints = write_user_table_hints(
+        job_id,
+        str(pmid),
+        selections,
+        note=body.note,
+        prefer_protein_log2=prefer,
+        derived_ratios=derived,
+    )
+
+    # Mirror into job summary for the UI
+    root = job_dir(job_id)
+    raw = read_job_json(job_id) or {}
+    summary = dict(raw.get("summary") or {})
+    summary["userTableHints"] = hints
+    summary["needsTableHints"] = False
+    summary["allowTableHints"] = True
+    raw["summary"] = summary
+    raw["status"] = "running" if body.resume else raw.get("status") or "awaiting_continue"
+    raw["currentStage"] = "stage5"
+    raw["nextStage"] = "stage5"
+    raw["awaitingUpload"] = None
+    derived_note = ""
+    if hints.get("derivedRatios"):
+        labels = [
+            ("log2(" + d["condition"] + ")" if d.get("isLog2", True) else d["condition"])
+            for d in hints["derivedRatios"]
+        ]
+        derived_note = f" Derived contrasts: {', '.join(labels)}."
+    raw["message"] = (
+        f"Saved table guidance ({len(hints.get('selections') or [])} file(s))."
+        + derived_note
+        + (" Re-parsing quantitative tables…" if body.resume else " Click Continue to re-parse.")
+    )
+    raw["updatedAt"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    (root / "job.json").write_text(json.dumps(raw, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    if body.resume:
+        await resume_job(job_id, str(pmid))
+
+    return {
+        "hints": hints,
+        "job": job_state_to_response(job_id, str(pmid)),
+    }
+
+
+@router.post("/jobs/{job_id}/guidance")
+async def post_stage5_guidance(job_id: str, body: CollectionGuidanceRequest) -> dict:
+    """Interpret free-text Stage5 feedback, save hints, and optionally re-parse."""
+    if not job_dir(job_id).exists():
+        raise HTTPException(404, "Job not found")
+    state = job_state_to_response(job_id)
+    pmid = state.get("pmid")
+    if not pmid:
+        raise HTTPException(400, "Job has no PMID")
+    message = (body.message or "").strip()
+    if not message:
+        raise HTTPException(400, "message is required")
+
+    selections, prefer, matched, derived = resolve_guidance_selections(
+        job_id, str(pmid), message
+    )
+    if (
+        not selections
+        and not prefer
+        and not derived
+        and not looks_like_stage5_guidance(message)
+    ):
+        raise HTTPException(
+            400,
+            "Could not interpret this as Stage5 table guidance. "
+            "Mention an Excel/CSV filename (e.g. pr2c00756_si_002.xlsx), "
+            "a sheet (file → Sheet), or contrasts like log2(P5/P1).",
+        )
+
+    # If user only asked about protein Log2Ratio / derived ratios with no file, still re-parse
+    hints = write_user_table_hints(
+        job_id,
+        str(pmid),
+        selections,
+        note=message,
+        prefer_protein_log2=prefer or note_wants_protein_log2(message),
+        derived_ratios=derived,
+    )
+
+    root = job_dir(job_id)
+    raw = read_job_json(job_id) or {}
+    summary = dict(raw.get("summary") or {})
+    summary["userTableHints"] = hints
+    summary["needsTableHints"] = False
+    summary["allowTableHints"] = True
+    raw["summary"] = summary
+    raw["status"] = "running" if body.resume else "awaiting_continue"
+    raw["currentStage"] = "stage5"
+    raw["nextStage"] = "stage5"
+    raw["awaitingUpload"] = None
+
+    parts: list[str] = []
+    if matched:
+        sheet_bits = []
+        for sel in selections:
+            ep = sel.get("entryPath") or ""
+            sn = sel.get("sheetName")
+            sheet_bits.append(f"{ep} → {sn}" if sn else ep)
+        parts.append(f"will use {', '.join(sheet_bits)}")
+    if prefer:
+        parts.append("prefer protein Log2Ratio")
+    if derived:
+        labels = [
+            f"log2({d['condition']})" if d.get("isLog2", True) else d["condition"]
+            for d in derived
+        ]
+        parts.append(f"compute {', '.join(labels)}")
+    detail = "; ".join(parts)
+    if detail:
+        ack = (
+            f"Understood — {detail}. "
+            + ("Re-parsing…" if body.resume else "Click Continue to re-parse.")
+        )
+    else:
+        ack = (
+            "Saved your Stage5 guidance. "
+            + ("Re-parsing quantitative tables…" if body.resume else "Click Continue to re-parse.")
+        )
+    raw["message"] = ack
+    raw["updatedAt"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    (root / "job.json").write_text(json.dumps(raw, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    if body.resume:
+        await resume_job(job_id, str(pmid))
+
+    return {
+        "hints": hints,
+        "matched_files": matched,
+        "prefer_protein_log2": bool(hints.get("preferProteinLog2")),
+        "derived_ratios": hints.get("derivedRatios") or [],
+        "message": ack,
+        "job": job_state_to_response(job_id, str(pmid)),
+    }
+
+
 @router.get("/jobs/{job_id}/download/literature_info")
 async def download_literature_info(job_id: str) -> FileResponse:
     path = stage3_artifact(job_id)
     if not path:
-        raise HTTPException(404, "literature_info.csv not ready")
-    return FileResponse(path, filename=f"literature_info_{job_id[:8]}.csv", media_type="text/csv")
+        raise HTTPException(404, "Experimental_info.csv not ready")
+    return FileResponse(path, filename=f"Experimental_info_{job_id[:8]}.csv", media_type="text/csv")
+
+
+@router.get("/jobs/{job_id}/download/fulltext")
+async def download_fulltext(job_id: str) -> FileResponse:
+    if not job_dir(job_id).exists():
+        raise HTTPException(404, "Job not found")
+    path = fulltext_artifact(job_id)
+    if not path:
+        raise HTTPException(404, "Full text not available")
+    media = "application/pdf" if path.suffix.lower() == ".pdf" else "application/xml"
+    return FileResponse(path, filename=f"{path.stem}_{job_id[:8]}{path.suffix}", media_type=media)
+
+
+@router.get("/jobs/{job_id}/download/supplementary")
+async def download_supplementary(job_id: str) -> FileResponse:
+    if not job_dir(job_id).exists():
+        raise HTTPException(404, "Job not found")
+    path = supplementary_zip_artifact(job_id)
+    if not path:
+        raise HTTPException(404, "Supplementary ZIP not available")
+    return FileResponse(
+        path,
+        filename=f"supplementary_{job_id[:8]}.zip",
+        media_type="application/zip",
+    )
 
 
 @router.get("/jobs/{job_id}/download/qratio")
 async def download_qratio(job_id: str) -> FileResponse:
     path = stage5_artifact(job_id)
     if not path:
-        raise HTTPException(404, "qratio.csv not ready")
-    return FileResponse(path, filename=f"qratio_{job_id[:8]}.csv", media_type="text/csv")
+        raise HTTPException(404, "Quantitative_data.csv not ready")
+    return FileResponse(path, filename=f"Quantitative_data_{job_id[:8]}.csv", media_type="text/csv")
+
+
+@router.get("/jobs/{job_id}/download/ms-urls")
+async def download_ms_urls(job_id: str) -> FileResponse:
+    path = stage6_urls_artifact(job_id)
+    if not path:
+        raise HTTPException(404, "MS_URLs.csv not ready")
+    return FileResponse(path, filename=f"MS_URLs_{job_id[:8]}.csv", media_type="text/csv")

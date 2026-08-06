@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 from typing import Any, AsyncIterator
 
-from app.collection.store import job_dir, read_job_json
+from app.collection.store import job_dir, read_job_json, refresh_artifact_summary
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -34,8 +34,14 @@ def _collection_env() -> dict[str, str]:
     env["NODE_ENV"] = env.get("NODE_ENV", "production")
     if settings.deepseek_api_key and not env.get("OPENCODE_API_KEY"):
         env["OPENCODE_API_KEY"] = settings.deepseek_api_key
-    if settings.deepseek_model and not env.get("MODEL"):
-        env["MODEL"] = f"opencode-go/{settings.deepseek_model}"
+    # Collection uses pi-ai provider/model ids (e.g. opencode-go/deepseek-v4-flash).
+    # Do NOT map DEEPSEEK_MODEL (chat HTTP bare id) → opencode-go/… — catalogs differ
+    # (e.g. qwen3.5-plus is Zen/opencode, not OpenCode Go).
+    if settings.collection_model and not env.get("MODEL"):
+        env["MODEL"] = settings.collection_model
+    if settings.collection_fallback_models and not env.get("MODEL_FALLBACKS"):
+        env["MODEL_FALLBACKS"] = settings.collection_fallback_models
+    # Prefer explicit backend settings; otherwise leave for collection-agent/.env via loadDotEnv
     if settings.unpaywall_email:
         env["UNPAYWALL_EMAIL"] = settings.unpaywall_email
     if settings.ncbi_api_key:
@@ -217,12 +223,14 @@ async def resume_job(job_id: str, pmid: str) -> None:
     resume_from = _resume_from_state(state)
     if not resume_from:
         resume_from = "stage1"
-    # Clear pause flags before resuming
+    # Clear pause flags before resuming; point UI at the stage about to run.
     job_path = job_dir(job_id) / "job.json"
     if job_path.is_file():
         payload = read_job_json(job_id) or {}
         payload["status"] = "running"
         payload["awaitingUpload"] = None
+        payload["currentStage"] = resume_from
+        payload["nextStage"] = resume_from
         job_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     await schedule_job(job_id, pmid, resume_from=resume_from)
 
@@ -233,6 +241,8 @@ async def resume_after_upload(job_id: str, pmid: str) -> None:
 
 def job_state_to_response(job_id: str, pmid: str | None = None) -> dict[str, Any]:
     state = read_job_json(job_id) or {}
+    summary = state.get("summary") if isinstance(state.get("summary"), dict) else {}
+    summary = refresh_artifact_summary(job_id, summary)
     return {
         "job_id": job_id,
         "pmid": state.get("pmid") or pmid,
@@ -242,7 +252,9 @@ def job_state_to_response(job_id: str, pmid: str | None = None) -> dict[str, Any
         "awaiting_upload": state.get("awaitingUpload"),
         "message": state.get("message", ""),
         "stages": state.get("stages") or {},
-        "summary": state.get("summary") or {},
+        "summary": summary,
+        "offer_contribute": bool(state.get("offerContribute")),
+        "contribution": state.get("contribution"),
         "error": state.get("error"),
         "needs_pmid": False,
     }
@@ -251,6 +263,7 @@ def job_state_to_response(job_id: str, pmid: str | None = None) -> dict[str, Any
 async def watch_job_events(job_id: str) -> AsyncIterator[dict[str, Any]]:
     """Poll job.json and emit SSE-friendly events."""
     last = ""
+    ticks = 0
     while True:
         state = read_job_json(job_id)
         if state:
@@ -277,4 +290,11 @@ async def watch_job_events(job_id: str) -> AsyncIterator[dict[str, Any]]:
                 else:
                     yield {"event": "error", "data": job_state_to_response(job_id)}
                 return
+        ticks += 1
+        # Keep proxies / browsers from idle-closing long Stage1/5 runs.
+        if ticks % 15 == 0:
+            yield {
+                "event": "status",
+                "data": job_state_to_response(job_id) if state else {"job_id": job_id, "status": "running"},
+            }
         await asyncio.sleep(1.0)

@@ -11,13 +11,19 @@ from pathlib import Path
 
 
 _DATA_ROOT = Path(__file__).parent.parent / "data"
+_REPO_ROOT = Path(__file__).parent.parent.parent
 
 
 class Settings(BaseSettings):
-    # LLM API (OpenCode Go — OpenAI-compatible; env names kept for compatibility)
+    # LLM API (OpenCode Go / Zen — OpenAI-compatible; env names kept for compatibility)
     deepseek_api_key: str = ""
     deepseek_base_url: str = "https://opencode.ai/zen/go/v1"
+    deepseek_zen_base_url: str = "https://opencode.ai/zen/v1"
     deepseek_model: str = "deepseek-v4-flash"
+    # Comma-separated bare model ids tried after DEEPSEEK_MODEL on failure
+    deepseek_fallback_models: str = (
+        "gpt-5,gemini-3.6-flash,kimi-k3,claude-sonnet-5,qwen3.7-max"
+    )
 
     # qPTM REST API (PHP backend — deployed at /api/ on the qPTM web server)
     qptm_api_base_url: str = "https://qptm3.omicsbio.info/api"
@@ -73,6 +79,26 @@ class Settings(BaseSettings):
     # Runtime (not scientific data)
     conversations_data_dir: str = str(_DATA_ROOT / "_runtime" / "conversations")
 
+    # Collection Agent (literature-mining pipeline — Node subprocess)
+    collection_agent_dir: str = str(_REPO_ROOT / "collection-agent")
+    collection_jobs_dir: str = str(_DATA_ROOT / "_runtime" / "collection" / "jobs")
+    collection_node_bin: str = "/opt/node22/bin/node"
+    collection_max_upload_bytes: int = 50 * 1024 * 1024
+    # pi-ai id, e.g. opencode-go/deepseek-v4-flash — separate from DEEPSEEK_MODEL (chat)
+    collection_model: str = ""
+    # Comma-separated pi-ai provider/model ids tried after COLLECTION_MODEL
+    collection_fallback_models: str = (
+        "opencode/gpt-5,"
+        "opencode/gemini-3.6-flash,"
+        "opencode-go/kimi-k3,"
+        "opencode/claude-sonnet-5,"
+        "opencode-go/qwen3.7-max"
+    )
+    unpaywall_email: str = ""
+    ncbi_api_key: str = ""
+    ncbi_email: str = ""
+    qptm3_get_url_dir: str = str(_REPO_ROOT / "collection-agent" / "scripts")
+
     # Server
     host: str = "0.0.0.0"
     port: int = 8100
@@ -82,6 +108,8 @@ class Settings(BaseSettings):
 
     # HTTP client defaults
     http_timeout_seconds: int = 60
+    # LLM stream/response read idle timeout (seconds). Prevents forever "Generating answer..."
+    llm_read_timeout_seconds: int = 120
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

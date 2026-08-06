@@ -1,5 +1,5 @@
 import type { LlmRuntime } from "../../runtime.js"
-import { assistantText } from "../../runtime.js"
+import { assistantText, completeSimpleWithFallback } from "../../runtime.js"
 import type { ColumnMapping } from "../../stage5/heuristic.js"
 import type { SheetInventory } from "../../stage5/tables.js"
 import { parseQratioMapOutput, QratioMapParseError } from "./parse.js"
@@ -55,8 +55,8 @@ export class QratioMapChain {
       : ""
 
     const llmTimeoutMs = Number(process.env.STAGE5_LLM_TIMEOUT_MS ?? 120_000)
-    const llmPromise = this.runtime.modelRuntime.completeSimple(
-      this.runtime.model,
+    const llmPromise = completeSimpleWithFallback(
+      this.runtime,
       {
         systemPrompt: QRATIO_MAP_SYSTEM,
         messages: [

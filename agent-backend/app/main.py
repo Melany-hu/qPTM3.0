@@ -30,6 +30,9 @@ from app.llm.deepseek_client import get_llm_client
 from app.llm.prompts import build_synthesis_messages
 from app.models.schemas import ChatRequest, PdfExportRequest, WorkflowStage, PlanStepStatus, ToolResult
 from app.export.pdf import build_answer_pdf
+from app.collection.routes import router as collection_router
+from app.agent.entities import parse_query_entities
+from app.agent.gate import classify_query_mode as classify_intent_mode, QUERY_MODE_COLLECTION
 from app.tools.registry import registry
 from app.tools.qptm_tools import register_qptm_tools
 from app.tools.iptmnet_tools import register_iptmnet_tools
@@ -101,6 +104,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(collection_router)
 
 # Maximum tool-call rounds per user message (prevents infinite loops)
 MAX_TOOL_ROUNDS = 5
@@ -912,6 +917,38 @@ async def _agent_loop_with_persist(
 
 # ── Endpoints ─────────────────────────────────────────────────────
 
+@app.post("/classify")
+async def classify_intent(request: Request) -> JSONResponse:
+    """Classify user message intent for chat vs collection routing."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    message = str(body.get("message") or "").strip()
+    upload_filenames = body.get("upload_filenames") or []
+    if not isinstance(upload_filenames, list):
+        upload_filenames = []
+    upload_filenames = [str(f) for f in upload_filenames if f]
+
+    entities = parse_query_entities(message)
+    mode = classify_intent_mode(
+        message,
+        entities,
+        state=None,
+        upload_filenames=upload_filenames,
+    )
+    return JSONResponse({
+        "mode": mode,
+        "pmid": entities.get("pmid"),
+        "entities": {
+            k: entities[k]
+            for k in ("gene", "uniprot_ac", "position", "ptm_type", "pmid", "mutation_label")
+            if entities.get(k)
+        },
+        "route_collection": mode == QUERY_MODE_COLLECTION,
+    })
+
+
 @app.get("/health")
 async def health() -> dict[str, Any]:
     """Health check endpoint."""
@@ -962,6 +999,34 @@ async def delete_conversation(conversation_id: str, request: Request) -> JSONRes
     if not conv_store.delete_conversation(conversation_id, client_ip):
         return JSONResponse({"error": "Conversation not found"}, status_code=404)
     return JSONResponse({"status": "deleted"})
+
+
+@app.post("/conversations/{conversation_id}/messages")
+async def append_conversation_messages(conversation_id: str, request: Request) -> JSONResponse:
+    """Append one or more messages to an existing conversation (used by collection agent)."""
+    client_ip = _get_client_ip(request)
+    if not conv_store.belongs_to_ip(conversation_id, client_ip):
+        return JSONResponse({"error": "Conversation not found"}, status_code=404)
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+    items = body.get("messages") if isinstance(body, dict) else None
+    if not isinstance(items, list) or not items:
+        return JSONResponse({"error": "messages array required"}, status_code=400)
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        role = str(item.get("role") or "").strip()
+        content = str(item.get("content") or "")
+        if role not in ("user", "assistant") or not content.strip():
+            continue
+        meta = item.get("meta") if isinstance(item.get("meta"), dict) else None
+        conv_store.add_message(conversation_id, role, content, meta=meta)
+    if isinstance(body, dict) and body.get("title"):
+        conv_store.update_title(conversation_id, str(body["title"]))
+    conv = conv_store.get_conversation(conversation_id, client_ip)
+    return JSONResponse(conv or {"id": conversation_id})
 
 
 @app.post("/export/pdf")

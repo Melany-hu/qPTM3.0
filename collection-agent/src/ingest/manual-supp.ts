@@ -39,7 +39,7 @@ export function ingestManualSupplementary(options: IngestSuppOptions): IngestSup
   } else if (ext === ".xlsx" || ext === ".xls" || ext === ".csv" || ext === ".tsv") {
     const buf = readFileSync(options.filePath)
     packSupplementaryZip(localZip, [
-      { filename: basename(options.filePath), buffer: buf, url: "user_upload" },
+      { filename: basename(options.filePath), buffer: buf },
     ])
     writeFileSync(join(pmidDir, "source_user_upload.txt"), "user_upload", "utf8")
   } else {

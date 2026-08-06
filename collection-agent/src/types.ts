@@ -58,6 +58,11 @@ export interface LiteratureInfoRow {
   labelMethod: string
   condition: string
   detailCondition: string
+  /**
+   * Per-condition focal sample map for Stage5 qratio.Sample.
+   * Format: "CondA=>SampleX; CondB=>SampleY"
+   */
+  conditionSampleMap: string
   enrichmentMethod: string
   massSpectrometer: string
   msDataSource: string

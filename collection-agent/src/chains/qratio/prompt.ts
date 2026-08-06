@@ -7,21 +7,26 @@ Map spreadsheet columns to quantitative PTM site-ratio fields.
 Return ONLY a single JSON object (no markdown fences, no commentary).`
 
 export const QRATIO_MAP_RULES = `Target qratio fields:
-- UniProtID
+- UniProt ID
 - Position (residue number)
-- AminoAcid (S/T/Y/K/… single letter when possible)
-- Log2Ratio (peptide) — site/peptide-level log2 fold-change (NOT raw intensity)
-- P value (peptide)
+- Amino acid (S/T/Y/K/… single letter when possible)
+- Log2Ratio (site) — site-level log2 fold-change (NOT raw intensity)
+- P value (site)
 - Log2Ratio (protein) / P value (protein) — optional
 
 Hard rules (from QC):
-1) Prefer site/peptide-level ratio columns over protein-level when both exist.
+1) Prefer site-level ratio columns over protein-level when both exist.
 2) If multiple condition ratios exist, list EACH as a separate ratioColumns entry.
 3) valueType must be one of: "log2_ratio" | "fold_change" | "intensity" | "other".
    - intensity / abundance / peak area / bare timepoint channels (e.g. "0/5","5/5") → valueType="intensity" and do NOT put them in ratioColumns.
+   - Bare sample / developmental-day labels with NO ratio/FC/log2 wording are intensities, NOT ratios — e.g. "P1","P5","P7","D1","Day7","Sample1", or "Lactylation sites quantitation P1". Values near 1.0 do NOT make them fold-changes.
+   - Only columns that express a contrast (A/B, treatment/control, H/L, log2FC, fold-change) belong in ratioColumns.
 4) If the sheet ONLY has intensities (no ratio/log2FC/fold-change), set skip=true, intensityOnly=true, and list intensityColumns.
-5) If there is NO site-level Position/siteCombined column AND no mod-sequence/probability column from which AA can be inferred (e.g. "Lactylation Probabilities", "Modified sequence"), set skip=true (reason: no_site_level). AminoAcid column is optional — Position alone is enough; AA may be filled from sequence later. When AA is only in a probability column, set modSeqCol and leave aminoAcidCol null.
+5) If there is NO site-level Position/siteCombined column AND no mod-sequence/probability column from which AA can be inferred (e.g. "Lactylation Probabilities", "Modified sequence"), set skip=true (reason: no_site_level). Amino acid column is optional — Position alone is enough; AA may be filled from sequence later. When AA is only in a probability column, set modSeqCol and leave aminoAcidCol null.
 6) If site is encoded as S123 / T45 / K31 in one column, set siteCombinedCol.
+   - Prefer columns like "Modified lysine", "Modification position", "Site position" for Position.
+   - NEVER use UniProt/Accession as Position.
+   - NEVER use "Positions in Master Proteins" / peptide span columns (values like "P32783 [357-382]") as Position or siteCombinedCol — those are peptide ranges, not modification sites.
 7) If UniProt/accession is missing but Gene name/symbol exists with site+ratio, set geneCol (Stage5 will map gene→UniProt). Prefer uniprotCol when both exist. MaxQuant "Proteins" holding accessions → uniprotCol.
 8) Prefer normalized / "nomolized" ratio (H/L) over raw Ratio H/L or 1/ratio inverse when both exist; treat as fold_change (not intensity).
 9) SILAC MaxQuant columns named "Ratio H/L …" or "Ratio M/L …" are linear heavy/light ratios (fold_change, isLog2=false), NOT log2FC. When paired genotype columns exist at the same time (e.g. WT_10min vs ARH3ko_10min), the biological contrast is Treatment/Control (e.g. "ARH3ko/WT (10 min)") — not the per-sample H/L channel ratio stored as log2FC.
