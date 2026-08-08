@@ -18,7 +18,7 @@ if ($envUrl) {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>qPTM | Agent</title>
 <script src="assets/js/include.js"></script>
-<link rel="stylesheet" href="assets/css/agent.css?v=20260805-stack12">
+<link rel="stylesheet" href="assets/css/agent.css?v=20260807-stopbtn">
 
 </head>
 <body class="agent-page">
@@ -71,6 +71,9 @@ if ($envUrl) {
   </div>
 
   <div class="input-pending-files" id="pendingFiles"></div>
+  <button class="scroll-bottom-btn" id="scrollBottomBtn" type="button" title="Scroll to bottom" aria-label="Scroll to bottom">
+    <i class="ri-arrow-down-line"></i>
+  </button>
   <div class="input-wrapper">
     <input type="file" id="fileInput" multiple accept=".pdf,.xml,.zip,.xlsx,.xls,.csv,.tsv" style="display:none">
     <textarea class="input-field" id="inputField"
@@ -93,6 +96,6 @@ window.QPTM_AGENT_CONFIG = {
   chatUrl: <?php echo json_encode($BACKEND_URL, JSON_UNESCAPED_SLASHES); ?>
 };
 </script>
-<script src="assets/js/agent.js?v=20260806-adjhint"></script>
+<script src="assets/js/agent.js?v=20260808-alwaysopen"></script>
 </body>
 </html>

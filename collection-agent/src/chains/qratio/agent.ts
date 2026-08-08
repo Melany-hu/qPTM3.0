@@ -14,6 +14,8 @@ export interface QratioMapInput {
   detailCondition: string
   entryPath: string
   sheet: SheetInventory
+  /** User-provided curation feedback (free text) to honor when mapping columns. */
+  userGuidance?: string
 }
 
 export class QratioMapChain {
@@ -49,6 +51,7 @@ export class QratioMapChain {
       sheetName: input.sheet.name,
       headers: input.sheet.headers,
       preview: input.sheet.preview,
+      userGuidance: input.userGuidance,
     })
     const retryHint = isRetry
       ? "\n\nYour previous answer was not valid JSON. Reply with ONLY one JSON object matching the schema."

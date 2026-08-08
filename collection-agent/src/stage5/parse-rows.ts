@@ -229,7 +229,7 @@ function toLog2(value: number, isLog2: boolean): number | null {
 
 function fmtNum(n: number | null): string {
   if (n == null || !Number.isFinite(n)) return ""
-  return String(Number(n.toPrecision(10)))
+  return Number(n).toFixed(2)
 }
 
 function pickPValue(

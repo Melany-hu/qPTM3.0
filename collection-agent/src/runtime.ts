@@ -80,6 +80,26 @@ export function parseModelId(modelId: string): { provider: string; modelName: st
 }
 
 /**
+ * True when we should avoid re-fetching provider model catalogs over the network.
+ * If a local models-store.json cache already exists (the normal case for deployed
+ * agents), ModelRuntime.create is told to refresh from the cache only. This guards
+ * against ModelRuntime.create hanging forever when pi.dev is unreachable: its
+ * internal 15s AbortSignal does not cancel the underlying catalog fetch.
+ */
+function shouldUseOfflineModelCatalog(cwd: string): boolean {
+  if (process.env.PI_OFFLINE !== undefined) return true
+  try {
+    const storePath = join(cwd, ".pi", "agent", "models-store.json")
+    if (!existsSync(storePath)) return false
+    const raw = readFileSync(storePath, "utf8")
+    const store = JSON.parse(raw) as Record<string, { models?: unknown[] }>
+    return Object.values(store).some((v) => Array.isArray(v?.models) && v.models.length > 0)
+  } catch {
+    return false
+  }
+}
+
+/**
  * Prefer OpenCode Go when:
  * - MODEL already says opencode-go/…, or
  * - OPENCODE_API_KEY is set and DEEPSEEK_API_KEY is not (for DeepSeek V4 ids)
@@ -182,85 +202,118 @@ export async function createLlmRuntime(options: {
   const agentDir = join(cwd, ".pi", "agent")
   if (!existsSync(agentDir)) mkdirSync(agentDir, { recursive: true })
 
-  const modelRuntime = await ModelRuntime.create({
-    authPath: join(agentDir, "auth.json"),
-    modelsPath: join(agentDir, "models.json"),
-  })
-
-  // OpenCode Go (OpenAI-compatible: https://opencode.ai/zen/go/v1)
-  if (process.env.OPENCODE_API_KEY?.trim()) {
-    await modelRuntime.setRuntimeApiKey("opencode-go", process.env.OPENCODE_API_KEY.trim())
-    // Zen free/other models use provider id "opencode" with the same key
-    await modelRuntime.setRuntimeApiKey("opencode", process.env.OPENCODE_API_KEY.trim())
-  }
-  if (process.env.DEEPSEEK_API_KEY?.trim()) {
-    await modelRuntime.setRuntimeApiKey("deepseek", process.env.DEEPSEEK_API_KEY.trim())
-  }
-  if (process.env.ANTHROPIC_API_KEY) {
-    await modelRuntime.setRuntimeApiKey("anthropic", process.env.ANTHROPIC_API_KEY)
-  }
-  if (process.env.OPENAI_API_KEY) {
-    await modelRuntime.setRuntimeApiKey("openai", process.env.OPENAI_API_KEY)
-  }
-  if (process.env.GOOGLE_API_KEY) {
-    await modelRuntime.setRuntimeApiKey("google", process.env.GOOGLE_API_KEY)
+  // Use the cached model catalog when one exists instead of re-fetching it from
+  // pi.dev on every invocation (fetch there can hang indefinitely).
+  if (shouldUseOfflineModelCatalog(cwd)) {
+    process.env.PI_OFFLINE = "1"
   }
 
-  if (!hasAnyApiKey()) {
-    throw new Error(
-      "No LLM API key found. Set OPENCODE_API_KEY (OpenCode Go) or DEEPSEEK_API_KEY in .env — see .env.example.",
-    )
-  }
+  const runtimeTimeoutMs =
+    Number.parseInt(process.env.LLM_RUNTIME_TIMEOUT_MS ?? "90000", 10) || 90_000
 
-  const candidates = modelCandidateIds(options.model)
-  const models: Model<any>[] = []
-  const missing: string[] = []
+  const init = (async (): Promise<LlmRuntime> => {
+    const modelRuntime = await ModelRuntime.create({
+      authPath: join(agentDir, "auth.json"),
+      modelsPath: join(agentDir, "models.json"),
+    })
 
-  for (const candidate of candidates) {
-    const { provider, modelName } = parseModelId(candidate)
-    if (!hasProviderApiKey(provider)) {
-      missing.push(`${candidate} (no ${provider} key)`)
-      continue
+    // OpenCode Go (OpenAI-compatible: https://opencode.ai/zen/go/v1)
+    if (process.env.OPENCODE_API_KEY?.trim()) {
+      await modelRuntime.setRuntimeApiKey("opencode-go", process.env.OPENCODE_API_KEY.trim())
+      // Zen free/other models use provider id "opencode" with the same key
+      await modelRuntime.setRuntimeApiKey("opencode", process.env.OPENCODE_API_KEY.trim())
     }
-    const model = lookupModel(modelRuntime, provider, modelName)
-    if (!model) {
-      missing.push(`${candidate} (not in catalog)`)
-      continue
+    if (process.env.DEEPSEEK_API_KEY?.trim()) {
+      await modelRuntime.setRuntimeApiKey("deepseek", process.env.DEEPSEEK_API_KEY.trim())
     }
-    models.push(model)
-  }
+    if (process.env.ANTHROPIC_API_KEY) {
+      await modelRuntime.setRuntimeApiKey("anthropic", process.env.ANTHROPIC_API_KEY)
+    }
+    if (process.env.OPENAI_API_KEY) {
+      await modelRuntime.setRuntimeApiKey("openai", process.env.OPENAI_API_KEY)
+    }
+    if (process.env.GOOGLE_API_KEY) {
+      await modelRuntime.setRuntimeApiKey("google", process.env.GOOGLE_API_KEY)
+    }
 
-  if (models.length === 0) {
-    const available = await modelRuntime.getAvailable()
-    const hint =
-      available.length > 0
-        ? available
-            .slice(0, 12)
-            .map((m) => `${m.provider}/${m.id}`)
-            .join(", ")
-        : "(none — set OPENCODE_API_KEY or another provider key in .env)"
-    throw new Error(
-      `No usable LLM models from candidates [${candidates.join(", ")}]. ` +
-        `Skipped: ${missing.join("; ") || "n/a"}. Available: ${hint}`,
-    )
-  }
+    if (!hasAnyApiKey()) {
+      throw new Error(
+        "No LLM API key found. Set OPENCODE_API_KEY (OpenCode Go) or DEEPSEEK_API_KEY in .env — see .env.example.",
+      )
+    }
 
-  if (missing.length > 0) {
-    console.error(
-      `  llm: using ${models.map((m) => `${m.provider}/${m.id}`).join(" → ")}; ` +
-        `skipped ${missing.join("; ")}`,
-    )
-  }
+    const candidates = modelCandidateIds(options.model)
+    const models: Model<any>[] = []
+    const missing: string[] = []
 
-  const primary = models[0]
-  return {
-    cwd,
-    agentDir,
-    modelRuntime,
-    model: primary,
-    models,
-    modelId: `${primary.provider}/${primary.id}`,
-  }
+    for (const candidate of candidates) {
+      const { provider, modelName } = parseModelId(candidate)
+      if (!hasProviderApiKey(provider)) {
+        missing.push(`${candidate} (no ${provider} key)`)
+        continue
+      }
+      const model = lookupModel(modelRuntime, provider, modelName)
+      if (!model) {
+        missing.push(`${candidate} (not in catalog)`)
+        continue
+      }
+      models.push(model)
+    }
+
+    if (models.length === 0) {
+      const available = await modelRuntime.getAvailable()
+      const hint =
+        available.length > 0
+          ? available
+              .slice(0, 12)
+              .map((m) => `${m.provider}/${m.id}`)
+              .join(", ")
+          : "(none — set OPENCODE_API_KEY or another provider key in .env)"
+      throw new Error(
+        `No usable LLM models from candidates [${candidates.join(", ")}]. ` +
+          `Skipped: ${missing.join("; ") || "n/a"}. Available: ${hint}`,
+      )
+    }
+
+    if (missing.length > 0) {
+      console.error(
+        `  llm: using ${models.map((m) => `${m.provider}/${m.id}`).join(" → ")}; ` +
+          `skipped ${missing.join("; ")}`,
+      )
+    }
+
+    const primary = models[0]
+    return {
+      cwd,
+      agentDir,
+      modelRuntime,
+      model: primary,
+      models,
+      modelId: `${primary.provider}/${primary.id}`,
+    }
+  })()
+
+  // Hard safety net: ModelRuntime catalog refresh should never block a job forever.
+  const timer = setTimeout(() => {
+    // No-op: the pending init keeps running; we simply stop waiting for it.
+  }, runtimeTimeoutMs)
+  timer.unref()
+
+  const runtime = await Promise.race([
+    init,
+    new Promise<never>((_, reject) =>
+      setTimeout(
+        () =>
+          reject(
+            new Error(
+              `llm_runtime_init_timeout_${runtimeTimeoutMs}ms (provider catalog refresh unreachable; set PI_OFFLINE=1 to use the cached catalog)`,
+            ),
+          ),
+        runtimeTimeoutMs,
+      ),
+    ),
+  ])
+  return runtime
 }
 
 type CompleteSimpleArgs = Parameters<ModelRuntime["completeSimple"]>
@@ -273,6 +326,9 @@ export async function completeSimpleWithFallback(
   context: CompleteSimpleArgs[1],
   options?: CompleteSimpleArgs[2],
 ): Promise<Awaited<ReturnType<ModelRuntime["completeSimple"]>>> {
+  const callTimeoutMs =
+    Number.parseInt(process.env.LLM_CALL_TIMEOUT_MS ?? "180000", 10) || 180_000
+
   const errors: string[] = []
   for (let i = 0; i < runtime.models.length; i++) {
     const model = runtime.models[i]
@@ -281,7 +337,21 @@ export async function completeSimpleWithFallback(
       if (i > 0) {
         console.error(`  llm: falling back to ${label}`)
       }
-      return await runtime.modelRuntime.completeSimple(model, context, options)
+      const result = await Promise.race([
+        runtime.modelRuntime.completeSimple(model, context, options),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () =>
+              reject(
+                new Error(
+                  `llm_call_timeout_${callTimeoutMs}ms (model ${label} did not respond within ${callTimeoutMs / 1000}s)`,
+                ),
+              ),
+            callTimeoutMs,
+          ),
+        ),
+      ])
+      return result
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       errors.push(`${label}: ${msg}`)

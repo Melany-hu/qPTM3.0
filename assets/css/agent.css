@@ -113,6 +113,7 @@ body.agent-page * {
   min-width: 0;
   display: flex;
   flex-direction: column;
+  position: relative;
 }
 
 /* ── Stage indicator ──────────────────────────────────── */
@@ -804,6 +805,43 @@ body.agent-page * {
 }
 
 /* ── Input ────────────────────────────────────────────── */
+.scroll-bottom-btn {
+  position: absolute;
+  right: 24px;
+  bottom: 60px;
+  z-index: 30;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-white);
+  color: var(--primary);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(15, 42, 68, 0.14);
+  transition: background 0.2s, border-color 0.2s, transform 0.2s, opacity 0.2s;
+  opacity: 0;
+  pointer-events: none;
+}
+.scroll-bottom-btn.show {
+  opacity: 1;
+  pointer-events: auto;
+}
+.scroll-bottom-btn:hover {
+  background: var(--primary-light);
+  border-color: var(--primary-medium);
+}
+.scroll-bottom-btn:active {
+  transform: scale(0.94);
+}
+.scroll-bottom-btn i {
+  font-size: 20px;
+  line-height: 1;
+}
+
 .input-wrapper {
   flex-shrink: 0;
   max-width: var(--agent-content-width);
@@ -879,6 +917,19 @@ body.agent-page * {
   color: #fff;
   cursor: not-allowed;
   transform: none;
+}
+.send-btn.stop {
+  background: #0e74d3;
+}
+.send-btn.stop:hover {
+  background: #0868c2;
+}
+.send-btn.stop i {
+  font-size: 22px;
+}
+@keyframes scrollBottomPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(14, 89, 211, 0.422), 0 2px 8px rgba(15, 42, 68, 0.14); }
+  50% { box-shadow: 0 0 0 6px rgba(14, 116, 211, 0), 0 2px 8px rgba(15, 42, 68, 0.14); }
 }
 
 .input-pending-files {
@@ -1344,6 +1395,41 @@ body.agent-page * {
 .collection-answer-text .collection-answer-strong .collection-answer-em {
   color: var(--primary);
 }
+.collection-answer-text .collection-answer-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.05);
+  white-space: nowrap;
+}
+.collection-answer-text .collection-answer-file > i {
+  font-size: 1em;
+}
+.collection-answer-text .collection-answer-file.file-excel > i { color: #2e7d32; }
+.collection-answer-text .collection-answer-file.file-pdf > i { color: #e53935; }
+.collection-answer-text .collection-answer-file.file-table > i { color: #1565c0; }
+.collection-answer-text .collection-answer-file.file-zip > i { color: #f9a825; }
+.collection-answer-text .collection-answer-file.file-xml > i { color: #6a1b9a; }
+.collection-think-detail .collection-think-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.05);
+}
+.collection-think-detail .collection-think-file > i {
+  font-size: 0.95em;
+}
+.collection-think-detail .collection-think-file.file-excel > i { color: #2e7d32; }
+.collection-think-detail .collection-think-file.file-pdf > i { color: #e53935; }
+.collection-think-detail .collection-think-file.file-table > i { color: #1565c0; }
+.collection-think-detail .collection-think-file.file-zip > i { color: #f9a825; }
+.collection-think-detail .collection-think-file.file-xml > i { color: #6a1b9a; }
 
 /*
  * Collection answer stack rhythm.
@@ -1618,6 +1704,7 @@ button.collection-file-card {
   .chat-area { padding: 16px; }
   .input-wrapper { width: calc(100% - 32px); margin-bottom: 30px; }
   .input-pending-files { width: calc(100% - 32px); margin-bottom: 14px; }
+  .scroll-bottom-btn { right: 16px; }
   .example-row {
     flex-wrap: wrap;
   }

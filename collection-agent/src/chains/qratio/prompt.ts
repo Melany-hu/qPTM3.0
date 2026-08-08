@@ -67,6 +67,8 @@ export function buildQratioMapUserPrompt(input: {
   sheetName: string
   headers: string[]
   preview: string[][]
+  /** User-provided curation feedback (free text) to honor when mapping columns. */
+  userGuidance?: string
 }): string {
   const previewLines = input.preview
     .slice(0, 5)
@@ -83,7 +85,14 @@ Conditions (Stage3): ${input.condition || "(unknown)"}
 Detail condition (Stage3): ${input.detailCondition || "(unknown)"}
 File: ${input.entryPath}
 Sheet: ${input.sheetName}
-
+${
+  input.userGuidance
+    ? `
+User curation feedback (follow this when mapping columns/conditions):
+${input.userGuidance}
+`
+    : ""
+}
 Headers (${input.headers.length}):
 ${JSON.stringify(input.headers)}
 

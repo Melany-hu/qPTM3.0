@@ -675,6 +675,38 @@ def _preview_delimited_bytes(raw: bytes, max_rows: int = 5) -> dict[str, Any]:
     return {"name": "Sheet1", "headers": headers, "preview": preview}
 
 
+def _matrix_to_sheet_preview(
+    name: str,
+    matrix: list[list[str]],
+    max_rows: int = 5,
+) -> dict[str, Any] | None:
+    """Pick a header-like row from the first lines; build {name, headers, preview}."""
+    if not matrix:
+        return None
+    header_idx = 0
+    best = -1
+    for i, row in enumerate(matrix[:8]):
+        filled = [c for c in row if c]
+        if len(filled) < 2:
+            score = -10
+        else:
+            blob = " ".join(filled).lower()
+            score = min(len(filled), 20)
+            if any(k in blob for k in ("uniprot", "accession", "gene", "site", "position", "ratio", "log2")):
+                score += 8
+            numeric = sum(1 for c in filled if re.fullmatch(r"-?\d+(\.\d+)?([eE][-+]?\d+)?", c))
+            if numeric >= len(filled) * 0.5:
+                score -= 10
+        if score > best:
+            best = score
+            header_idx = i
+    headers = [c or f"col_{j+1}" for j, c in enumerate(matrix[header_idx][:20])]
+    preview = []
+    for row in matrix[header_idx + 1 : header_idx + 1 + max_rows]:
+        preview.append([(row[j] if j < len(row) else "") for j in range(len(headers))])
+    return {"name": name, "headers": headers, "preview": preview}
+
+
 def _preview_xlsx_bytes(raw: bytes, max_sheets: int = 4, max_rows: int = 5) -> list[dict[str, Any]]:
     from io import BytesIO
 
@@ -695,35 +727,43 @@ def _preview_xlsx_bytes(raw: bytes, max_sheets: int = 4, max_rows: int = 5) -> l
                 if i >= max_rows + 8:
                     break
                 matrix.append(["" if c is None else str(c).strip() for c in row])
-            if not matrix:
-                continue
-            # Prefer a header-like row in the first few lines
-            header_idx = 0
-            best = -1
-            for i, row in enumerate(matrix[:8]):
-                filled = [c for c in row if c]
-                if len(filled) < 2:
-                    score = -10
-                else:
-                    blob = " ".join(filled).lower()
-                    score = min(len(filled), 20)
-                    if any(k in blob for k in ("uniprot", "accession", "gene", "site", "position", "ratio", "log2")):
-                        score += 8
-                    numeric = sum(1 for c in filled if re.fullmatch(r"-?\d+(\.\d+)?([eE][-+]?\d+)?", c))
-                    if numeric >= len(filled) * 0.5:
-                        score -= 10
-                if score > best:
-                    best = score
-                    header_idx = i
-            headers = [c or f"col_{j+1}" for j, c in enumerate(matrix[header_idx][:20])]
-            preview = []
-            for row in matrix[header_idx + 1 : header_idx + 1 + max_rows]:
-                preview.append([(row[j] if j < len(row) else "") for j in range(len(headers))])
-            out.append({"name": name, "headers": headers, "preview": preview})
+            sheet = _matrix_to_sheet_preview(name, matrix, max_rows)
+            if sheet:
+                out.append(sheet)
             if len(out) >= max_sheets:
                 break
     finally:
         wb.close()
+    return out
+
+
+def _preview_xls_bytes(raw: bytes, max_sheets: int = 4, max_rows: int = 5) -> list[dict[str, Any]]:
+    """Preview legacy BIFF .xls workbooks (xlrd) — openpyxl cannot read them."""
+    try:
+        import xlrd
+
+        book = xlrd.open_workbook(file_contents=raw)
+    except Exception:
+        # Some "*.xls" files are actually tab/comma-delimited text masquerading as .xls.
+        return [_preview_delimited_bytes(raw, max_rows=max_rows)]
+    out: list[dict[str, Any]] = []
+    for sheet in book.sheets():
+        name = sheet.name
+        if not _is_real_sheet_name(name):
+            continue
+        if re.search(r"legend|note|readme|instruction", name, re.I):
+            continue
+        nrows = min(sheet.nrows, max_rows + 8)
+        matrix: list[list[str]] = []
+        for r in range(nrows):
+            matrix.append(
+                ["" if c in (None, "") else str(c).strip() for c in sheet.row_values(r)]
+            )
+        sheet_preview = _matrix_to_sheet_preview(name, matrix, max_rows)
+        if sheet_preview:
+            out.append(sheet_preview)
+        if len(out) >= max_sheets:
+            break
     return out
 
 
@@ -806,7 +846,13 @@ def read_supp_previews(
                 continue
             low = path.lower()
             try:
-                if low.endswith((".xlsx", ".xlsm", ".xltx", ".xltm")) or ent["kind"] == "excel":
+                if low.endswith(".xls"):
+                    sheets = _preview_xls_bytes(
+                        raw, max_sheets=max_sheets_per_file, max_rows=max_rows
+                    )
+                elif low.endswith((".xlsx", ".xlsm", ".xltx", ".xltm")) or (
+                    ent["kind"] == "excel" and not low.endswith(".xls")
+                ):
                     sheets = _preview_xlsx_bytes(raw, max_sheets=max_sheets_per_file, max_rows=max_rows)
                 elif low.endswith((".csv", ".tsv", ".txt")) or ent["kind"] in ("csv", "tsv"):
                     sheets = [_preview_delimited_bytes(raw, max_rows=max_rows)]
@@ -818,7 +864,7 @@ def read_supp_previews(
                         "entryPath": path,
                         "kind": ent["kind"],
                         "sheets": [],
-                        "error": f"preview failed: {exc}",
+                        "error": "Could not preview this file (unsupported format)",
                     }
                 )
                 continue

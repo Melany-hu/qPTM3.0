@@ -19,6 +19,7 @@ export function repoFromAccession(id: string): MsRepoKind {
   if (/^IPX\d+$/i.test(id)) return "iProX"
   if (/^JPST\d+$/i.test(id)) return "jPOST"
   if (/^MSV\d+$/i.test(id)) return "MassIVE"
+  if (/^PDC\d+$/i.test(id)) return "PDC"
   return "unknown"
 }
 
@@ -31,6 +32,7 @@ export function resolveRepo(id: string, msDataSource: string): MsRepoKind {
   if (src.includes("iprox")) return "iProX"
   if (src.includes("massive") || src.includes("msv")) return "MassIVE"
   if (src.includes("pride") || src.includes("proteomexchange")) return "PRIDE"
+  if (src.includes("cptac") || src.includes("pdc")) return "PDC"
   return "unknown"
 }
 

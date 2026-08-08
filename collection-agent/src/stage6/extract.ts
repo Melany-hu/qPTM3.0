@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process"
-import { existsSync, readdirSync, readFileSync } from "node:fs"
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { basename, dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { projectRoot } from "../utils/io.js"
@@ -10,6 +10,7 @@ export interface GetUrlScripts {
   prideHtml: string
   iproxXml: string
   jpostHtml: string
+  pdcExtract: string
 }
 
 export function resolveGetUrlDir(custom?: string): string {
@@ -25,6 +26,7 @@ export function resolveGetUrlScripts(customDir?: string): GetUrlScripts {
     prideHtml: join(dir, "1_html_pride_extract.py"),
     iproxXml: join(dir, "2_xml_iprox_extract.py"),
     jpostHtml: join(dir, "3_html_jpost_extract.py"),
+    pdcExtract: join(dir, "4_PDC_CPTAC_extract.py"),
   }
   for (const [name, path] of Object.entries(scripts)) {
     if (!existsSync(path)) {
@@ -108,5 +110,22 @@ export function runJpostExtract(
   const urlsFile = findUrlsOutput(dirname(htmlPath), stem)
   if (!urlsFile) throw new Error(`jPOST extract produced no urls file for ${htmlPath}`)
   const urls = readUrlLines(urlsFile)
+  return { urlsFile, urls, rawUrlCount: countRawUrls(urls) }
+}
+
+export function runPdcExtract(
+  pdcId: string,
+  scripts: GetUrlScripts,
+): ExtractOutcome {
+  const stdout = execFileSync("python3", [scripts.pdcExtract, pdcId], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  })
+  const urls = stdout
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => /^https?:\/\//i.test(l))
+  const urlsFile = join(process.cwd(), `${pdcId}_urls_${urls.length}.txt`)
+  writeFileSync(urlsFile, urls.join("\n") + (urls.length ? "\n" : ""), "utf8")
   return { urlsFile, urls, rawUrlCount: countRawUrls(urls) }
 }

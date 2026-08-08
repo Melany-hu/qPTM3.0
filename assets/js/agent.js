@@ -39,8 +39,8 @@ const COLLECTION_STAGE_DEFS = [
   {
     id: 'stage6',
     num: 6,
-    title: 'Get MS repository links',
-    desc: 'Look up PRIDE / iProX / jPOST download links for raw MS data.',
+    title: 'Fetch MS data repository links',
+    desc: 'Look up PRIDE / iProX / jPOST / CPTAC download links for raw MS data.',
   },
 ];
 
@@ -53,6 +53,7 @@ let pendingFiles = [];
 /** @type {Record<string, { status: 'ready'|'uploading'|'done'|'error', progress: number }>} */
 let pendingFileStatus = {};
 let activeCollectionPanel = null;
+let currentAbortController = null;
 
 const chatArea = document.getElementById('chatArea');
 const welcome = document.getElementById('welcome');
@@ -64,6 +65,32 @@ const pendingFilesEl = document.getElementById('pendingFiles');
 
 if (fileInput) {
   fileInput.addEventListener('change', onFilesSelected);
+}
+
+function setSendButtonToStop() {
+  isStreaming = true;
+  sendBtn.classList.add('stop');
+  sendBtn.innerHTML = '<i class="ri-stop-fill"></i>';
+  sendBtn.title = 'Stop generation';
+  sendBtn.onclick = stopStreaming;
+  sendBtn.disabled = false;
+}
+
+function setSendButtonToSend() {
+  isStreaming = false;
+  sendBtn.classList.remove('stop');
+  sendBtn.innerHTML = '<i class="ri-send-plane-fill"></i>';
+  sendBtn.title = '';
+  sendBtn.onclick = sendMessage;
+  sendBtn.disabled = false;
+}
+
+function stopStreaming() {
+  if (currentAbortController) {
+    currentAbortController.abort();
+    currentAbortController = null;
+  }
+  setSendButtonToSend();
 }
 
 function classifyUploadKind(filename) {
@@ -153,7 +180,7 @@ function renderPendingFiles() {
   });
 }
 
-function uploadFormData(url, formData, { onProgress } = {}) {
+function uploadFormData(url, formData, { onProgress, signal } = {}) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', url);
@@ -178,7 +205,14 @@ function uploadFormData(url, formData, { onProgress } = {}) {
       }
     };
     xhr.onerror = () => reject(new Error('Network error during upload'));
-    xhr.onabort = () => reject(new Error('Upload aborted'));
+    xhr.onabort = () => reject(new DOMException('Upload aborted', 'AbortError'));
+    if (signal) {
+      if (signal.aborted) {
+        xhr.abort();
+        return;
+      }
+      signal.addEventListener('abort', () => xhr.abort(), { once: true });
+    }
     xhr.send(formData);
   });
 }
@@ -365,13 +399,31 @@ function formatCollectionAnswerHtml(raw) {
           '$1 <strong class="collection-answer-em">$2</strong> $3',
         );
         out = out.replace(
-          /Supplementary quantitative tables located \(([^)]+)\)/i,
-          'Supplementary quantitative tables located (<strong class="collection-answer-em">$1</strong>)',
+          /Supplementary quantitative tables located/i,
+          '<strong class="collection-answer-em">Supplementary quantitative tables located</strong>',
         );
         out = out.replace(
           /\b(\d[\d,]*)\s+(site-level record\(s\))/gi,
           '<strong class="collection-answer-em">$1</strong> $2',
         );
+
+        // "Site-level quantitative data extracted from: <file>.xls" → file chips with icons
+        const siteFiles = out.match(/^(Site-level quantitative data extracted from:)\s*(.+)$/i);
+        if (siteFiles) {
+          const files = siteFiles[2]
+            .split(',')
+            .map((s) => s.trim().replace(/[.]$/, ''))
+            .filter(Boolean);
+          const fileHtml = files
+            .map((f) => {
+              const meta = fileTypeMeta(f);
+              // Excel icon kept, but blue (file-table) instead of green (file-excel).
+              const cls = meta.cls === 'file-excel' ? 'file-table' : meta.cls;
+              return `<span class="collection-answer-file ${cls}"><i class="${meta.icon}"></i> ${f}</span>`;
+            })
+            .join(', ');
+          out = `<span class="collection-answer-key">${siteFiles[1]}</span> ${fileHtml}`;
+        }
 
         // Status / action lines: black bold (Continue highlighted blue below).
         const isStrongLine =
@@ -388,6 +440,19 @@ function formatCollectionAnswerHtml(raw) {
 
       // Every "Continue" mention → blue bold.
       out = out.replace(/\bContinue\b/g, '<strong class="collection-answer-em">Continue</strong>');
+
+      // Artifact file names in prose → file chips with icons (e.g. Quantitative_data.csv).
+      out = out.replace(
+        /\b(Quantitative_data\.csv|Experimental_info\.csv|MS_URLs\.csv|urls_all\.csv|qratio\.csv)\b/gi,
+        (m) => {
+          // Quantitative_data.csv is a downloadable Excel-style artifact → Excel icon (blue).
+          const isExcel = /^Quantitative_data\.csv$/i.test(m);
+          const meta = isExcel
+            ? { icon: 'ri-file-excel-2-line', cls: 'file-table' }
+            : fileTypeMeta(m);
+          return `<span class="collection-answer-file ${meta.cls}"><i class="${meta.icon}"></i> ${m}</span>`;
+        },
+      );
       return out;
     })
     .join('\n');
@@ -465,16 +530,22 @@ function getStage3RowFromData(data) {
 
 function renderLiteratureMetaTable(row) {
   if (!row || typeof row !== 'object') return '';
+  // These fields always render in the table; empty values show "-".
+  const alwaysShow = ['Mass spectrometer', 'MS data source', 'Identifier'];
   const keys = [
     ...LITERATURE_META_FIELDS.filter((k) => Object.prototype.hasOwnProperty.call(row, k)),
     ...Object.keys(row).filter((k) => !LITERATURE_META_FIELDS.includes(k)),
   ];
+  alwaysShow.forEach((k) => {
+    if (!keys.includes(k)) keys.push(k);
+  });
   if (!keys.length) return '';
   let html = '<div class="collection-meta-wrap"><table class="collection-meta-table"><tbody>';
   keys.forEach((key) => {
     const val = row[key];
-    if (val == null || String(val).trim() === '') return;
-    html += `<tr><th scope="row">${escapeHtml(key)}</th><td>${escapeHtml(String(val))}</td></tr>`;
+    const isEmpty = val == null || String(val).trim() === '';
+    if (isEmpty && !alwaysShow.includes(key)) return;
+    html += `<tr><th scope="row">${escapeHtml(key)}</th><td>${escapeHtml(isEmpty ? '-' : String(val))}</td></tr>`;
   });
   html += '</tbody></table></div>';
   return html;
@@ -582,13 +653,19 @@ function renderStage5ThinkingHtml(steps, { live = false } = {}) {
     .map((s) => {
       const cls = s.step === 'parsed' ? 'ok' : s.step === 'skip' ? 'skip' : s.step === 'summary' ? 'summary' : '';
       const detail = [];
-      if (s.entryPath) detail.push(s.entryPath + (s.sheet ? `#${s.sheet}` : ''));
-      if (s.mappingSource) detail.push(s.mappingSource);
-      if (s.confidence != null) detail.push(`conf ${Number(s.confidence).toFixed(2)}`);
-      if (s.rowsAdded != null) detail.push(`+${s.rowsAdded} rows`);
+      if (s.entryPath) {
+        const meta = fileTypeMeta(s.entryPath);
+        // Excel icon kept, but blue (file-table) instead of green (file-excel).
+        const cls = meta.cls === 'file-excel' ? 'file-table' : meta.cls;
+        const fileLabel = s.entryPath + (s.sheet ? `#${s.sheet}` : '');
+        detail.push(`<span class="collection-think-file ${cls}"><i class="${meta.icon}"></i> ${escapeHtml(fileLabel)}</span>`);
+      }
+      if (s.mappingSource) detail.push(escapeHtml(s.mappingSource));
+      if (s.confidence != null) detail.push(escapeHtml(`conf ${Number(s.confidence).toFixed(2)}`));
+      if (s.rowsAdded != null) detail.push(escapeHtml(`+${s.rowsAdded} rows`));
       return `<li class="${cls}"><span class="collection-think-step">${escapeHtml(String(s.step || ''))}</span>
         <span class="collection-think-msg">${escapeHtml(String(s.message || ''))}</span>
-        ${detail.length ? `<span class="collection-think-detail">${escapeHtml(detail.join(' · '))}</span>` : ''}
+        ${detail.length ? `<span class="collection-think-detail">${detail.join(' · ')}</span>` : ''}
       </li>`;
     })
     .join('');
@@ -605,7 +682,9 @@ function renderStage6SummaryHtml(stage6) {
   const attempted = stage6.attempted;
   const saved = stage6.saved;
   const err = stage6.error;
+  const identifier = stage6.identifier || '';
   const bits = [];
+  if (identifier) bits.push(`Identifier: <strong>${escapeHtml(String(identifier))}</strong>`);
   if (totalUrls != null) bits.push(`URLs: <strong>${escapeHtml(String(totalUrls))}</strong>`);
   if (attempted != null) bits.push(`Accessions tried: ${escapeHtml(String(attempted))}`);
   if (saved != null) bits.push(`Saved: ${escapeHtml(String(saved))}`);
@@ -616,6 +695,77 @@ function renderStage6SummaryHtml(stage6) {
   return `
     <div class="collection-think">
       <div class="collection-think-title"><i class="ri-link"></i> MS repository URLs</div>
+      <div class="collection-think-meta">${bits.map((b) => `<span>${b}</span>`).join('')}</div>
+    </div>`;
+}
+
+function renderStage1ThinkHtml(screen) {
+  if (!screen || typeof screen !== 'object') return '';
+  const decision = screen.decision || '';
+  const confidence = screen.confidence;
+  const ptmTypes = Array.isArray(screen.ptmTypes) ? screen.ptmTypes.filter(Boolean) : [];
+  const organisms = Array.isArray(screen.organisms) ? screen.organisms.filter(Boolean) : [];
+  const reason = screen.reason || '';
+  const isQuant = screen.isQuantitativeMs;
+  const bits = [];
+  if (decision) bits.push(`Decision: <strong>${escapeHtml(String(decision))}</strong>`);
+  if (confidence != null) bits.push(`Confidence: ${escapeHtml(String(confidence))}`);
+  if (ptmTypes.length) bits.push(`PTM types: ${escapeHtml(ptmTypes.join(', '))}`);
+  if (organisms.length) bits.push(`Organisms: ${escapeHtml(organisms.join(', '))}`);
+  if (isQuant) bits.push('Quantitative MS: yes');
+  if (reason) bits.push(`Reason: ${escapeHtml(reason)}`);
+  if (!bits.length) return '';
+  return `
+    <div class="collection-think">
+      <div class="collection-think-title"><i class="ri-file-search-line"></i> Abstract screening</div>
+      <div class="collection-think-meta">${bits.map((b) => `<span>${b}</span>`).join('')}</div>
+    </div>`;
+}
+
+function renderStage3ThinkHtml(row) {
+  if (!row || typeof row !== 'object') return '';
+  const fields = [
+    { key: 'Sample', icon: 'ri-flask-line' },
+    { key: 'Sample type', icon: 'ri-stack-line' },
+    { key: 'Organism', icon: 'ri-microscope-line' },
+    { key: 'PTMs', icon: 'ri-dna-line' },
+    { key: 'Label method', icon: 'ri-price-tag-3-line' },
+    { key: 'Enrichment method', icon: 'ri-filter-3-line' },
+    { key: 'Mass spectrometer', icon: 'ri-hard-drive-3-line' },
+    { key: 'MS data source', icon: 'ri-database-2-line' },
+    { key: 'Identifier', icon: 'ri-key-2-line' },
+  ];
+  const items = fields.filter((f) => {
+    const v = row[f.key];
+    return v != null && String(v).trim() !== '';
+  });
+  if (!items.length) return '';
+  const html = items.map(
+    (f) => `<div class="collection-think-meta-item"><i class="${f.icon}"></i> <span class="collection-think-label">${escapeHtml(f.key)}:</span> <strong>${escapeHtml(String(row[f.key]))}</strong></div>`,
+  ).join('');
+  return `
+    <div class="collection-think">
+      <div class="collection-think-title"><i class="ri-file-text-line"></i> Extracted metadata</div>
+      <div class="collection-think-meta">${html}</div>
+    </div>`;
+}
+
+function renderStage4ThinkHtml(scout) {
+  if (!scout || typeof scout !== 'object') return '';
+  const verdict = scout.verdict || '';
+  const topFiles = scout.topFiles || '';
+  const zipStatus = scout.zipStatus || '';
+  const bits = [];
+  if (verdict) {
+    const label = verdict === 'has_tabular_supp' ? 'Quantitative tables found' : 'No quantitative tables found';
+    bits.push(`Verdict: <strong>${escapeHtml(label)}</strong>`);
+  }
+  if (topFiles) bits.push(`Top files: ${escapeHtml(String(topFiles))}`);
+  if (zipStatus && zipStatus !== 'not_applicable') bits.push(`Status: ${escapeHtml(String(zipStatus))}`);
+  if (!bits.length) return '';
+  return `
+    <div class="collection-think">
+      <div class="collection-think-title"><i class="ri-folder-zip-line"></i> Supplementary scout</div>
       <div class="collection-think-meta">${bits.map((b) => `<span>${b}</span>`).join('')}</div>
     </div>`;
 }
@@ -715,7 +865,6 @@ function renderTableHintsFormHtml(candidates, jobId, { mode = 'teach' } = {}) {
         <span class="collection-teach-label">
           <strong>${escapeHtml(label)}</strong>
           ${headers ? `<span class="collection-teach-headers">${escapeHtml(headers)}</span>` : ''}
-          ${c.dataRowCount ? `<span class="collection-teach-rows">~${escapeHtml(String(c.dataRowCount))} rows</span>` : ''}
           ${badge}
         </span>
       </label>`;
@@ -763,20 +912,30 @@ async function submitTableHints(jobId, contentDiv, panel) {
   }
   const btn = box.querySelector('.collection-teach-apply');
   if (btn) btn.disabled = true;
-  showContentLoading(contentDiv, 'Saving table hints and re-parsing…');
+
+  // Create a new answer bubble so the re-parse result appears in its own box
+  // instead of overwriting the current one (which keeps the Adjust tables UI).
+  const resultContentDiv = addMessage('assistant', '');
+  showContentLoading(resultContentDiv, 'Re-parsing quantitative tables…');
   try {
     const res = await fetch(`${COLLECTION_URL}/jobs/${jobId}/table-hints`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ selections, note, resume: true }),
+      signal: currentAbortController?.signal,
     });
     if (!res.ok) throw new Error(`Hints HTTP ${res.status}`);
     const body = await res.json();
     if (panel && body.job) updateCollectionPanel(panel, body.job);
-    await streamCollectionJob(jobId, panel, contentDiv);
+    await streamCollectionJob(jobId, panel, resultContentDiv);
   } catch (err) {
-    hideContentLoading(contentDiv);
-    contentDiv.insertAdjacentHTML(
+    if (err.name === 'AbortError') {
+      hideContentLoading(resultContentDiv);
+      resultContentDiv.innerHTML = '<p style="color:var(--text-muted);font-style:italic;">Table hints stopped.</p>';
+      return;
+    }
+    hideContentLoading(resultContentDiv);
+    resultContentDiv.insertAdjacentHTML(
       'beforeend',
       `<p style="color:#c0392b;">${escapeHtml(err.message || 'Failed to apply table hints')}</p>`,
     );
@@ -790,11 +949,12 @@ function bindTableHintsForm(contentDiv, panel, jobId) {
   btn.dataset.bound = '1';
   btn.addEventListener('click', () => {
     if (isStreaming) return;
-    isStreaming = true;
-    sendBtn.disabled = true;
+    setSendButtonToStop();
+    const abortController = new AbortController();
+    currentAbortController = abortController;
     submitTableHints(jobId, contentDiv, panel).finally(() => {
-      isStreaming = false;
-      sendBtn.disabled = false;
+      if (currentAbortController === abortController) currentAbortController = null;
+      setSendButtonToSend();
     });
   });
 }
@@ -830,9 +990,29 @@ async function renderCollectionMessage(contentDiv, data, event, panel) {
   updateCollectionPanel(panel, data);
 
   let thinkHtml = '';
-  // Stage4 table preview lives in the plan panel (even right after user upload).
+  let scoutPreviewHtml = '';
+  // Stage4 table preview in the answer area (not the plan panel).
   if (stage === 'stage4' && (awaitingContinue || awaitingUpload)) {
-    thinkHtml = await resolveStage4ScoutHtml(jobId, summary.stage4Scout || {});
+    scoutPreviewHtml = await resolveStage4ScoutHtml(jobId, summary.stage4Scout || {});
+  }
+  // Generic stage thinking steps for plan panel.
+  // In "full" mode (stage1) show all available; otherwise only the current stage.
+  const isFullMode = (!stage || stage === 'stage1' || stage === 'pending');
+  const thinkingStages = [
+    { key: 'stage1Thinking', stage: 'stage1', legacy: () => renderStage1ThinkHtml(summary.stage1Screen || summary.stage1) },
+    { key: 'stage2Thinking', stage: 'stage2' },
+    { key: 'stage3Thinking', stage: 'stage3', legacy: () => renderStage3ThinkHtml(summary.stage3Row) },
+    { key: 'stage4Thinking', stage: 'stage4', legacy: () => renderStage4ThinkHtml(summary.stage4Scout) },
+  ];
+  for (const ts of thinkingStages) {
+    if (!isFullMode && ts.stage !== stage) continue;
+    const steps = summary[ts.key];
+    if (Array.isArray(steps) && steps.length) {
+      const meta = STAGE_THINKING_META[ts.stage];
+      if (meta) thinkHtml += renderGenericThinkingStepsHtml(steps, { title: meta.title, icon: meta.icon });
+    } else if (ts.legacy && (isFullMode || ts.stage === stage)) {
+      thinkHtml += ts.legacy();
+    }
   }
   // Stage5 parse log only belongs to stage5 (not stage6 / completed).
   if (
@@ -842,7 +1022,10 @@ async function renderCollectionMessage(contentDiv, data, event, panel) {
   ) {
     thinkHtml += renderStage5ThinkingHtml(summary.stage5Thinking, { live: false });
   }
-  if ((stage === 'stage6' || completed) && summary.stage6) {
+  // Stage6: show thinking steps if available.
+  if (Array.isArray(summary.stage6Thinking) && summary.stage6Thinking.length && (isFullMode || stage === 'stage6')) {
+    thinkHtml += renderGenericThinkingStepsHtml(summary.stage6Thinking, { title: 'MS repository URLs', icon: 'ri-link' });
+  } else if ((stage === 'stage6' || completed) && summary.stage6) {
     thinkHtml += renderStage6SummaryHtml(summary.stage6);
   }
 
@@ -876,7 +1059,7 @@ async function renderCollectionMessage(contentDiv, data, event, panel) {
     if (qPrev) {
       qratioPreviewHtml = renderCsvPreviewTableHtml({
         title: 'Quantitative_data.csv preview',
-        icon: 'ri-table-line',
+        icon: 'ri-file-excel-2-line',
         headers: qPrev.headers,
         preview: qPrev.preview,
         totalRows: qPrev.totalRows,
@@ -921,8 +1104,8 @@ async function renderCollectionMessage(contentDiv, data, event, panel) {
   let teachHtml = '';
   if ((needsHints || allowHints) && jobId) {
     const cand = await fetchTableCandidates(jobId);
-    if (!thinkHtml && cand.stage4Scout) {
-      thinkHtml = await resolveStage4ScoutHtml(jobId, cand.stage4Scout);
+    if (!scoutPreviewHtml && !thinkHtml && cand.stage4Scout) {
+      scoutPreviewHtml = await resolveStage4ScoutHtml(jobId, cand.stage4Scout);
     }
     if (
       !summary.stage5Thinking?.length &&
@@ -984,6 +1167,7 @@ async function renderCollectionMessage(contentDiv, data, event, panel) {
     bodyHtml =
       collectionAnswerBlock(summaryText, colorStyle) +
       qratioPreviewHtml +
+      scoutPreviewHtml +
       collectionAnswerBlock(adjustText, colorStyle) +
       teachHtml +
       collectionAnswerBlock(contributeText, colorStyle) +
@@ -998,11 +1182,17 @@ async function renderCollectionMessage(contentDiv, data, event, panel) {
       paperHtml +
       metaHtml +
       qratioPreviewHtml +
+      scoutPreviewHtml +
       msPreviewHtml +
       teachHtml +
       contributeHtml +
       downloadsHtml +
       actionsHtml;
+  }
+
+  // Expand the plan panel so users can see execution details before it collapses.
+  if (panel && thinkHtml) {
+    panel.classList.remove('collapsed');
   }
 
   contentDiv.innerHTML = bodyHtml;
@@ -1027,7 +1217,10 @@ async function renderCollectionMessage(contentDiv, data, event, panel) {
       event === 'error' ||
       data.status === 'error')
   ) {
-    panel.classList.add('collapsed');
+    // Brief delay so the user sees the expanded plan with execution details.
+    setTimeout(() => {
+      panel.classList.add('collapsed');
+    }, 800);
   }
 
   if (contentDiv.dataset.skipPersist !== '1') {
@@ -1146,30 +1339,30 @@ function renderCollectionDownloadsHtml(jobId, data) {
     if (artifacts.fulltextKind === 'pdf' || artifacts.fulltextKind === 'xml') {
       const label = artifacts.fulltextKind === 'pdf' ? 'Full text PDF' : 'Full text XML';
       cards.push(`<a class="collection-file-card" href="${COLLECTION_URL}/jobs/${jobId}/download/fulltext" target="_blank" rel="noopener">
-        <i class="ri-download-line"></i><span>${label}</span></a>`);
+        <i class="ri-download-2-line"></i><span>${label}</span></a>`);
     }
   }
 
   if (stage === 'stage3' && summary.stage3Row) {
     cards.push(`<a class="collection-file-card" href="${COLLECTION_URL}/jobs/${jobId}/download/literature_info" target="_blank" rel="noopener">
-      <i class="ri-download-line"></i><span>Experimental_info.csv</span></a>`);
+      <i class="ri-download-2-line"></i><span>Experimental_info.csv</span></a>`);
   }
 
   if ((stage === 'stage4' || stage === 'stage5') && artifacts.hasSupplementary && !suppFromUser) {
     cards.push(`<a class="collection-file-card" href="${COLLECTION_URL}/jobs/${jobId}/download/supplementary" target="_blank" rel="noopener">
-      <i class="ri-download-line"></i><span>Supplementary ZIP</span></a>`);
+      <i class="ri-download-2-line"></i><span>Supplementary ZIP</span></a>`);
   }
 
   if (status === 'completed' || stage === 'stage5' || stage === 'stage6' || (summary.qratioRowCount > 0 && (stage === 'stage5' || stage === 'stage6'))) {
     cards.push(`<a class="collection-file-card" href="${COLLECTION_URL}/jobs/${jobId}/download/literature_info" target="_blank" rel="noopener">
-      <i class="ri-download-line"></i><span>Experimental_info.csv</span></a>`);
+      <i class="ri-download-2-line"></i><span>Experimental_info.csv</span></a>`);
     cards.push(`<a class="collection-file-card" href="${COLLECTION_URL}/jobs/${jobId}/download/qratio" target="_blank" rel="noopener">
-      <i class="ri-download-line"></i><span>Quantitative_data.csv</span></a>`);
+      <i class="ri-download-2-line"></i><span>Quantitative_data.csv</span></a>`);
   }
 
   if ((stage === 'stage6' || status === 'completed') && artifacts.hasMsUrls) {
     cards.push(`<a class="collection-file-card" href="${COLLECTION_URL}/jobs/${jobId}/download/ms-urls" target="_blank" rel="noopener">
-      <i class="ri-download-line"></i><span>MS_URLs.csv</span></a>`);
+      <i class="ri-download-2-line"></i><span>MS_URLs.csv</span></a>`);
   }
 
   if (!cards.length) return '';
@@ -1276,9 +1469,13 @@ function updateCollectionPanel(panel, data) {
   }
   const next = data.next_stage || data.nextStage;
   if (next) panel.dataset.nextStage = next;
+  const stage = data.current_stage || data.currentStage || '';
+  // Keep panel expanded while pipeline is running so live thinking is visible.
+  const status = data.status || '';
+  if (status === 'running') panel.classList.remove('collapsed');
   const pmidEl = panel.querySelector('.collection-pmid');
   if (pmidEl && data.pmid) {
-    pmidEl.textContent = `PMID ${data.pmid}`;
+    pmidEl.textContent = stage === 'stage1' ? `PMID ${data.pmid}` : '';
   }
   renderCollectionPlanSteps(panel, data);
 }
@@ -1312,25 +1509,61 @@ async function submitContribute(panel, willing, contentDivOverride) {
   }
 }
 
-function renderStage5LiveThinking(contentDiv, data, panel) {
+const STAGE_THINKING_META = {
+  stage1: { key: 'stage1Thinking', title: 'Abstract screening', icon: 'ri-file-search-line', label: 'Screening paper for quantitative PTM relevance…' },
+  stage2: { key: 'stage2Thinking', title: 'Full text acquisition', icon: 'ri-file-text-line', label: 'Acquiring full text…' },
+  stage3: { key: 'stage3Thinking', title: 'Experimental metadata', icon: 'ri-flask-line', label: 'Extracting experimental metadata…' },
+  stage4: { key: 'stage4Thinking', title: 'Supplementary scout', icon: 'ri-folder-zip-line', label: 'Scouting supplementary tables…' },
+  stage5: { key: 'stage5Thinking', title: 'Quantitative table parsing', icon: 'ri-brain-line', label: 'Parsing quantitative tables…' },
+  stage6: { key: 'stage6Thinking', title: 'MS repository URLs', icon: 'ri-link', label: 'Resolving MS repository download URLs…' },
+};
+
+function renderGenericThinkingStepsHtml(steps, opts = {}) {
+  if (!Array.isArray(steps) || !steps.length) return '';
+  const live = opts.live === true;
+  const title = opts.title || 'Processing';
+  const icon = opts.icon || 'ri-loader-4-line';
+  const items = steps
+    .map((s) => {
+      return `<li class="collection-think-step-item"><span class="collection-think-step">${escapeHtml(String(s.step || ''))}</span>
+        <span class="collection-think-msg">${escapeHtml(String(s.message || ''))}</span>
+      </li>`;
+    })
+    .join('');
+  return `
+    <div class="collection-think ${live ? 'is-live' : ''}">
+      <div class="collection-think-title"><i class="${icon}"></i> ${escapeHtml(title)}${live ? ' <span class="collection-live-dot"></span>' : ''}</div>
+      <ol class="collection-think-log">${items}</ol>
+    </div>`;
+}
+
+function renderGenericLiveThinking(contentDiv, data, panel) {
   if (!data) return;
   const summary = data.summary || {};
-  const steps = summary.stage5Thinking;
+  const stage = data.current_stage || data.currentStage || '';
+  const meta = STAGE_THINKING_META[stage];
+  if (!meta) return;
+  const steps = summary[meta.key];
   if (!Array.isArray(steps) || !steps.length) return;
-  const stage = data.current_stage || data.currentStage;
-  if (data.status !== 'running' || stage !== 'stage5') return;
+  if (data.status !== 'running') return;
 
   const planPanel = panel || contentDiv?.parentElement?.querySelector('.collection-panel') || activeCollectionPanel;
+  // Expand the panel so live thinking steps are visible.
+  if (planPanel) planPanel.classList.remove('collapsed');
   updateCollectionPanel(planPanel, data);
-  const html = renderStage5ThinkingHtml(steps, { live: true });
+
+  // Stage5 has its own detailed renderer; others use the generic one.
+  const html = stage === 'stage5'
+    ? renderStage5ThinkingHtml(steps, { live: true })
+    : renderGenericThinkingStepsHtml(steps, { title: meta.title, icon: meta.icon, live: true });
+
   setCollectionPlanThink(planPanel, html);
 
-  // Answer box: loading dots + one line; step details stay in the plan panel.
   if (contentDiv) {
     if (!contentDiv.querySelector('.msg-content-loading')) {
       contentDiv.innerHTML = '';
     }
-    showContentLoading(contentDiv, 'Parsing quantitative tables…');
+    showContentLoading(contentDiv, meta.label);
   }
 
   const log = planPanel?.querySelector('.collection-think-log');
@@ -1346,8 +1579,11 @@ function beginCollectionTurn(jobId, pmid, seedData) {
   body.className = 'assistant-body';
   const panel = createCollectionPanelEl(jobId, seedData);
   if (pmid) {
-    const pmidEl = panel.querySelector('.collection-pmid');
-    if (pmidEl) pmidEl.textContent = `PMID ${pmid}`;
+    const stage = seedData?.current_stage || seedData?.currentStage;
+    if (!stage || stage === 'stage1') {
+      const pmidEl = panel.querySelector('.collection-pmid');
+      if (pmidEl) pmidEl.textContent = `PMID ${pmid}`;
+    }
   }
   if (seedData) {
     const stage = seedData.current_stage || seedData.currentStage;
@@ -1406,7 +1642,8 @@ async function parseSseStream(response, onEvent) {
 }
 
 async function streamCollectionJob(jobId, panel, contentDiv) {
-  const response = await fetch(`${COLLECTION_URL}/jobs/${jobId}/stream`);
+  const signal = currentAbortController?.signal;
+  const response = await fetch(`${COLLECTION_URL}/jobs/${jobId}/stream`, { signal });
   if (!response.ok) throw new Error(`Stream HTTP ${response.status}`);
   let terminal = false;
 
@@ -1434,7 +1671,7 @@ async function streamCollectionJob(jobId, panel, contentDiv) {
 
   const pollOnce = async () => {
     try {
-      const res = await fetch(`${COLLECTION_URL}/jobs/${jobId}`);
+      const res = await fetch(`${COLLECTION_URL}/jobs/${jobId}`, { signal });
       if (!res.ok) return;
       const data = await res.json();
       const status = data.status || '';
@@ -1447,8 +1684,11 @@ async function streamCollectionJob(jobId, panel, contentDiv) {
       }
       if (!terminal) {
         const stage = data.current_stage || data.currentStage || '';
-        if (stage === 'stage5' && Array.isArray(data.summary?.stage5Thinking) && data.summary.stage5Thinking.length) {
-          renderStage5LiveThinking(contentDiv, { ...data, job_id: data.job_id || jobId }, panel);
+        const meta = STAGE_THINKING_META[stage];
+        // Always expand panel while running so the user sees live progress.
+        if (panel) panel.classList.remove('collapsed');
+        if (meta && Array.isArray(data.summary?.[meta.key]) && data.summary[meta.key].length) {
+          renderGenericLiveThinking(contentDiv, { ...data, job_id: data.job_id || jobId }, panel);
         } else {
           showContentLoading(contentDiv, collectionRunningLabel(data));
         }
@@ -1460,7 +1700,7 @@ async function streamCollectionJob(jobId, panel, contentDiv) {
 
   // Parallel poll: recovers when SSE is buffered/dropped by the reverse proxy.
   const pollTimer = setInterval(() => {
-    if (!terminal) pollOnce();
+    if (!terminal && !signal?.aborted) pollOnce();
   }, 4000);
 
   try {
@@ -1481,8 +1721,11 @@ async function streamCollectionJob(jobId, panel, contentDiv) {
       }
       if (event === 'status') {
         const stage = data.current_stage || data.currentStage || '';
-        if (stage === 'stage5' && Array.isArray(data.summary?.stage5Thinking) && data.summary.stage5Thinking.length) {
-          renderStage5LiveThinking(contentDiv, { ...data, job_id: data.job_id || jobId }, panel);
+        const meta = STAGE_THINKING_META[stage];
+        // Always expand panel while running so the user sees live progress.
+        if (panel) panel.classList.remove('collapsed');
+        if (meta && Array.isArray(data.summary?.[meta.key]) && data.summary[meta.key].length) {
+          renderGenericLiveThinking(contentDiv, { ...data, job_id: data.job_id || jobId }, panel);
         } else {
           showContentLoading(contentDiv, collectionRunningLabel(data));
         }
@@ -1524,8 +1767,9 @@ function collectionRunningLabel(data) {
 
 async function resumeCollectionJob(jobId, panel, contentDivFromBtn) {
   if (isStreaming) return;
-  isStreaming = true;
-  sendBtn.disabled = true;
+  setSendButtonToStop();
+  const abortController = new AbortController();
+  currentAbortController = abortController;
   // Freeze prior answer-box actions so Continue isn't clicked twice.
   const prevContent =
     contentDivFromBtn ||
@@ -1560,7 +1804,10 @@ async function resumeCollectionJob(jobId, panel, contentDivFromBtn) {
   nextPanel.classList.remove('collapsed');
   showContentLoading(contentDiv, 'Continuing collection...');
   try {
-    const res = await fetch(`${COLLECTION_URL}/jobs/${jobId}/resume`, { method: 'POST' });
+    const res = await fetch(`${COLLECTION_URL}/jobs/${jobId}/resume`, {
+      method: 'POST',
+      signal: abortController.signal,
+    });
     if (!res.ok) throw new Error(`Resume HTTP ${res.status}`);
     const data = await res.json();
     // Prefer the next-step hint over a lagging current_stage from the API.
@@ -1574,11 +1821,16 @@ async function resumeCollectionJob(jobId, panel, contentDivFromBtn) {
     });
     await streamCollectionJob(jobId, nextPanel, contentDiv);
   } catch (err) {
+    if (err.name === 'AbortError') {
+      hideContentLoading(contentDiv);
+      contentDiv.innerHTML = '<p style="color:var(--text-muted);font-style:italic;">Collection stopped.</p>';
+      return;
+    }
     hideContentLoading(contentDiv);
     contentDiv.innerHTML = `<p style="color:#c0392b;">${escapeHtml(err.message)}</p>`;
   } finally {
-    isStreaming = false;
-    sendBtn.disabled = false;
+    if (currentAbortController === abortController) currentAbortController = null;
+    setSendButtonToSend();
   }
 }
 
@@ -1595,8 +1847,9 @@ async function uploadCollectionFile(jobId, uploadType, file, panel) {
     alert('Please upload a PDF/XML (full text) or ZIP/Excel/CSV (supplementary tables).');
     return;
   }
-  isStreaming = true;
-  sendBtn.disabled = true;
+  setSendButtonToStop();
+  const abortController = new AbortController();
+  currentAbortController = abortController;
   const prevContent = panel?.parentElement?.querySelector('.msg-content');
   if (prevContent) {
     prevContent.querySelectorAll('.collection-actions button').forEach((btn) => {
@@ -1629,24 +1882,31 @@ async function uploadCollectionFile(jobId, uploadType, file, panel) {
     fd.append('file', file);
     const data = await uploadFormData(`${COLLECTION_URL}/jobs/${jobId}/upload`, fd, {
       onProgress: (ratio) => setPendingFilesUploadState([file], 'uploading', ratio * 100),
+      signal: abortController.signal,
     });
     setPendingFilesUploadState([file], 'done', 100);
     updateCollectionPanel(nextPanel, data);
     await renderCollectionMessage(contentDiv, { ...data, job_id: jobId }, data.status || 'awaiting_continue', nextPanel);
   } catch (err) {
+    if (err.name === 'AbortError') {
+      hideContentLoading(contentDiv);
+      contentDiv.innerHTML = '<p style="color:var(--text-muted);font-style:italic;">Upload stopped.</p>';
+      return;
+    }
     setPendingFilesUploadState([file], 'error', 100);
     hideContentLoading(contentDiv);
     contentDiv.innerHTML = `<p style="color:#c0392b;">${escapeHtml(err.message)}</p>`;
   } finally {
     setTimeout(clearPendingFiles, 450);
-    isStreaming = false;
-    sendBtn.disabled = false;
+    if (currentAbortController === abortController) currentAbortController = null;
+    setSendButtonToSend();
   }
 }
 
 async function startCollectionFlow(message, files) {
-  isStreaming = true;
-  sendBtn.disabled = true;
+  setSendButtonToStop();
+  const abortController = new AbortController();
+  currentAbortController = abortController;
   const userText = message || (files.length ? 'Uploaded files' : 'Data collection');
   const userMsgEl = addMessage('user', userText);
   if (files.length) {
@@ -1686,6 +1946,7 @@ async function startCollectionFlow(message, files) {
           setPendingFilesUploadState(uploadingFiles, 'uploading', ratio * 100);
         }
       },
+      signal: abortController.signal,
     });
 
     if (uploadingFiles.length) {
@@ -1721,14 +1982,19 @@ async function startCollectionFlow(message, files) {
     );
     await streamCollectionJob(data.job_id, panel, contentDiv);
   } catch (err) {
+    if (err.name === 'AbortError') {
+      hideContentLoading(contentDiv);
+      contentDiv.innerHTML = '<p style="color:var(--text-muted);font-style:italic;">Collection stopped.</p>';
+      return;
+    }
     if (files.length) setPendingFilesUploadState(files, 'error', 100);
     hideContentLoading(contentDiv);
     contentDiv.innerHTML = `<p style="color:#c0392b;">Collection error: ${escapeHtml(err.message)}</p>
       <p style="font-size:13px;color:var(--text-muted);">Make sure the qPTM Agent backend is running.</p>`;
   } finally {
     setTimeout(clearPendingFiles, 450);
-    isStreaming = false;
-    sendBtn.disabled = false;
+    if (currentAbortController === abortController) currentAbortController = null;
+    setSendButtonToSend();
     inputField.focus();
   }
 }
@@ -1866,7 +2132,7 @@ function attachMessageActions(contentDiv, rawText) {
   downloadBtn.type = 'button';
   downloadBtn.className = 'msg-action-btn';
   downloadBtn.title = 'Download';
-  downloadBtn.innerHTML = '<i class="ri-download-line"></i>';
+  downloadBtn.innerHTML = '<i class="ri-download-2-line"></i>';
   downloadBtn.addEventListener('click', () => downloadMessage(downloadBtn));
   actions.appendChild(copyBtn);
   actions.appendChild(downloadBtn);
@@ -2216,6 +2482,43 @@ chatArea.addEventListener('click', (e) => {
   if (q) sendExample(q);
 });
 
+// ── Scroll-to-bottom button ─────────────────────────────
+const scrollBottomBtn = document.getElementById('scrollBottomBtn');
+const agentMainEl = document.querySelector('.agent-main');
+
+function isNearBottom(area) {
+  return area.scrollHeight - area.scrollTop - area.clientHeight < 120;
+}
+
+/** Align the scroll-to-bottom button vertically with the send button. */
+function positionScrollBottomBtn() {
+  if (!scrollBottomBtn || !agentMainEl || !sendBtn) return;
+  const mainRect = agentMainEl.getBoundingClientRect();
+  const sendRect = sendBtn.getBoundingClientRect();
+  const sendCenter = sendRect.top + sendRect.height / 2;
+  const fromBottom = mainRect.bottom - sendCenter;
+  const btnHalf = scrollBottomBtn.offsetHeight / 2 || 19;
+  scrollBottomBtn.style.bottom = Math.max(8, fromBottom - btnHalf) + 'px';
+}
+
+function updateScrollBottomBtn() {
+  if (!scrollBottomBtn) return;
+  positionScrollBottomBtn();
+  const near = isNearBottom(chatArea);
+  scrollBottomBtn.classList.toggle('show', !near);
+}
+
+chatArea.addEventListener('scroll', updateScrollBottomBtn, { passive: true });
+window.addEventListener('resize', updateScrollBottomBtn, { passive: true });
+window.addEventListener('load', updateScrollBottomBtn, { passive: true });
+inputField.addEventListener('input', updateScrollBottomBtn);
+
+if (scrollBottomBtn) {
+  scrollBottomBtn.addEventListener('click', () => {
+    chatArea.scrollTo({ top: chatArea.scrollHeight, behavior: 'smooth' });
+  });
+}
+
 function resizeInputField() {
   inputField.style.height = 'auto';
   const maxH = 120;
@@ -2229,7 +2532,11 @@ inputField.addEventListener('input', resizeInputField);
 function handleKey(e) {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
-    sendMessage();
+    if (isStreaming) {
+      stopStreaming();
+    } else {
+      sendMessage();
+    }
   }
 }
 
@@ -2595,7 +2902,7 @@ function addStoredAssistantMessage(content, meta) {
   if (meta?.collection) {
     const c = meta.collection;
     const panel = createCollectionPanelEl(c.job_id || 'stored');
-    if (c.pmid) {
+    if (c.pmid && (!c.current_stage || c.current_stage === 'stage1')) {
       const pmidEl = panel.querySelector('.collection-pmid');
       if (pmidEl) pmidEl.textContent = `PMID ${c.pmid}`;
     }
@@ -2841,8 +3148,9 @@ function looksLikeCollectionGuidance(text) {
 
 async function sendCollectionGuidance(jobId, text, panel) {
   if (isStreaming) return;
-  isStreaming = true;
-  sendBtn.disabled = true;
+  setSendButtonToStop();
+  const abortController = new AbortController();
+  currentAbortController = abortController;
   persistCollectionUserTurn(text).catch(() => {});
   addMessage('user', text);
   const pmidText = panel?.querySelector('.collection-pmid')?.textContent || '';
@@ -2862,6 +3170,7 @@ async function sendCollectionGuidance(jobId, text, panel) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: text, resume: true }),
+      signal: abortController.signal,
     });
     if (!res.ok) {
       let detail = `Guidance HTTP ${res.status}`;
@@ -2886,11 +3195,16 @@ async function sendCollectionGuidance(jobId, text, panel) {
     contentDiv.innerHTML = `<p class="collection-answer-text" style="white-space:pre-wrap;">${formatCollectionAnswerHtml(ack)}</p>`;
     await streamCollectionJob(jobId, nextPanel, contentDiv);
   } catch (err) {
+    if (err.name === 'AbortError') {
+      hideContentLoading(contentDiv);
+      contentDiv.innerHTML = '<p style="color:var(--text-muted);font-style:italic;">Guidance stopped.</p>';
+      return;
+    }
     hideContentLoading(contentDiv);
     contentDiv.innerHTML = `<p style="color:#c0392b;">${escapeHtml(err.message || 'Guidance failed')}</p>`;
   } finally {
-    isStreaming = false;
-    sendBtn.disabled = false;
+    if (currentAbortController === abortController) currentAbortController = null;
+    setSendButtonToSend();
   }
 }
 
@@ -2932,8 +3246,9 @@ async function sendMessage() {
     return;
   }
 
-  isStreaming = true;
-  sendBtn.disabled = true;
+  setSendButtonToStop();
+  const abortController = new AbortController();
+  currentAbortController = abortController;
   clearPendingFiles();
 
   addMessage('user', text);
@@ -2952,6 +3267,7 @@ async function sendMessage() {
         conversation_id: conversationId,
         history: chatHistory.slice(-10),
       }),
+      signal: abortController.signal,
     });
 
     const newSessionId = response.headers.get('X-Session-Id');
@@ -3017,14 +3333,22 @@ async function sendMessage() {
     }
 
   } catch (err) {
+    if (err.name === 'AbortError') {
+      hideContentLoading(assistantContent);
+      hideStreamingCursor(assistantContent);
+      collapseThinkingTools();
+      collapsePlanPanel();
+      assistantContent.innerHTML = '<p style="color:var(--text-muted);font-style:italic;">Generation stopped.</p>';
+      return;
+    }
     hideContentLoading(assistantContent);
     hideStreamingCursor(assistantContent);
     assistantContent.innerHTML = `<p style="color:#c0392b;">Connection error: ${err.message}</p>
       <p style="font-size:13px;color:var(--text-muted);">Make sure the qPTM Agent backend is running at ${CHAT_URL}</p>`;
     collapsePlanPanel();
   } finally {
-    isStreaming = false;
-    sendBtn.disabled = false;
+    if (currentAbortController === abortController) currentAbortController = null;
+    setSendButtonToSend();
     inputField.focus();
   }
 }

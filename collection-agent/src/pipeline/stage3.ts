@@ -30,6 +30,8 @@ export interface Stage3Options {
   pmid?: string
   onResult?: (row: LiteratureInfoRow, index: number, total: number) => void
   onError?: (pmid: string, error: unknown, index: number) => void
+  /** Progress callback (step, message) — called at key points during stage 3 execution */
+  onProgress?: (step: string, message: string) => void
 }
 
 export interface Stage3RunSummary {
@@ -177,6 +179,8 @@ export async function runStage3Meta(options: Stage3Options = {}): Promise<Stage3
   const runtime: LlmRuntime = await createLlmRuntime({ model: options.model })
   const chain = new MetaChain(runtime)
 
+  options.onProgress?.("runtime-ready", `LLM runtime ready (model: ${runtime.modelId})`)
+
   const done = loadStage3DonePmids()
   const allEligible = loadStage3EligibleInputs({
     xmlOnly: options.xmlOnly,
@@ -214,10 +218,15 @@ export async function runStage3Meta(options: Stage3Options = {}): Promise<Stage3
     if (buffer.length >= flushEvery) flushBuffer()
   }
 
+  options.onProgress?.("processing", `Processing ${eligible.length} paper(s) for metadata extraction…`)
+
   await mapPool(eligible, concurrency, async (item, index) => {
     try {
+      options.onProgress?.("loading-text", `[${index + 1}/${eligible.length}] Loading full text for PMID ${item.pmid}…`)
       const excerpt = await loadFulltextExcerpt(item.pmid, item.abstract)
+
       if (!excerpt.excerpt.trim()) {
+        options.onProgress?.("empty-text", `[${index + 1}/${eligible.length}] PMID ${item.pmid}: no extractable text (source: ${excerpt.textSource})`)
         const empty: LiteratureInfoRow = {
           pmid: item.pmid,
           title: item.title,
@@ -245,6 +254,7 @@ export async function runStage3Meta(options: Stage3Options = {}): Promise<Stage3
         return null
       }
 
+      options.onProgress?.("llm-call", `[${index + 1}/${eligible.length}] Calling LLM to extract metadata for PMID ${item.pmid} (source: ${excerpt.textSource})…`)
       const row = await chain.run({
         pmid: item.pmid,
         title: item.title,
@@ -252,12 +262,15 @@ export async function runStage3Meta(options: Stage3Options = {}): Promise<Stage3
         textSource: excerpt.textSource,
         knownIdentifiers: item.repositories,
       })
+      options.onProgress?.("llm-done", `[${index + 1}/${eligible.length}] LLM response received for PMID ${item.pmid}`)
+
       if (excerpt.notes) {
         row.notes = row.notes ? `${row.notes}; ${excerpt.notes}` : excerpt.notes
       }
       options.onResult?.(row, index, eligible.length)
       enqueue(row, false)
     } catch (err) {
+      options.onProgress?.("error", `[${index + 1}/${eligible.length}] Error extracting metadata for PMID ${item.pmid}: ${err instanceof Error ? err.message : String(err)}`)
       options.onError?.(item.pmid, err, index)
       const fallback: LiteratureInfoRow = {
         pmid: item.pmid,
@@ -288,6 +301,8 @@ export async function runStage3Meta(options: Stage3Options = {}): Promise<Stage3
 
   flushBuffer()
   await writeLock
+
+  options.onProgress?.("done", `Metadata extraction complete: ${ok} ok, ${partial} partial, ${errors} errors, ${skippedDone} skipped`)
 
   return {
     modelId: runtime.modelId,

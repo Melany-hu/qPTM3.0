@@ -20,6 +20,7 @@ import {
 import {
   resolveGetUrlScripts,
   runIproxExtract,
+  runPdcExtract,
   runPrideExtract,
 } from "../stage6/extract.js"
 import { jpostFetchAllFiles } from "../stage6/jpost-api.js"
@@ -220,6 +221,17 @@ async function extractAccession(
       base.urlsFile = copyToUrlsDir(pmid, accession, organism, modification, urlsPath)
       base.notes = `jPOST API /_api/file target=public; files=${files.length}; storage=storage.jpostdb.org`
       base.status = urls.length > 0 ? "ok" : "partial"
+      return base
+    }
+
+    if (repo === "PDC") {
+      const out = runPdcExtract(accession, scripts)
+      base.sourceFile = scripts.pdcExtract
+      base.urlCount = out.urls.length
+      base.rawUrlCount = out.rawUrlCount
+      base.urlsFile = copyToUrlsDir(pmid, accession, organism, modification, out.urlsFile)
+      base.notes = `PDC CPTAC GraphQL; raw mass spectra proprietary`
+      base.status = out.urls.length > 0 ? "ok" : "partial"
       return base
     }
 

@@ -278,6 +278,20 @@ export async function runCollectionJob(options: RunCollectionJobOptions): Promis
     if (shouldRunStage(resumeFrom, "stage1")) {
       markStage("stage1", "running")
       log("Stage 1: PTM relevance screening")
+
+      const thinking1: { step: string; message: string }[] = []
+      const emit1 = (step: string, message: string) => {
+        thinking1.push({ step, message })
+        patchJobState(options.outDir, {
+          jobId: options.jobId, pmid,
+          status: "running", currentStage: "stage1",
+          message: "Scanning abstract for PTM relevance…",
+          summary: { stage1Thinking: [...thinking1] },
+        })
+      }
+      emit1("start", "Starting PTM relevance screening")
+      emit1("classify", "Classifying abstract with LLM...")
+
       const s1 = await runStage1Screen({
         pmid,
         all: true,
@@ -288,6 +302,9 @@ export async function runCollectionJob(options: RunCollectionJobOptions): Promis
       })
       const screen = loadAllScreenResults().find((r) => r.pmid === pmid)
       const paper = (state.summary?.paper as Record<string, string>) ?? {}
+
+      emit1("result", `Decision: ${screen?.decision || "unknown"}, confidence: ${screen?.confidence ?? "N/A"}`)
+      emit1("done", `PTM types: ${(screen?.ptmTypes || []).join(", ") || "none"}`)
 
       if (screen?.decision === "exclude") {
         return patchJobState(options.outDir, {
@@ -303,7 +320,7 @@ export async function runCollectionJob(options: RunCollectionJobOptions): Promis
             ptmTypes: screen.ptmTypes,
           }),
           stages: { stage1: "completed" },
-          summary: { stage1: s1, stage1Screen: screen, paper },
+          summary: { stage1: s1, stage1Screen: screen, paper, stage1Thinking: thinking1 },
         })
       }
 
@@ -316,7 +333,7 @@ export async function runCollectionJob(options: RunCollectionJobOptions): Promis
             reason: screen.reason,
             confidence: screen.confidence,
           }),
-          { stage1: s1, stage1Screen: screen, paper, ...artifactSummary(pmid) },
+          { stage1: s1, stage1Screen: screen, paper, stage1Thinking: thinking1, ...artifactSummary(pmid) },
         )
       }
 
@@ -351,6 +368,7 @@ export async function runCollectionJob(options: RunCollectionJobOptions): Promis
             paper,
             stage2Discover: s2discover,
             stage2Fulltext: { skipped: true },
+            stage1Thinking: thinking1,
             ...artifactSummary(pmid),
           },
           "stage3",
@@ -364,7 +382,7 @@ export async function runCollectionJob(options: RunCollectionJobOptions): Promis
           ptmTypes: screen?.ptmTypes,
           hasFulltext: false,
         }),
-        { stage1: s1, stage1Screen: screen, paper, ...artifactSummary(pmid) },
+        { stage1: s1, stage1Screen: screen, paper, stage1Thinking: thinking1, ...artifactSummary(pmid) },
       )
     }
 
@@ -372,6 +390,19 @@ export async function runCollectionJob(options: RunCollectionJobOptions): Promis
     if (shouldRunStage(resumeFrom, "stage2")) {
       markStage("stage2", "running")
       log("Stage 2: repository ID discovery (internal)")
+
+      const thinking2: { step: string; message: string }[] = []
+      const emit2 = (step: string, message: string) => {
+        thinking2.push({ step, message })
+        patchJobState(options.outDir, {
+          jobId: options.jobId, pmid,
+          status: "running", currentStage: "stage2",
+          message: "Acquiring full text…",
+          summary: { stage2Thinking: [...thinking2] },
+        })
+      }
+      emit2("discover", "Discovering repository identifiers...")
+
       const s2discover = await runStage2Discover({
         pmid,
         all: true,
@@ -382,6 +413,7 @@ export async function runCollectionJob(options: RunCollectionJobOptions): Promis
       if (!needsFulltextUpload(pmid)) {
         // Full text already on disk — do not pause for Continue; fall through to Stage 3.
         log("Stage 2: full text already present — continue to Stage 3")
+        emit2("skip", "Full text already present")
         markStage("stage2", "skipped")
         state = patchJobState(options.outDir, {
           jobId: options.jobId,
@@ -389,30 +421,33 @@ export async function runCollectionJob(options: RunCollectionJobOptions): Promis
           summary: {
             stage2Discover: s2discover,
             stage2Fulltext: { skipped: true },
+            stage2Thinking: thinking2,
             ...artifactSummary(pmid),
           },
         })
       } else {
         log("Stage 2: open-access full text fetch")
+        emit2("fetch", "Fetching full text from open-access sources...")
         const s2ft = await runStage2Fulltext({
           pmid,
           all: true,
           concurrency,
           resume: true,
         })
+        emit2("result", needsFulltextUpload(pmid) ? "Full text not available — awaiting user upload" : "Full text acquired")
         state = patchJobState(options.outDir, {
           jobId: options.jobId,
           pmid,
-          summary: { stage2Discover: s2discover, stage2Fulltext: s2ft, ...artifactSummary(pmid) },
+          summary: { stage2Discover: s2discover, stage2Fulltext: s2ft, stage2Thinking: thinking2, ...artifactSummary(pmid) },
         })
 
         if (needsFulltextUpload(pmid)) {
           markStage("stage2", "failed")
-          return awaitUpload("fulltext", messageFulltextMissing(), "stage2", artifactSummary(pmid))
+          return awaitUpload("fulltext", messageFulltextMissing(), "stage2", { stage2Thinking: thinking2, ...artifactSummary(pmid) })
         }
 
         markStage("stage2", "completed")
-        return pauseContinue("stage2", messageFulltextOk("oa"), artifactSummary(pmid))
+        return pauseContinue("stage2", messageFulltextOk("oa"), { stage2Thinking: thinking2, ...artifactSummary(pmid) })
       }
     }
 
@@ -420,13 +455,30 @@ export async function runCollectionJob(options: RunCollectionJobOptions): Promis
     if (shouldRunStage(resumeFrom, "stage3")) {
       markStage("stage3", "running")
       log("Stage 3: literature metadata extraction")
+
+      const thinking3: { step: string; message: string }[] = []
+      const emit3 = (step: string, message: string) => {
+        thinking3.push({ step, message })
+        patchJobState(options.outDir, {
+          jobId: options.jobId, pmid,
+          status: "running", currentStage: "stage3",
+          message: "Extracting experimental metadata…",
+          summary: { stage3Thinking: [...thinking3] },
+        })
+      }
+      emit3("start", "Starting metadata extraction")
+      emit3("extract", "Extracting experimental metadata from full text with LLM...")
+
       const s3 = await runStage3Meta({
         pmid,
         all: true,
         concurrency,
         model: options.model,
+        onProgress: (step, message) => emit3(step, message),
       })
       const stage3Row = loadStage3Row(pmid)
+
+      emit3("result", `Metadata extracted: ${stage3Row?.Sample || "unknown sample"}, ${stage3Row?.Organism || "unknown organism"}, PTM: ${stage3Row?.PTMs || "unknown"}`)
       markStage("stage3", "completed")
       return pauseContinue(
         "stage3",
@@ -435,7 +487,7 @@ export async function runCollectionJob(options: RunCollectionJobOptions): Promis
           UI_SEG.AFTER_META,
           "Click Continue to scout supplementary quantitative tables.",
         ].join("\n"),
-        { stage3: s3, stage3Row, ...artifactSummary(pmid) },
+        { stage3: s3, stage3Row, stage3Thinking: thinking3, ...artifactSummary(pmid) },
       )
     }
 
@@ -448,12 +500,26 @@ export async function runCollectionJob(options: RunCollectionJobOptions): Promis
         return pauseContinue(
           "stage4",
           messageUserSuppReady(),
-          { stage4Scout: scout, stage4Source: "user_upload", ...artifactSummary(pmid) },
+          { stage4Scout: scout, stage4Source: "user_upload", stage4Thinking: [{ step: "skip", message: "User already uploaded supplementary files" }], ...artifactSummary(pmid) },
         )
       }
 
       markStage("stage4", "running")
       log("Stage 4: supplementary table scout")
+
+      const thinking4: { step: string; message: string }[] = []
+      const emit4 = (step: string, message: string) => {
+        thinking4.push({ step, message })
+        patchJobState(options.outDir, {
+          jobId: options.jobId, pmid,
+          status: "running", currentStage: "stage4",
+          message: "Scouting supplementary tables…",
+          summary: { stage4Thinking: [...thinking4] },
+        })
+      }
+      emit4("start", "Starting supplementary material scout")
+      emit4("scan", "Scanning publisher supplementary materials for quantitative tables...")
+
       const s4 = await runStage4SuppScout({
         pmid,
         all: true,
@@ -463,20 +529,22 @@ export async function runCollectionJob(options: RunCollectionJobOptions): Promis
       markStage("stage4", "completed")
       const scout = loadScoutRecord(options.outDir, pmid)
 
+      const topFiles = scout?.topFiles || ""
+      emit4("result", topFiles ? `Found candidate files: ${topFiles}` : "No quantitative supplementary tables found")
+
       if (needsSupplementaryUpload(pmid, scout)) {
         return awaitUpload(
           "supplementary",
           messageSuppMissing(),
           "stage5",
-          { stage4: s4, stage4Scout: scout, ...artifactSummary(pmid) },
+          { stage4: s4, stage4Scout: scout, stage4Thinking: thinking4, ...artifactSummary(pmid) },
         )
       }
 
-      const verdict = scout?.verdict ?? "found"
       return pauseContinue(
         "stage4",
-        messageSuppOk(verdict),
-        { stage4: s4, stage4Scout: scout, ...artifactSummary(pmid) },
+        messageSuppOk(),
+        { stage4: s4, stage4Scout: scout, stage4Thinking: thinking4, ...artifactSummary(pmid) },
       )
     }
 
@@ -518,6 +586,29 @@ export async function runCollectionJob(options: RunCollectionJobOptions): Promis
       markStage("stage5", "completed")
 
       const rowCount = (s5 as { totalRows?: number }).totalRows ?? 0
+      const proteinFilled = Number((s5 as { totalProteomeRows?: number }).totalProteomeRows || 0) || undefined
+
+      // Extract sheet usage info from the thinking log.
+      // Prefer the parsed steps' entryPath entries (they keep the real filename,
+      // e.g. "srep42053-s5.xls") over regex-parsing the summary line, whose lazy
+      // match stops at the first "." and would drop the ".xls" extension.
+      const parsedFiles = new Set<string>()
+      for (const s of thinking as unknown as Array<{
+        step?: string
+        entryPath?: string
+      }>) {
+        if (s?.step === "parsed" && s?.entryPath) parsedFiles.add(s.entryPath)
+      }
+      let sheetsUsed = ""
+      if (parsedFiles.size > 0) {
+        sheetsUsed = [...parsedFiles].join("; ")
+      } else {
+        const summaryStep = thinking.find((s: any) => s?.step === "summary" && s?.message?.includes("extracted")) as { message?: string } | undefined
+        const sheetsSummary = summaryStep?.message || ""
+        const siteMatch = sheetsSummary.match(/from (\d+) sheet\(s\): (.+?)\. Tried/)
+        sheetsUsed = siteMatch ? siteMatch[2] : ""
+      }
+
       if (rowCount <= 0) {
         return patchJobState(options.outDir, {
           jobId: options.jobId,
@@ -548,7 +639,8 @@ export async function runCollectionJob(options: RunCollectionJobOptions): Promis
         offerContribute: true,
         contribution: { willing: null },
         message: messageParseOk(rowCount, {
-          proteinFilled: Number((s5 as { totalProteomeRows?: number }).totalProteomeRows || 0) || undefined,
+          proteinFilled,
+          sheetsUsed,
         }),
         summary: {
           stage5: s5,
@@ -567,13 +659,20 @@ export async function runCollectionJob(options: RunCollectionJobOptions): Promis
     if (shouldRunStage(resumeFrom, "stage6")) {
       markStage("stage6", "running")
       log("Stage 6: MS repository download URLs")
-      patchJobState(options.outDir, {
-        jobId: options.jobId,
-        pmid,
-        status: "running",
-        currentStage: "stage6",
-        message: "Resolving MS repository download URLs…",
-      })
+
+      const thinking6: { step: string; message: string }[] = []
+      const emit6 = (step: string, message: string) => {
+        thinking6.push({ step, message })
+        patchJobState(options.outDir, {
+          jobId: options.jobId, pmid,
+          status: "running", currentStage: "stage6",
+          message: "Resolving MS repository download URLs…",
+          summary: { stage6Thinking: [...thinking6] },
+        })
+      }
+      emit6("start", "Starting MS repository URL resolution")
+      emit6("resolve", "Querying PRIDE, iProX, jPOST, and CPTAC (PDC) for download links...")
+
       let s6: { totalUrls?: number; error?: string; [k: string]: unknown }
       try {
         s6 = (await runStage6DownloadUrls({
@@ -582,9 +681,11 @@ export async function runCollectionJob(options: RunCollectionJobOptions): Promis
           concurrency,
           resume: true,
         })) as { totalUrls?: number }
+        emit6("result", `Found ${s6.totalUrls ?? 0} download URL(s)`)
         markStage("stage6", "completed")
       } catch (err) {
         log(`Stage 6 warning: ${err instanceof Error ? err.message : String(err)}`)
+        emit6("error", `Resolution failed: ${err instanceof Error ? err.message : String(err)}`)
         markStage("stage6", "failed")
         s6 = { error: err instanceof Error ? err.message : String(err), totalUrls: 0 }
       }
@@ -594,6 +695,8 @@ export async function runCollectionJob(options: RunCollectionJobOptions): Promis
       const priorContribution = state.contribution
       const alreadyChose =
         priorContribution?.willing === true || priorContribution?.willing === false
+      const stage3Row = loadStage3Row(pmid)
+      const identifier = stage3Row?.Identifier || stage3Row?.identifier || ""
       return patchJobState(options.outDir, {
         jobId: options.jobId,
         pmid,
@@ -613,7 +716,8 @@ export async function runCollectionJob(options: RunCollectionJobOptions): Promis
           offerContribute: !alreadyChose && rowCount > 0,
         }),
         summary: {
-          stage6: s6,
+          stage6: { ...s6, identifier },
+          stage6Thinking: thinking6,
           qratioRowCount: rowCount,
           offerContribute: alreadyChose ? false : rowCount > 0,
           ...artifactSummary(pmid),

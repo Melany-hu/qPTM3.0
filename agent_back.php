@@ -1882,7 +1882,7 @@ function attachMessageActions(contentDiv, rawText) {
   downloadBtn.type = 'button';
   downloadBtn.className = 'msg-action-btn';
   downloadBtn.title = 'Download';
-  downloadBtn.innerHTML = '<i class="ri-download-line"></i>';
+  downloadBtn.innerHTML = '<i class="ri-download-2-line"></i>';
   downloadBtn.addEventListener('click', () => downloadMessage(downloadBtn));
   actions.appendChild(copyBtn);
   actions.appendChild(downloadBtn);

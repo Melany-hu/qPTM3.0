@@ -108,10 +108,10 @@ export function messageSuppMissing(): string {
   ].join("\n")
 }
 
-export function messageSuppOk(verdict: string): string {
+export function messageSuppOk(): string {
   return (
-    `Supplementary quantitative tables located (${verdict}). ` +
-    `You can download the supplementary package below, review the scout details, then click Continue to parse them into the qratio schema.`
+    "Supplementary quantitative tables located. " +
+    "You can download the supplementary package below, review the scout details, then click Continue to parse them into the qratio schema."
   )
 }
 
@@ -129,15 +129,26 @@ export function messageUserSuppReady(): string {
   return "User-uploaded supplementary tables detected, then click Continue to parse quantitative data."
 }
 
-export function messageParseOk(rowCount: number, opts?: { proteinFilled?: number }): string {
-  const lines = [
-    `Quantitative tables parsed: ${rowCount} site-level record(s) written to Quantitative_data.csv.`,
-  ]
+export function messageParseOk(rowCount: number, opts?: { proteinFilled?: number; sheetsUsed?: string }): string {
+  const lines: string[] = []
+  if (opts?.sheetsUsed) {
+    // Strip "#SheetName" suffixes, dedupe, and keep the real filename (with extension).
+    const siteSheets = [...new Set(
+      opts.sheetsUsed
+        .split(";")
+        .map(s => s.split("#")[0].trim())
+        .filter(Boolean),
+    )]
+    lines.push(`Site-level quantitative data extracted from: ${siteSheets.join(", ")}.`)
+  }
   if (opts?.proteinFilled && opts.proteinFilled > 0) {
     lines.push(
       `Protein-level Log2Ratio was joined onto ${opts.proteinFilled} site row(s) where UniProt IDs matched.`,
     )
   }
+  lines.push(
+    `Quantitative tables parsed: ${rowCount} site-level record(s) written to Quantitative_data.csv.`,
+  )
   lines.push(
     "",
     UI_SEG.AFTER_QRATIO,
@@ -147,7 +158,7 @@ export function messageParseOk(rowCount: number, opts?: { proteinFilled?: number
     "If you are willing, you can contribute these curated results to the qPTM database.",
     "",
     UI_SEG.AFTER_CONTRIBUTE,
-    "You can also click Continue to resolve MS repository download URLs (PRIDE / iProX / jPOST).",
+    "You can also click Continue to resolve MS repository download URLs (PRIDE / iProX / jPOST / CPTAC).",
   )
   return lines.join("\n")
 }
@@ -160,18 +171,13 @@ export function messageMsUrlsComplete(opts: {
 }): string {
   const lines = ["MS repository download links have been resolved."]
   if (opts.totalUrls != null && Number.isFinite(opts.totalUrls)) {
-    lines.push(`Found ${opts.totalUrls} download URL(s) from PRIDE / iProX / jPOST.`)
+    lines.push(`Found ${opts.totalUrls} download URL(s) from PRIDE / iProX / jPOST / CPTAC.`)
   }
   if (opts.statusNote) lines.push(opts.statusNote)
-  lines.push("")
-  lines.push(
-    `Collection complete: curated ${opts.rowCount} site-level quantitative record(s).`,
-  )
-  lines.push("You can download Experimental_info.csv and Quantitative_data.csv below.")
   if (opts.offerContribute !== false && opts.rowCount > 0) {
     lines.push("")
     lines.push(
-      "If you are willing, you can contribute these curated results to the qPTM database to help other researchers (see the prompt below).",
+      "If you are willing, you can contribute these curated results to the qPTM database to help other researchers.",
     )
   }
   return lines.join("\n")
@@ -179,10 +185,9 @@ export function messageMsUrlsComplete(opts: {
 
 export function messageComplete(rowCount: number): string {
   return [
-    `Collection complete: parsed ${rowCount} site-level quantitative record(s).`,
-    "You can download Experimental_info.csv and Quantitative_data.csv below.",
+    "Collection complete. You can download Experimental_info.csv and Quantitative_data.csv below.",
     "",
-    "If you are willing, you can contribute these curated results to the qPTM database to help other researchers (see the prompt below).",
+    "If you are willing, you can contribute these curated results to the qPTM database to help other researchers.",
   ].join("\n")
 }
 

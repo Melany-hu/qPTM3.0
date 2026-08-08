@@ -504,6 +504,8 @@ async function resolveMapping(opts: {
   lit: LiteratureInfoRow
   entryPath: string
   sheet: { name: string; headers: string[]; preview: string[][]; headerRowIndex: number }
+  /** User curation feedback (Adjust tables free text) to honor when mapping columns. */
+  userGuidance?: string
 }): Promise<ColumnMapping & { skip?: boolean }> {
   const finish = (m: ColumnMapping & { skip?: boolean }) => {
     const cleaned = stripIntensityRatioColumns(m)
@@ -522,21 +524,29 @@ async function resolveMapping(opts: {
       dataRowCount: opts.sheet.preview.length,
     }),
   )
-  heuristic = alignConditionsToStage3(
-    heuristic,
-    opts.lit.condition,
-    opts.lit.detailCondition || "",
-  )
+  // When the user supplied curation feedback, keep table-native condition labels
+  // untouched so the LLM re-map below can honor the feedback (e.g. correcting
+  // wrong Stage3 conditions) instead of being forced back onto Stage3 labels.
+  if (!opts.userGuidance) {
+    heuristic = alignConditionsToStage3(
+      heuristic,
+      opts.lit.condition,
+      opts.lit.detailCondition || "",
+    )
+  }
 
   // Intensity-only sheets: do not parse into fake qratio
   if (heuristic.intensityOnly) {
     return { ...heuristic, skip: true }
   }
 
-  // Require site signal for high-confidence short-circuit
+  // Require site signal for high-confidence short-circuit. Skip the shortcut when
+  // the user has provided feedback: their corrections must reach the LLM so the
+  // resulting column/condition mapping reflects them.
   if (
     heuristic.confidence >= HEURISTIC_HIGH &&
-    mappingIsParsable(heuristic)
+    mappingIsParsable(heuristic) &&
+    !opts.userGuidance
   ) {
     return finish(heuristic)
   }
@@ -561,12 +571,15 @@ async function resolveMapping(opts: {
         headerRowIndex: opts.sheet.headerRowIndex,
         dataRowCount: opts.sheet.preview.length,
       },
+      userGuidance: opts.userGuidance,
     })
-    const llmAligned = alignConditionsToStage3(
-      { ...llm, headerRowIndex: opts.sheet.headerRowIndex },
-      opts.lit.condition,
-      opts.lit.detailCondition || "",
-    )
+    const llmAligned = opts.userGuidance
+      ? { ...llm, headerRowIndex: opts.sheet.headerRowIndex }
+      : alignConditionsToStage3(
+          { ...llm, headerRowIndex: opts.sheet.headerRowIndex },
+          opts.lit.condition,
+          opts.lit.detailCondition || "",
+        )
     const llmMapped: ColumnMapping & { skip: boolean } = {
       ...llmAligned,
       skip: Boolean(llm.skip),
@@ -928,6 +941,7 @@ async function processOnePmid(opts: {
       lit,
       entryPath: c.entryPath,
       sheet: c.sheet,
+      userGuidance: hints?.note || undefined,
     })
     let effectiveMapping = mapping
     if (derivedSpecs.length > 0) {

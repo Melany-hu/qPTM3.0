@@ -100,7 +100,7 @@ export interface Stage5Result {
 /** Stage 6 — MS raw data download URL extraction */
 export type Stage6Status = "ok" | "partial" | "skipped" | "error"
 
-export type MsRepoKind = "PRIDE" | "iProX" | "jPOST" | "MassIVE" | "unknown"
+export type MsRepoKind = "PRIDE" | "iProX" | "jPOST" | "MassIVE" | "PDC" | "unknown"
 
 export interface Stage6AccessionResult {
   accession: string
