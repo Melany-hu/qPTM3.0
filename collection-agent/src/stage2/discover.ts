@@ -60,6 +60,28 @@ async function safeMerge(
   }
 }
 
+/** Run many independent probes and merge every successful result. */
+async function safeMergeAll(
+  stepErrors: string[],
+  probes: Array<{ label: string; fn: () => Promise<AccessionHit[]> }>,
+): Promise<AccessionHit[]> {
+  const results = await Promise.all(
+    probes.map(async ({ label, fn }) => {
+      try {
+        return { ok: true as const, hits: await fn() }
+      } catch (err) {
+        return { ok: false as const, label, err: errMsg(err) }
+      }
+    }),
+  )
+  let merged: AccessionHit[] = []
+  for (const r of results) {
+    if (r.ok) merged = mergeAccessions(merged, r.hits)
+    else stepErrors.push(`${r.label}: ${r.err}`)
+  }
+  return merged
+}
+
 /**
  * Cascaded Stage-2 discovery (no PDF by default):
  * 1) abstract / stage1 reason regex
@@ -67,6 +89,7 @@ async function safeMerge(
  * 3) Europe PMC full text XML / DOI HTML
  * 4) mark needsPdf if still empty
  *
+ * Independent network steps run concurrently to cut wall-clock latency.
  * Each network step is isolated — partial hits from earlier steps are never discarded.
  */
 export async function discoverForPmid(input: Stage2DiscoverInput): Promise<Stage2Manifest> {
@@ -99,11 +122,22 @@ export async function discoverForPmid(input: Stage2DiscoverInput): Promise<Stage
     stepErrors.push(`europepmc_meta: ${errMsg(err)}`)
   }
 
-  // --- 2) repository reverse lookup ---
-  if (doi) {
-    hits = await safeMerge(hits, stepErrors, "pride_doi", () => searchPrideByDoi(doi!))
-    hits = await safeMerge(hits, stepErrors, "massive_doi", () => searchMassiveByDoi(doi!))
-  }
+  // --- 2) repository reverse lookup + Europe PMC full text, in parallel ---
+  // These are independent once DOI/PMCID are known: PRIDE-by-DOI, MassIVE-by-DOI
+  // and the Europe PMC full-text XML scan can all run at once.
+  hits = await safeMergeAll(stepErrors, [
+    { label: "pride_doi", fn: () => (doi ? searchPrideByDoi(doi) : Promise.resolve([])) },
+    { label: "massive_doi", fn: () => (doi ? searchMassiveByDoi(doi) : Promise.resolve([])) },
+    {
+      label: "europepmc_xml",
+      fn: () =>
+        pmcid
+          ? fetchEuropePmcFullTextXml(pmcid).then((xml) =>
+              xml ? extractAccessions(xml, "europepmc:xml") : [],
+            )
+          : Promise.resolve([]),
+    },
+  ])
 
   const expandable = hits.map((h) => h.id).filter((id) => /^(PXD|MSV|PDC)/i.test(id))
   if (expandable.length) {
@@ -112,38 +146,21 @@ export async function discoverForPmid(input: Stage2DiscoverInput): Promise<Stage
     )
   }
 
-  for (const h of [...hits]) {
-    if (h.source === "iProX") {
-      hits = await safeMerge(hits, stepErrors, `iprox:${h.id}`, () => lookupIprox(h.id))
-    }
-    if (h.source === "jPOST") {
-      hits = await safeMerge(hits, stepErrors, `jpost:${h.id}`, () => lookupJpost(h.id))
-    }
-    if (h.source === "MassIVE") {
-      hits = await safeMerge(hits, stepErrors, `massive:${h.id}`, () =>
-        lookupMassiveByAccession(h.id),
-      )
-    }
+  // --- 3) validate / expand per-hit repo lookups, in parallel ---
+  const perHit = [...hits]
+    .map((h) => {
+      if (h.source === "iProX") return { label: `iprox:${h.id}`, fn: () => lookupIprox(h.id) }
+      if (h.source === "jPOST") return { label: `jpost:${h.id}`, fn: () => lookupJpost(h.id) }
+      if (h.source === "MassIVE")
+        return { label: `massive:${h.id}`, fn: () => lookupMassiveByAccession(h.id) }
+      return null
+    })
+    .filter((p): p is { label: string; fn: () => Promise<AccessionHit[]> } => p !== null)
+  if (perHit.length) {
+    hits = await safeMergeAll(stepErrors, perHit)
   }
 
-  // --- 3) Europe PMC full text / DOI HTML ---
-  if (pmcid) {
-    try {
-      const xml = await fetchEuropePmcFullTextXml(pmcid)
-      if (xml) {
-        hits = mergeAccessions(hits, extractAccessions(xml, "europepmc:xml"))
-        const more = hits.map((h) => h.id).filter((id) => /^(PXD|MSV|PDC)/i.test(id))
-        if (more.length) {
-          hits = await safeMerge(hits, stepErrors, "proteomexchange_xml", () =>
-            expandViaProteomeXchange(more),
-          )
-        }
-      }
-    } catch (err) {
-      stepErrors.push(`europepmc_xml: ${errMsg(err)}`)
-    }
-  }
-
+  // --- 4) DOI HTML fallback (only when nothing found yet) ---
   if (hits.length === 0 && doi) {
     hits = await safeMerge(hits, stepErrors, "doi_html", () => fetchDoiLandingAccessions(doi!))
     const more = hits.map((h) => h.id).filter((id) => /^(PXD|MSV|PDC)/i.test(id))

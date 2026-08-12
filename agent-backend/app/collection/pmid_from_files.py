@@ -1,4 +1,4 @@
-"""Extract PMID (and DOI→PMID) from uploaded collection files."""
+"""Extract PMID (and DOI→PMID / title→PMID) from uploaded collection files."""
 
 from __future__ import annotations
 
@@ -19,6 +19,8 @@ _PMID_PATTERNS = (
     re.compile(r"pubmed\.ncbi\.nlm\.nih\.gov/(?:pmid/)?(\d{7,8})\b", re.I),
     re.compile(r"ncbi\.nlm\.nih\.gov/pubmed/(\d{7,8})\b", re.I),
     re.compile(r"europepmc\.org/article/MED/(\d{7,8})\b", re.I),
+    # Publisher footers / headers: "PubMed: 12345678"
+    re.compile(r"PubMed\s*[=:]\s*(\d{7,8})\b", re.I),
 )
 _JATS_PMID_RE = re.compile(
     r'<article-id[^>]+pub-id-type=["\']pmid["\'][^>]*>(\d{7,8})</article-id>',
@@ -33,6 +35,21 @@ _DOI_LOOSE_RE = re.compile(r"\b(10\.\d{4,9}/[-._;()/:A-Z0-9]+)\b", re.I)
 
 _MAX_DOI_LOOKUPS = 3
 _DOI_HTTP_TIMEOUT = 8.0
+_TITLE_HTTP_TIMEOUT = 10.0
+_PDF_TEXT_PAGES = 8
+
+
+def _normalize_pdf_text(text: str) -> str:
+    """Fix common PDF extraction artifacts that break DOI / PMID matching."""
+    if not text:
+        return ""
+    # Soft hyphen / hyphenation across line breaks: "modifi-\ncation" → "modification"
+    t = re.sub(r"(\w)-\s*\n\s*(\w)", r"\1\2", text)
+    # DOI often split: "10.1038/\nncb.1234" or "doi.org/10.\n1038/..."
+    t = re.sub(r"(10\.\d{4,9}/)\s*\n\s*", r"\1", t)
+    t = re.sub(r"(doi\.org/)\s*\n\s*", r"\1", t, flags=re.I)
+    t = re.sub(r"\s*\n\s*", " ", t)
+    return t
 
 
 def _collect_dois(text: str, *, loose: bool = False) -> list[str]:
@@ -53,8 +70,6 @@ def _collect_dois(text: str, *, loose: bool = False) -> list[str]:
             seen.add(key)
             dois.append(doi)
     return dois
-
-_PDF_TEXT_PAGES = 8
 
 
 def _first_pmid(text: str, *, allow_bare: bool = False) -> str | None:
@@ -96,15 +111,24 @@ def extract_pmid_from_xml(content: bytes) -> str | None:
     return extract_pmid_from_text(text, allow_bare=False)
 
 
-def _pdf_page_texts(content: bytes, max_pages: int = _PDF_TEXT_PAGES) -> list[str]:
+def _pdf_reader(content: bytes):
     try:
         from pypdf import PdfReader
     except ImportError:
         logger.warning("pypdf not installed; cannot extract text from PDF uploads")
-        return []
-
+        return None
     try:
-        reader = PdfReader(io.BytesIO(content))
+        return PdfReader(io.BytesIO(content))
+    except Exception as exc:
+        logger.warning("PDF open failed: %s", exc)
+        return None
+
+
+def _pdf_page_texts(content: bytes, max_pages: int = _PDF_TEXT_PAGES) -> list[str]:
+    reader = _pdf_reader(content)
+    if reader is None:
+        return []
+    try:
         out: list[str] = []
         for page in reader.pages[:max_pages]:
             text = page.extract_text() or ""
@@ -124,15 +148,104 @@ def extract_pmid_from_pdf(content: bytes) -> str | None:
     """
     pages = _pdf_page_texts(content)
     for text in pages:
-        found = _first_pmid(text, allow_bare=False)
+        found = _first_pmid(_normalize_pdf_text(text), allow_bare=False)
         if found:
             return found
     if pages:
-        found = _first_pmid("\n".join(pages), allow_bare=False)
+        found = _first_pmid(_normalize_pdf_text("\n".join(pages)), allow_bare=False)
         if found:
             return found
     # pypdf failed / empty text: still allow labeled PMID strings in the stream
     return extract_pmid_from_bytes(content, allow_bare=False)
+
+
+_TITLE_STOP_RE = re.compile(
+    r"^(abstract|introduction|keywords?|background|results?|methods?|"
+    r"materials?\s+and\s+methods|references|acknowledg|copyright|received|"
+    r"accepted|published|online|volume|article|research\s+article|"
+    r"original\s+article|brief\s+communication|letter\s+to|doi|pmid|http|"
+    r"www\.|supplementary|supporting\s+information)\b",
+    re.I,
+)
+_AUTHOR_LINE_RE = re.compile(
+    r"(,\s*[A-Z]\.){2,}|"  # Doe, J., Smith, A.
+    r"\b(university|institute|department|school of|hospital|laboratory)\b|"
+    r"@|"
+    r"^\d+\s*$|"
+    r"^[A-Z][a-z]+(?:\s+[A-Z]\.?)+(?:\s*,\s*[A-Z][a-z]+(?:\s+[A-Z]\.?)+)+$",
+    re.I,
+)
+
+
+def extract_title_from_pdf(content: bytes) -> str | None:
+    """Best-effort article title from PDF metadata or first-page text."""
+    reader = _pdf_reader(content)
+    if reader is not None:
+        try:
+            meta = reader.metadata
+            raw = None
+            if meta is not None:
+                raw = getattr(meta, "title", None) or (
+                    meta.get("/Title") if hasattr(meta, "get") else None
+                )
+            if raw:
+                title = str(raw).strip()
+                # Ignore filename-like or empty metadata titles
+                if (
+                    len(title) >= 15
+                    and not re.fullmatch(r"[\w.\- ]+\.pdf", title, re.I)
+                    and not re.fullmatch(r"\d{7,8}", title)
+                    and "untitled" not in title.lower()
+                ):
+                    return re.sub(r"\s+", " ", title)[:300]
+        except Exception:
+            pass
+
+    pages = _pdf_page_texts(content, max_pages=2)
+    if not pages:
+        return None
+    text = pages[0]
+    lines = [re.sub(r"\s+", " ", ln).strip() for ln in text.splitlines()]
+    lines = [ln for ln in lines if ln]
+
+    # Cut at Abstract / Introduction block
+    cut = len(lines)
+    for i, ln in enumerate(lines):
+        if _TITLE_STOP_RE.match(ln) or re.fullmatch(r"abstract", ln, re.I):
+            cut = i
+            break
+    candidates = lines[:cut] if cut > 0 else lines[:12]
+
+    # Skip leading journal / running-head noise (short ALL-CAPS or volume lines)
+    body: list[str] = []
+    for ln in candidates:
+        if len(ln) < 8:
+            continue
+        if _TITLE_STOP_RE.match(ln):
+            break
+        if _AUTHOR_LINE_RE.search(ln) and len(body) > 0:
+            break
+        if re.fullmatch(r"[A-Z0-9 \-–—,.:;/&]{8,60}", ln) and ln.isupper() and len(body) == 0:
+            # Likely journal running head — skip
+            continue
+        if re.search(r"\b(vol\.?|pp\.?|pages?)\b", ln, re.I) and len(ln) < 40:
+            continue
+        body.append(ln)
+        # Titles are rarely more than ~3 extracted lines
+        joined = " ".join(body)
+        if len(joined) >= 40 and (
+            len(body) >= 2 or joined.endswith((".", "?", "!")) or len(joined) >= 80
+        ):
+            break
+        if len(body) >= 3:
+            break
+
+    if not body:
+        return None
+    title = re.sub(r"\s+", " ", " ".join(body)).strip(" .,;:")
+    if len(title) < 15:
+        return None
+    return title[:300]
 
 
 def extract_pmid_from_tabular(content: bytes) -> str | None:
@@ -224,7 +337,7 @@ def extract_dois_from_upload(filename: str, content: bytes) -> list[str]:
     elif ext == ".pdf":
         pages = _pdf_page_texts(content)
         if pages:
-            texts.extend(pages)
+            texts.extend(_normalize_pdf_text(p) for p in pages)
             loose = True  # page text is safe for loose DOI matching
         else:
             # Binary fallback: only strict doi.org / doi: patterns
@@ -247,6 +360,21 @@ def extract_dois_from_upload(filename: str, content: bytes) -> list[str]:
             seen.add(key)
             dois.append(doi)
     return dois[:_MAX_DOI_LOOKUPS]
+
+
+def extract_title_from_upload(filename: str, content: bytes) -> str | None:
+    ext = Path(filename).suffix.lower()
+    if ext == ".pdf":
+        return extract_title_from_pdf(content)
+    if ext == ".xml":
+        text = content.decode("utf-8", errors="replace")
+        m = re.search(r"<article-title[^>]*>(.*?)</article-title>", text, re.I | re.S)
+        if m:
+            title = re.sub(r"<[^>]+>", "", m.group(1))
+            title = re.sub(r"\s+", " ", title).strip()
+            if len(title) >= 15:
+                return title[:300]
+    return None
 
 
 async def doi_to_pmid(doi: str) -> str | None:
@@ -310,8 +438,123 @@ async def doi_to_pmid(doi: str) -> str | None:
     return None
 
 
+def _norm_title_key(s: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", (s or "").lower())
+
+
+async def title_to_pmid(title: str) -> str | None:
+    """Resolve article title → PMID via PubMed / Europe PMC / Crossref→DOI."""
+    title = re.sub(r"\s+", " ", (title or "").strip())
+    if len(title) < 15:
+        return None
+    # Trim trailing junk often captured from first page
+    title = re.sub(r"\s+(Abstract|Introduction|Keywords)\b.*$", "", title, flags=re.I).strip()
+    if len(title) < 15:
+        return None
+
+    timeout = httpx.Timeout(_TITLE_HTTP_TIMEOUT)
+    want = _norm_title_key(title)
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+        # 1) PubMed title search
+        try:
+            res = await client.get(
+                "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi",
+                params={
+                    "db": "pubmed",
+                    "term": f"{title}[Title]",
+                    "retmode": "json",
+                    "retmax": "5",
+                    "tool": "qptm-agent",
+                    "email": "qptm@localhost",
+                },
+            )
+            if res.status_code == 200:
+                ids = (res.json().get("esearchresult") or {}).get("idlist") or []
+                ids = [str(i) for i in ids if re.fullmatch(r"\d{7,8}", str(i))]
+                if len(ids) == 1:
+                    return ids[0]
+                if ids:
+                    # Disambiguate via ESummary titles
+                    sum_res = await client.get(
+                        "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi",
+                        params={
+                            "db": "pubmed",
+                            "id": ",".join(ids),
+                            "retmode": "json",
+                            "tool": "qptm-agent",
+                            "email": "qptm@localhost",
+                        },
+                    )
+                    if sum_res.status_code == 200:
+                        result = (sum_res.json().get("result") or {})
+                        best_id = None
+                        best_score = 0
+                        for pid in ids:
+                            rec = result.get(pid) or {}
+                            rt = str(rec.get("title") or "")
+                            key = _norm_title_key(rt)
+                            if not key:
+                                continue
+                            if key == want or want in key or key in want:
+                                score = min(len(key), len(want))
+                                if score > best_score:
+                                    best_score = score
+                                    best_id = pid
+                        if best_id and best_score >= 20:
+                            return best_id
+        except Exception as exc:
+            logger.debug("PubMed title search failed: %s", exc)
+
+        # 2) Europe PMC title search
+        try:
+            res = await client.get(
+                "https://www.ebi.ac.uk/europepmc/webservices/rest/search",
+                params={
+                    "query": f'TITLE:"{title[:180]}"',
+                    "format": "json",
+                    "pageSize": 3,
+                },
+            )
+            if res.status_code == 200:
+                results = (res.json().get("resultList") or {}).get("result") or []
+                for rec in results:
+                    pmid = rec.get("pmid") or rec.get("id")
+                    if not pmid or not re.fullmatch(r"\d{7,8}", str(pmid)):
+                        continue
+                    rt = str(rec.get("title") or "")
+                    key = _norm_title_key(rt)
+                    if key == want or want in key or key in want or len(results) == 1:
+                        return str(pmid)
+        except Exception as exc:
+            logger.debug("EuropePMC title search failed: %s", exc)
+
+        # 3) Crossref bibliographic → DOI → PMID
+        try:
+            res = await client.get(
+                "https://api.crossref.org/works",
+                params={"query.bibliographic": title[:200], "rows": 3},
+                headers={"User-Agent": "qPTM-Agent/1.0 (mailto:qptm@localhost)"},
+            )
+            if res.status_code == 200:
+                items = ((res.json().get("message") or {}).get("items")) or []
+                for item in items:
+                    rt = " ".join(item.get("title") or [])
+                    key = _norm_title_key(rt)
+                    doi = item.get("DOI")
+                    if not doi:
+                        continue
+                    if key == want or want in key or key in want or len(items) == 1:
+                        pmid = await doi_to_pmid(str(doi))
+                        if pmid:
+                            return pmid
+        except Exception as exc:
+            logger.debug("Crossref title search failed: %s", exc)
+
+    return None
+
+
 async def resolve_pmid_from_uploads(uploads: Iterable[tuple[str, bytes]]) -> str | None:
-    """Try labeled PMID from file bodies; fall back to DOI → PMID lookup."""
+    """Try labeled PMID from file bodies; then DOI→PMID; then title→PMID."""
     items = list(uploads)
     for filename, content in items:
         found = extract_pmid_from_upload(filename, content)
@@ -329,10 +572,21 @@ async def resolve_pmid_from_uploads(uploads: Iterable[tuple[str, bytes]]) -> str
             seen_dois.add(key)
             tried += 1
             if tried > _MAX_DOI_LOOKUPS:
-                return None
+                break
             logger.info("Trying DOI→PMID for %s (from %s)", doi, filename)
             pmid = await doi_to_pmid(doi)
             if pmid:
                 logger.info("Resolved PMID %s via DOI %s", pmid, doi)
                 return pmid
+
+    # Last resort: article title from PDF/XML → PubMed / EuropePMC / Crossref
+    for filename, content in items:
+        title = extract_title_from_upload(filename, content)
+        if not title:
+            continue
+        logger.info("Trying title→PMID for %r (from %s)", title[:120], filename)
+        pmid = await title_to_pmid(title)
+        if pmid:
+            logger.info("Resolved PMID %s via title %r", pmid, title[:80])
+            return pmid
     return None

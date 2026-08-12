@@ -12,12 +12,12 @@ node_modules/
 fasta_file/
 
 # Runtime / generated data (keep scripts and .gitkeep)
-agent-backend/data/_runtime/collection/
-agent-backend/data/_runtime/eval/results_*.jsonl
-agent-backend/data/_runtime/eval/summary_*.md
-!agent-backend/data/_runtime/eval/run_agent_eval.py
-!agent-backend/data/_runtime/eval/latest_results.json
-!agent-backend/data/_runtime/eval/latest_summary.md
+collection-agent/runtime/collection/
+agent-backend/runtime/eval/results_*.jsonl
+agent-backend/runtime/eval/summary_*.md
+!agent-backend/runtime/eval/run_agent_eval.py
+!agent-backend/runtime/eval/latest_results.json
+!agent-backend/runtime/eval/latest_summary.md
 
 # Environment
 .env
@@ -62,8 +62,7 @@ agent-backend/data/localization/iNuLoC/*.zip
 !agent-backend/data/localization/**/.gitkeep
 
 # Agent conversation database (runtime)
-agent-backend/data/_runtime/conversations/agent.db
-agent-backend/data/conversations/agent.db
+agent-backend/runtime/conversations/agent.db
 
 # Keep the curated stability dataset (small, included in repo)
 !agent-backend/data/stability/curated/ptm_stability_curated.tsv

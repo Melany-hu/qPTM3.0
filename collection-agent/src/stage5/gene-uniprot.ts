@@ -1,6 +1,6 @@
 /**
  * Gene symbol → UniProt accession (for Stage5 sheets without UniProt column).
- * Uses UniProt REST search + on-disk cache under stage5/cache/.
+ * Uses UniProt ID Mapping (batch) + on-disk cache under stage5/cache/.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
@@ -18,6 +18,9 @@ const TAX_HINTS: Array<{ re: RegExp; taxId: number; name: string }> = [
   { re: /sus\s*scrofa|\bpig\b/i, taxId: 9823, name: "pig" },
 ]
 
+const BATCH_SIZE = 500
+const MAX_GENES = 20_000
+
 export function organismToTaxId(organism: string): number | null {
   const s = (organism || "").trim()
   if (!s) return null
@@ -28,12 +31,14 @@ export function organismToTaxId(organism: string): number | null {
 }
 
 export function normalizeGeneSymbol(raw: string): string {
-  return raw
-    .split(/[;,\s|/]+/)
-    .map((x) => x.trim())
-    .filter(Boolean)[0]
-    ?.replace(/^gene[:=\s]+/i, "")
-    .trim() ?? ""
+  return (
+    raw
+      .split(/[;,\s|/]+/)
+      .map((x) => x.trim())
+      .filter(Boolean)[0]
+      ?.replace(/^gene[:=\s]+/i, "")
+      .trim() ?? ""
+  )
 }
 
 function cachePath(taxId: number): string {
@@ -56,26 +61,134 @@ function saveCache(taxId: number, cache: Record<string, string | null>): void {
   writeFileSync(cachePath(taxId), JSON.stringify(cache, null, 0), "utf8")
 }
 
+async function sleep(ms: number): Promise<void> {
+  await new Promise((r) => setTimeout(r, ms))
+}
+
+async function fetchJson(
+  url: string,
+  init?: RequestInit,
+  timeoutMs = 60_000,
+): Promise<{ data: unknown; nextUrl: string }> {
+  const ctrl = new AbortController()
+  const t = setTimeout(() => ctrl.abort(), timeoutMs)
+  try {
+    const res = await fetch(url, { ...init, signal: ctrl.signal })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const data = await res.json()
+    const link = res.headers.get("link") || ""
+    const next = link.match(/<([^>]+)>\s*;\s*rel="next"/i)?.[1] || ""
+    return { data, nextUrl: next }
+  } finally {
+    clearTimeout(t)
+  }
+}
+
+/**
+ * UniProt ID Mapping: Gene_Name → UniProtKB for one chunk of symbols.
+ * Falls back to per-gene search for genes the batch job did not resolve.
+ */
+async function mapChunkViaIdMapping(
+  genes: string[],
+  taxId: number,
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>()
+  if (genes.length === 0) return out
+
+  const body = new URLSearchParams()
+  body.set("from", "Gene_Name")
+  body.set("to", "UniProtKB")
+  body.set("ids", genes.join(","))
+  body.set("taxId", String(taxId))
+
+  let jobId = ""
+  try {
+    const started = (
+      await fetchJson("https://rest.uniprot.org/idmapping/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+        body,
+      })
+    ).data as { jobId?: string }
+    jobId = started.jobId || ""
+  } catch {
+    return out
+  }
+  if (!jobId) return out
+
+  // Poll until finished (typically seconds for a few hundred genes)
+  for (let i = 0; i < 90; i++) {
+    await sleep(i < 5 ? 500 : 1500)
+    try {
+      const st = (
+        await fetchJson(
+          `https://rest.uniprot.org/idmapping/status/${jobId}`,
+          { headers: { Accept: "application/json" } },
+          30_000,
+        )
+      ).data as { jobStatus?: string }
+      const status = (st.jobStatus || "").toUpperCase()
+      if (status === "FAILED" || status === "ERROR") return out
+      if (status === "RUNNING" || status === "NEW") continue
+      break
+    } catch {
+      // keep polling
+    }
+  }
+
+  type ResultRow = {
+    from?: string
+    to?: { primaryAccession?: string; entryType?: string }
+  }
+  let url =
+    `https://rest.uniprot.org/idmapping/uniprotkb/results/${jobId}` +
+    `?format=json&size=500`
+  const byGene = new Map<string, Array<{ acc: string; reviewed: boolean }>>()
+  try {
+    for (let page = 0; page < 40 && url; page++) {
+      const { data, nextUrl } = await fetchJson(url, { headers: { Accept: "application/json" } }, 90_000)
+      const payload = data as { results?: ResultRow[] }
+      for (const r of payload.results ?? []) {
+        const from = (r.from || "").trim()
+        const acc = (r.to?.primaryAccession || "").trim().toUpperCase()
+        if (!from || !acc) continue
+        const reviewed = /reviewed|swiss/i.test(r.to?.entryType || "")
+        const key = from.toLowerCase()
+        const list = byGene.get(key) ?? []
+        list.push({ acc, reviewed })
+        byGene.set(key, list)
+      }
+      url = nextUrl
+      if (!(payload.results && payload.results.length)) break
+    }
+  } catch {
+    return out
+  }
+
+  for (const g of genes) {
+    const hits = byGene.get(g.toLowerCase())
+    if (!hits?.length) continue
+    const preferred = hits.find((h) => h.reviewed) ?? hits[0]
+    out.set(g, preferred.acc)
+    out.set(g.toLowerCase(), preferred.acc)
+  }
+  return out
+}
+
+/** Slow fallback for genes the batch mapper missed. */
 async function fetchUniprotForGene(gene: string, taxId: number): Promise<string | null> {
   const tryQueries = [
     `(gene_exact:${gene}) AND (organism_id:${taxId}) AND (reviewed:true)`,
     `(gene_exact:${gene}) AND (organism_id:${taxId})`,
-    `(gene:${gene}) AND (organism_id:${taxId}) AND (reviewed:true)`,
-    `(gene:${gene}) AND (organism_id:${taxId})`,
   ]
   for (const q of tryQueries) {
     const url =
       `https://rest.uniprot.org/uniprotkb/search?query=${encodeURIComponent(q)}` +
       `&fields=accession,gene_names&format=json&size=5`
-    const ctrl = new AbortController()
-    const t = setTimeout(() => ctrl.abort(), 20_000)
     try {
-      const res = await fetch(url, {
-        signal: ctrl.signal,
-        headers: { Accept: "application/json" },
-      })
-      if (!res.ok) continue
-      const data = (await res.json()) as {
+      const data = (
+        await fetchJson(url, { headers: { Accept: "application/json" } }, 20_000)
+      ).data as {
         results?: Array<{ primaryAccession?: string; genes?: Array<{ geneName?: { value?: string } }> }>
       }
       const results = data.results ?? []
@@ -84,13 +197,10 @@ async function fetchUniprotForGene(gene: string, taxId: number): Promise<string 
       const exact = results.find((r) =>
         (r.genes ?? []).some((x) => (x.geneName?.value || "").toLowerCase() === gLower),
       )
-      const hit = exact ?? results[0]
-      const acc = hit.primaryAccession?.trim()
+      const acc = (exact ?? results[0]).primaryAccession?.trim()
       if (acc) return acc.toUpperCase()
     } catch {
-      // try next query
-    } finally {
-      clearTimeout(t)
+      // next query
     }
   }
   return null
@@ -116,47 +226,71 @@ export async function mapGenesToUniprot(
         .map(normalizeGeneSymbol)
         .filter((g) => g.length >= 1 && !/^(na|n\/a|null|-)$/i.test(g)),
     ),
-  ].slice(0, 300)
+  ].slice(0, MAX_GENES)
   if (uniq.length === 0) return out
 
   const cache = loadCache(tax)
   const missing: string[] = []
   for (const g of uniq) {
     const key = g.toLowerCase()
-    if (key in cache) {
-      const v = cache[key]
-      if (v) {
-        out.set(g, v)
-        out.set(key, v)
-      }
+    if (key in cache && cache[key]) {
+      const v = cache[key]!
+      out.set(g, v)
+      out.set(key, v)
     } else {
+      // Retry previously-unmapped symbols (batch API is cheap; nulls may be stale)
       missing.push(g)
     }
   }
 
-  const concurrency = Math.max(1, Math.min(opts.concurrency ?? 4, 8))
   let done = uniq.length - missing.length
   opts.onProgress?.(done, uniq.length)
 
-  let i = 0
-  async function worker() {
-    while (true) {
-      const idx = i++
-      if (idx >= missing.length) return
-      const g = missing[idx]
-      const acc = await fetchUniprotForGene(g, tax)
-      cache[g.toLowerCase()] = acc
+  // Batch ID mapping in chunks
+  for (let start = 0; start < missing.length; start += BATCH_SIZE) {
+    const chunk = missing.slice(start, start + BATCH_SIZE)
+    const mapped = await mapChunkViaIdMapping(chunk, tax)
+    const stillMissing: string[] = []
+    for (const g of chunk) {
+      const acc = mapped.get(g) || mapped.get(g.toLowerCase())
       if (acc) {
+        cache[g.toLowerCase()] = acc
         out.set(g, acc)
         out.set(g.toLowerCase(), acc)
+      } else {
+        stillMissing.push(g)
       }
       done++
-      opts.onProgress?.(done, uniq.length)
-      // gentle rate limit
-      await new Promise((r) => setTimeout(r, 80))
     }
+    opts.onProgress?.(Math.min(done, uniq.length), uniq.length)
+    // Persist after each chunk so retries keep progress
+    saveCache(tax, cache)
+
+    // Fallback for a small remainder (batch misses)
+    const concurrency = Math.max(1, Math.min(opts.concurrency ?? 6, 10))
+    let fi = 0
+    async function fallbackWorker() {
+      while (true) {
+        const idx = fi++
+        if (idx >= stillMissing.length) return
+        const g = stillMissing[idx]
+        const acc = await fetchUniprotForGene(g, tax)
+        cache[g.toLowerCase()] = acc
+        if (acc) {
+          out.set(g, acc)
+          out.set(g.toLowerCase(), acc)
+        }
+      }
+    }
+    if (stillMissing.length > 0) {
+      await Promise.all(
+        Array.from({ length: Math.min(concurrency, stillMissing.length) }, () => fallbackWorker()),
+      )
+      saveCache(tax, cache)
+    }
+    opts.onProgress?.(Math.min(done, uniq.length), uniq.length)
   }
-  await Promise.all(Array.from({ length: Math.min(concurrency, missing.length || 1) }, () => worker()))
+
   saveCache(tax, cache)
   return out
 }

@@ -2,6 +2,7 @@
  * Stage 5 — heuristic column mapping for qratio fields.
  */
 import {
+  canonicalizeConditionKey,
   cleanMappedCondition,
   conditionLabelFromRatioHeader,
   isSilacChannelRatioHeader,
@@ -9,6 +10,7 @@ import {
   silacBiologySuffixFromHeader,
 } from "./condition.js"
 import type { SheetInventory } from "./tables.js"
+import { looksLikePhosphositeCombinedId } from "./phosphosite-id.js"
 
 export type RatioLevel = "peptide" | "protein"
 export type ValueType = "log2_ratio" | "fold_change" | "intensity" | "other"
@@ -41,6 +43,11 @@ export interface ColumnMapping {
   aminoAcidCol: string | null
   /** Combined site like S123 / T45 / Y89 */
   siteCombinedCol: string | null
+  /**
+   * Long-format tables: one ratio column + a column of per-row contrast labels
+   * (e.g. headers feature_names|logFC|P.Value|condition with 14 contrasts stacked).
+   */
+  conditionCol?: string | null
   /** MaxQuant probability / modified sequence — AA inferred when aminoAcidCol missing */
   modSeqCol: string | null
   ratioColumns: MappedRatioColumn[]
@@ -90,6 +97,10 @@ function scoreUniprot(n: string): number {
   if (/^uniprotkb$/i.test(n)) return 11
   if (/^uniprot(\s*id)?$/.test(n) || n === "uniprotid") return 10
   if (/uniprot/.test(n) && !/name|gene/.test(n)) return 9
+  // Spectronaut / MaxQuant protein-group accession columns
+  if (/^pg\.?\s*protein\s*groups?$/.test(n) || /^protein\s*groups?$/.test(n)) return 9
+  if (/protein\s*groups?/.test(n) && !/count|number|razor/.test(n)) return 8
+  if (/^leading\s*proteins?$/.test(n) || /^majority\s*protein\s*ids?$/.test(n)) return 8
   if (/ipi\s*accession|accession\s*number/.test(n)) return 9
   if (/^accession$/.test(n) || /protein\s*accession/.test(n)) return 8
   if (/^protein\s*ids?$/.test(n) || /^proteinid$/.test(n)) return 6
@@ -122,7 +133,11 @@ function scorePosition(n: string): number {
 }
 
 function scoreAmino(n: string): number {
+  // Phospho residue-type headers (values are S/T/Y)
+  if (/^sty$/.test(n) || /^s\s*\/\s*t\s*\/\s*y$/.test(n)) return 11
+  if (/^residue\s*types?$/.test(n)) return 10
   if (/amino\s*acids?/.test(n)) return 10
+  // Bare "AA" is ambiguous: often position when paired with STY (handled in repair)
   if (/^aa$/.test(n) || /^residue$/.test(n)) return 9
   if (/modified\s*residue/.test(n)) return 8
   if (/\bresidue\b/.test(n) && !/position/.test(n)) return 6
@@ -152,24 +167,27 @@ function scoreGene(n: string): number {
 function scoreSiteCombined(n: string): number {
   // Accession / UniProt ID columns are never combined site IDs
   // (even if a section title mentions "modification sites")
-  if (/protein\s*accession|uniprot|\baccession\b/.test(n) && !/phosphosite|site\s*id/.test(n))
+  if (/protein\s*accession|uniprot|\baccession\b/.test(n) && !/phosphosite|site\s*id|feature/.test(n))
     return 0
   if (/uniprot.*phosphosite|phosphosite.*uniprot|protein\s*\+\s*phosphosite|gene\s*name\s*\+\s*phosphosite/i.test(n))
     return 11
   if (/modification\s*sites?/.test(n)) return 10
   if (/^phosphosite/.test(n)) return 10
+  // limma / feature tables: "feature_names" holding CIC-S739
+  if (/^feature[_\s-]?names?$/.test(n)) return 10
+  if (/^features?$/.test(n)) return 7
   if (/p[Rr]\s*residue/.test(n)) return 9
   if (/^sites?$/.test(n)) return 8
   if (/phospho.?site|ptm.?site|mod.?site/.test(n)) return 9
   if (/site\s*id/.test(n)) return 5
   // Peptide span columns are not combined site IDs
   if (/positions?\s+in\s+(a\s+)?master\s*proteins?/.test(n)) return 0
-  if (/accession/.test(n) && !/site|phospho/.test(n)) return 0
+  if (/accession/.test(n) && !/site|phospho|feature/.test(n)) return 0
   return 0
 }
 
 function isLog2Header(n: string): boolean {
-  return /log\s*2|log2|2\s*log|2log/.test(n)
+  return /log\s*2|log2|2\s*log|2log|^log\s*fc$|^logfc$|^log\.?\s*fc$|log\s*fc/.test(n)
 }
 
 /** Intensity / abundance columns — must NOT be treated as ratios. */
@@ -242,9 +260,18 @@ function scoreRatio(n: string): number {
   if (/^\d+\s*\/\s*\d+$/.test(n) && !/ratio|log|fold|fc/.test(n)) return 0
   let s = 0
   if (/(log\s*2|log2|2log|2\s*log)/.test(n) && /(ratio|fc|fold)/.test(n)) s = 10
+  // limma / common DE headers: logFC, logfc, log.FC, Log2FC
+  else if (/^log\s*2?\s*fc$|^logfc$|^log\.?\s*fc$/.test(n)) s = 9
   else if (/abundance\s*ratio/.test(n) && !/p[- ]?value|adj/.test(n)) s = 9
   else if (/^ratio\b/.test(n) || /\bratio\b/.test(n)) s = 8
   else if (/\bfold\s*change\b|\bfc\b/.test(n)) s = 7
+  else if (/log\s*fc|logfc/.test(n)) s = 7
+  // PTM shorthand contrasts: Kac(ATN/Ctrl), log2 Kac(ATN/Ctrl), Lac(H/L), …
+  else if (
+    /\([^)]+\/[^)]+\)/.test(n) &&
+    /\b(kac|kla|lac|di\s*gly|ub|phospho|succinyl|malonyl|crotonyl)\b/.test(n)
+  )
+    s = 8
   else if (/(log\s*2|log2|2log)/.test(n)) s = 6
   else if (/\baverage\b/.test(n) && /\//.test(n) && /phospho|protein|ratio/.test(n)) s = 7
   else if (/\baverage\b/.test(n) && /(phospho|ratio)/.test(n)) s = 6
@@ -287,10 +314,30 @@ function ratioIsLog2(h: string): boolean {
 }
 
 function pairConditionKey(cond: string): string {
-  return cond
-    .toLowerCase()
-    .replace(/[()\[\]\s]+/g, "")
-    .replace(/^m\/l$|^h\/l$|^l\/h$|^h\/m$|^l\/m$|^m\/h$/i, (m) => m.toLowerCase())
+  const canon = canonicalizeConditionKey(cond)
+  if (/^(m\/l|h\/l|l\/h|h\/m|l\/m|m\/h)$/i.test(cond.trim())) {
+    return cond.trim().toLowerCase()
+  }
+  return canon || cond.toLowerCase().replace(/[()\[\]\s]+/g, "")
+}
+
+/** Prefer log2FC columns when the same biological contrast also has fold-change. */
+function preferLog2RatioColumns(cols: MappedRatioColumn[]): MappedRatioColumn[] {
+  const best = new Map<string, MappedRatioColumn>()
+  const order: string[] = []
+  for (const r of cols) {
+    const key = `${r.level}:${pairConditionKey(r.condition)}`
+    const prev = best.get(key)
+    if (!prev) {
+      best.set(key, r)
+      order.push(key)
+      continue
+    }
+    const prevLog = prev.isLog2 || prev.valueType === "log2_ratio"
+    const nextLog = r.isLog2 || r.valueType === "log2_ratio"
+    if (nextLog && !prevLog) best.set(key, r)
+  }
+  return order.map((k) => best.get(k)!).filter(Boolean)
 }
 
 /** Map ratio/p-value column conditions onto Stage3 Condition / Detail. */
@@ -299,6 +346,9 @@ export function alignConditionsToStage3(
   stage3Condition: string,
   detailCondition = "",
 ): ColumnMapping {
+  // Long-format: per-row condition labels come from conditionCol — do not collapse
+  // the single shared logFC column onto one Stage3 fragment.
+  if (mapping.conditionCol) return mapping
   if ((!stage3Condition.trim() && !detailCondition.trim()) || mapping.ratioColumns.length === 0) {
     return mapping
   }
@@ -310,12 +360,13 @@ export function alignConditionsToStage3(
     resolveRowCondition(r.condition || r.column, stage3Condition, detailCondition),
   )
 
-  // If distinct table conditions were collapsed onto one Stage3 label, restore originals
+  // If distinct table conditions were collapsed onto one Stage3 label, restore originals.
+  // Orthographic variants (ETO 30min_Ctr vs ETO 30 min/Ctr) count as the SAME original.
   const byAligned = new Map<string, Set<string>>()
   for (let i = 0; i < alignedLabels.length; i++) {
-    const key = alignedLabels[i].toLowerCase().replace(/\s+/g, "")
+    const key = canonicalizeConditionKey(alignedLabels[i])
     const set = byAligned.get(key) ?? new Set<string>()
-    set.add(originals[i].toLowerCase().replace(/\s+/g, ""))
+    set.add(canonicalizeConditionKey(originals[i]))
     byAligned.set(key, set)
   }
   const collapsed = new Set<string>()
@@ -324,7 +375,7 @@ export function alignConditionsToStage3(
   }
 
   const ratioColumns = mapping.ratioColumns.map((r, i) => {
-    const key = alignedLabels[i].toLowerCase().replace(/\s+/g, "")
+    const key = canonicalizeConditionKey(alignedLabels[i])
     const condition = collapsed.has(key) ? originals[i] : alignedLabels[i]
     return { ...r, condition }
   })
@@ -332,11 +383,11 @@ export function alignConditionsToStage3(
   const pValueColumns = mapping.pValueColumns.map((p) => {
     const original = cleanMappedCondition(p.condition || p.column) || (p.condition || p.column)
     let condition = resolveRowCondition(p.condition || p.column, stage3Condition, detailCondition)
-    const key = condition.toLowerCase().replace(/\s+/g, "")
+    const key = canonicalizeConditionKey(condition)
     if (collapsed.has(key)) {
       const matchRatio = ratioColumns.find((r) => {
-        const rc = r.condition.toLowerCase().replace(/\s+/g, "")
-        const oc = original.toLowerCase().replace(/\s+/g, "")
+        const rc = canonicalizeConditionKey(r.condition)
+        const oc = canonicalizeConditionKey(original)
         return rc === oc || oc.includes(rc) || rc.includes(oc)
       })
       condition = matchRatio?.condition || original
@@ -345,6 +396,72 @@ export function alignConditionsToStage3(
   })
 
   return { ...mapping, ratioColumns, pValueColumns }
+}
+
+function scoreConditionCol(n: string): number {
+  if (/^conditions?$/.test(n)) return 10
+  if (/^contrasts?$/.test(n)) return 10
+  if (/^comparisons?$/.test(n)) return 9
+  if (/condition\s*(name|label|id)|contrast\s*(name|label)/.test(n)) return 8
+  if (/^groups?$/.test(n)) return 5
+  return 0
+}
+
+/**
+ * Long-format cue: a non-ratio column whose preview values look like many distinct contrasts.
+ */
+function detectConditionColFromPreview(
+  headers: string[],
+  preview: string[][] | undefined,
+  skip: Set<string>,
+): string | null {
+  if (!preview?.length || !headers.length) return null
+  let best: string | null = null
+  let bestDistinct = 0
+  for (let c = 0; c < headers.length; c++) {
+    const h = headers[c]
+    if (!h || skip.has(h)) continue
+    if (scoreConditionCol(norm(h)) >= 8) return h
+    if (scoreRatio(norm(h)) >= 6 || scorePValue(norm(h)) >= 7) continue
+    const vals = new Set<string>()
+    for (const row of preview.slice(0, 12)) {
+      const v = (row[c] ?? "").trim()
+      if (!v || /^-?\d+(\.\d+)?([eE][-+]?\d+)?$/.test(v)) continue
+      vals.add(v.toLowerCase())
+    }
+    const contrastLike = [...vals].filter((v) => /[-–—/]|vs\.?|versus|control|ctr|ins|igf/i.test(v))
+    if (vals.size >= 2 && contrastLike.length >= 2 && vals.size > bestDistinct) {
+      bestDistinct = vals.size
+      best = h
+    }
+  }
+  return best
+}
+function detectSiteCombinedFromPreview(
+  headers: string[],
+  preview: string[][] | undefined,
+  skip: Set<string>,
+): string | null {
+  if (!preview?.length || !headers.length) return null
+  let best: string | null = null
+  let bestHits = 0
+  for (let c = 0; c < headers.length; c++) {
+    const h = headers[c]
+    if (!h || skip.has(h)) continue
+    let hits = 0
+    let seen = 0
+    for (const row of preview.slice(0, 12)) {
+      const v = (row[c] ?? "").trim()
+      if (!v) continue
+      seen++
+      if (looksLikePhosphositeCombinedId(v)) hits++
+    }
+    if (seen >= 2 && hits / seen >= 0.6 && hits > bestHits) {
+      bestHits = hits
+      best = h
+    }
+  }
+  return best
 }
 
 /**
@@ -359,8 +476,23 @@ export function heuristicMapSheet(
   const geneCol = findBest(headers, [scoreGene], 7)
   const positionCol = findBest(headers, [scorePosition], 5)
   const aminoAcidCol = findBest(headers, [scoreAmino], 5)
-  const siteCombinedCol = findBest(headers, [scoreSiteCombined], 6)
+  let siteCombinedCol = findBest(headers, [scoreSiteCombined], 6)
+  if (!siteCombinedCol) {
+    const skip = new Set(
+      [uniprotCol, geneCol, positionCol, aminoAcidCol].filter(Boolean) as string[],
+    )
+    siteCombinedCol = detectSiteCombinedFromPreview(headers, sheet.preview, skip)
+  }
   const modSeqCol = findBest(headers, [scoreModSequence], 7)
+  let conditionCol = findBest(headers, [scoreConditionCol], 8)
+  if (!conditionCol) {
+    const skip = new Set(
+      [uniprotCol, geneCol, positionCol, aminoAcidCol, siteCombinedCol, modSeqCol].filter(
+        Boolean,
+      ) as string[],
+    )
+    conditionCol = detectConditionColFromPreview(headers, sheet.preview, skip)
+  }
 
   const intensityColumns = headers.filter((h) => scoreIntensity(norm(h)) >= 8)
 
@@ -414,8 +546,12 @@ export function heuristicMapSheet(
   }
 
   // Prefer a single peptide SILAC/normalized ratio; drop protein ratio if same H/L biology
-  let peptideRatios = ratioColumns.filter((r) => r.level === "peptide").slice(0, 12)
-  let proteinRatios = ratioColumns.filter((r) => r.level === "protein").slice(0, 8)
+  let peptideRatios = preferLog2RatioColumns(
+    ratioColumns.filter((r) => r.level === "peptide"),
+  ).slice(0, 12)
+  let proteinRatios = preferLog2RatioColumns(
+    ratioColumns.filter((r) => r.level === "protein"),
+  ).slice(0, 8)
   if (peptideRatios.length > 0) {
     const pepKeys = new Set(peptideRatios.map((r) => pairConditionKey(r.condition)))
     proteinRatios = proteinRatios.filter((r) => {
@@ -487,6 +623,7 @@ export function heuristicMapSheet(
     notesParts.push(`intensity_cols=${intensityColumns.slice(0, 6).join("|")}`)
   }
   if (finalRatios.length > 1) notesParts.push(`${finalRatios.length} ratio conditions`)
+  if (conditionCol) notesParts.push(`long_format_condition=${conditionCol}`)
 
   return {
     entryPath,
@@ -499,6 +636,7 @@ export function heuristicMapSheet(
     positionCol,
     aminoAcidCol,
     siteCombinedCol: positionCol && !siteCombinedCol ? null : siteCol,
+    conditionCol: conditionCol || null,
     modSeqCol: aminoAcidCol ? null : modSeqCol,
     ratioColumns: finalRatios,
     pValueColumns: pValueColumns.slice(0, 24),
@@ -535,11 +673,31 @@ export function mappingNeedsManual(m: ColumnMapping): boolean {
 /**
  * Prefer true residue-number columns (e.g. "Protein: Modified lysine") over
  * peptide-span / accession columns that LLMs often mis-map as Position.
+ *
+ * Also repairs a common phospho layout: columns STY (residue S/T/Y) + AA (site
+ * number). Bare "AA" scores as amino-acid by name, but when STY is present AA
+ * is the position.
  */
 export function repairSiteColumnMapping(
   mapping: ColumnMapping,
   headers: string[],
 ): ColumnMapping {
+  const styCol =
+    headers.find((h) => {
+      const n = norm(h)
+      return /^sty$/.test(n) || /^s\s*\/\s*t\s*\/\s*y$/.test(n) || /^residue\s*types?$/.test(n)
+    }) || null
+  const aaCol = headers.find((h) => /^aa$/.test(norm(h))) || null
+  if (styCol && aaCol) {
+    const notes = `${mapping.notes}; sty_aa:${styCol}+${aaCol}`.replace(/^; /, "")
+    return {
+      ...mapping,
+      aminoAcidCol: styCol,
+      positionCol: aaCol,
+      notes,
+    }
+  }
+
   const bestPos = findBest(headers, [scorePosition], 5)
   if (!bestPos) return mapping
 
@@ -575,4 +733,140 @@ export function repairSiteColumnMapping(
   }
 
   return mapping
+}
+
+function normHeaderForHint(h: string): string {
+  return (h || "").toLowerCase().replace(/[\s_]+/g, " ").trim()
+}
+
+function findHeaderByName(
+  headers: string[],
+  hint: string | undefined,
+): string | null {
+  if (!hint) return null
+  const nh = normHeaderForHint(hint)
+  if (!nh) return null
+  let hit = headers.find((h) => normHeaderForHint(h) === nh)
+  if (hit) return hit
+  // Prefer substantial overlap; avoid short tokens like "phos" matching
+  // "Protein + Phosphosite" via substring.
+  if (nh.length < 5) return null
+  hit = headers.find((h) => {
+    const n = normHeaderForHint(h)
+    if (n.includes(nh) && nh.length >= Math.min(8, n.length)) return true
+    if (nh.includes(n) && n.length >= 5) return true
+    return false
+  })
+  return hit ?? null
+}
+
+/**
+ * Apply free-text column role hints (e.g. "column AA is position") onto a mapping.
+ */
+export function applyColumnRoleHints(
+  mapping: ColumnMapping,
+  headers: string[],
+  roles: {
+    uniprotCol?: string
+    geneCol?: string
+    positionCol?: string
+    aminoAcidCol?: string
+    siteCombinedCol?: string
+    conditionCol?: string
+  } | null | undefined,
+): ColumnMapping {
+  if (!roles) return mapping
+  const uni = findHeaderByName(headers, roles.uniprotCol)
+  const gene = findHeaderByName(headers, roles.geneCol)
+  const pos = findHeaderByName(headers, roles.positionCol)
+  const aa = findHeaderByName(headers, roles.aminoAcidCol)
+  const siteComb = findHeaderByName(headers, roles.siteCombinedCol)
+  const condCol = findHeaderByName(headers, roles.conditionCol)
+  if (!uni && !gene && !pos && !aa && !siteComb && !condCol) return mapping
+  const bits: string[] = []
+  if (uni) bits.push(`uniprot=${uni}`)
+  if (gene) bits.push(`gene=${gene}`)
+  if (pos) bits.push(`pos=${pos}`)
+  if (aa) bits.push(`aa=${aa}`)
+  if (siteComb) bits.push(`siteCombined=${siteComb}`)
+  if (condCol) bits.push(`conditionCol=${condCol}`)
+  let confidence = mapping.confidence
+  const gainedSite = Boolean(siteComb && !mapping.siteCombinedCol && !mapping.positionCol)
+  if (gainedSite) confidence = Math.min(1, Math.max(confidence, 0.55) + 0.25)
+  const notes = `${mapping.notes}; role_hint:${bits.join("|")}`
+    .replace(/\bno_site_level;?\s*/gi, siteComb || pos ? "" : "no_site_level;")
+    .replace(/^; /, "")
+    .replace(/;\s*;/g, ";")
+  return {
+    ...mapping,
+    uniprotCol: uni || mapping.uniprotCol,
+    geneCol: gene || mapping.geneCol,
+    positionCol: pos || mapping.positionCol,
+    aminoAcidCol: aa || mapping.aminoAcidCol,
+    siteCombinedCol: siteComb || mapping.siteCombinedCol,
+    conditionCol: condCol || mapping.conditionCol || null,
+    confidence,
+    notes,
+  }
+}
+
+/**
+ * Force user-named columns into the mapping as protein-level ratio / p-value
+ * (e.g. hints.proteomeColumns = { ratioCol: "total proteome Log(ASB2/MCS)",
+ * pValueCol: "total proteome p-value" }). Users know which columns hold the
+ * whole-proteome quantitation; the LLM often drops them, leaving Log2Ratio
+ * (protein) empty.
+ */
+export function applyProteomeColumnHints(
+  mapping: ColumnMapping,
+  headers: string[],
+  hints: { proteomeColumns?: { ratioCol?: string; pValueCol?: string } } | null | undefined,
+): ColumnMapping {
+  const pc = hints?.proteomeColumns
+  const ratioHint = findHeaderByName(headers, pc?.ratioCol)
+  const pvHint = findHeaderByName(headers, pc?.pValueCol)
+  if (!ratioHint && !pvHint) return mapping
+
+  const ratioColumns = [...mapping.ratioColumns]
+  const pValueColumns = [...mapping.pValueColumns]
+
+  // Reference condition: reuse the first peptide ratio's condition if present,
+  // else the first ratio, else empty (Stage3 condition alignment will fill it).
+  const refCond =
+    ratioColumns.find((r) => r.level === "peptide")?.condition ||
+    ratioColumns[0]?.condition ||
+    ""
+  const isLog2 = (h: string) => /log\s*2|log2|2\s*log|\blog\b/i.test(h)
+
+  if (ratioHint) {
+    const exists = ratioColumns.find(
+      (r) => normHeaderForHint(r.column) === normHeaderForHint(ratioHint),
+    )
+    if (!exists) {
+      ratioColumns.push({
+        column: ratioHint,
+        condition: refCond,
+        isLog2: isLog2(ratioHint),
+        level: "protein",
+        valueType: isLog2(ratioHint) ? "log2_ratio" : "fold_change",
+      })
+    } else if (exists.level !== "protein") {
+      exists.level = "protein"
+    }
+  }
+  if (pvHint) {
+    const exists = pValueColumns.find(
+      (p) => normHeaderForHint(p.column) === normHeaderForHint(pvHint),
+    )
+    if (!exists) {
+      pValueColumns.push({ column: pvHint, condition: refCond, level: "protein" })
+    } else if (exists.level !== "protein") {
+      exists.level = "protein"
+    }
+  }
+
+  const notes = mapping.notes
+    ? `${mapping.notes}; proteome_hint=${ratioHint || "—"}|${pvHint || "—"}`
+    : `proteome_hint=${ratioHint || "—"}|${pvHint || "—"}`
+  return { ...mapping, ratioColumns, pValueColumns, notes }
 }

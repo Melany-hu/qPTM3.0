@@ -11,7 +11,17 @@ from typing import Any
 
 from app.config import settings
 
-DB_PATH = Path(settings.conversations_data_dir) / "agent.db"
+_BACKEND_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _conversations_dir() -> Path:
+    p = Path(settings.conversations_data_dir)
+    if not p.is_absolute():
+        p = _BACKEND_ROOT / p
+    return p.resolve()
+
+
+DB_PATH = _conversations_dir() / "agent.db"
 
 
 def _utcnow() -> str:

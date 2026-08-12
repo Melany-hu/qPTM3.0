@@ -3,20 +3,63 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
 from pathlib import Path
 from typing import Any, AsyncIterator
 
-from app.collection.store import job_dir, read_job_json, refresh_artifact_summary
+from app.collection.store import (
+    job_dir,
+    jobs_root,
+    read_job_json,
+    refresh_artifact_summary,
+    write_job_json,
+)
 from app.config import settings
 
 logger = logging.getLogger(__name__)
 
 _running: dict[str, asyncio.Task] = {}
+# Child subprocesses by job_id, so resume can kill a stale/hung child instead of
+# silently refusing to start a new run (the old one keeps the job "running").
+_procs: dict[str, asyncio.subprocess.Process] = {}
 
-_STAGE_ORDER = ("stage1", "stage2", "stage3", "stage4", "stage5", "stage6")
+
+class CliTimeoutError(RuntimeError):
+    """Raised when a collection-agent child process exceeds its deadline."""
+
+
+def mark_interrupted_jobs() -> None:
+    """After a backend restart, flag any job still 'running' as resumable.
+
+    A restart kills the in-memory task registry, so such jobs can never finish
+    on their own — without this they would spin forever in the UI. Set them to
+    ``awaiting_continue`` (keeping ``nextStage``) so the UI shows a Continue
+    button and the user can resume from where the crash happened.
+    """
+    root = jobs_root()
+    if not root.is_dir():
+        return
+    for entry in root.iterdir():
+        if not entry.is_dir():
+            continue
+        job_id = entry.name
+        state = read_job_json(job_id)
+        if not state or state.get("status") != "running":
+            continue
+        stage = state.get("currentStage") or state.get("nextStage") or "stage1"
+        state["status"] = "awaiting_continue"
+        if not state.get("nextStage"):
+            state["nextStage"] = stage
+        state["error"] = "Collection job was interrupted by a backend restart"
+        state["message"] = (
+            f"Collection was interrupted by a backend restart while running {stage}. "
+            "Click Continue to resume."
+        )
+        write_job_json(job_id, state)
+        logger.warning("marked interrupted running job %s as awaiting_continue", job_id)
 
 
 def _node_bin() -> str:
@@ -64,7 +107,14 @@ async def _run_cli(
     args: list[str],
     *,
     log_name: str = "job.log",
+    timeout_seconds: int | None = None,
 ) -> tuple[int, str]:
+    """Run collection-agent CLI.
+
+    timeout_seconds is an *idle* deadline: the child is killed only when no
+    stdout has arrived for that many seconds (large Stage5 tables may run
+    longer than 30 minutes wall-clock but still emit heartbeats).
+    """
     out = job_dir(job_id)
     log_path = out / log_name
     cmd = _cli_base() + args
@@ -76,14 +126,71 @@ async def _run_cli(
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
     )
+    _procs[job_id] = proc
     chunks: list[str] = []
-    assert proc.stdout is not None
-    async for raw in proc.stdout:
-        text = raw.decode("utf-8", errors="replace")
-        chunks.append(text)
-    code = await proc.wait()
-    log_path.write_text("".join(chunks), encoding="utf-8")
-    return code, "".join(chunks)
+    log_written = False
+    try:
+        assert proc.stdout is not None
+        loop = asyncio.get_running_loop()
+        last_activity = loop.time()
+
+        async def _read_stdout() -> int:
+            nonlocal last_activity
+            async for raw in proc.stdout:
+                last_activity = loop.time()
+                text = raw.decode("utf-8", errors="replace")
+                chunks.append(text)
+            return await proc.wait()
+
+        if timeout_seconds:
+            reader = asyncio.create_task(_read_stdout())
+            try:
+                while not reader.done():
+                    idle = loop.time() - last_activity
+                    if idle >= timeout_seconds:
+                        logger.warning(
+                            "collection job %s idle for %ss — killing child pid %s",
+                            job_id,
+                            timeout_seconds,
+                            proc.pid,
+                        )
+                        try:
+                            proc.kill()
+                        except ProcessLookupError:
+                            pass
+                        try:
+                            await proc.wait()
+                        except ProcessLookupError:
+                            pass
+                        reader.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await reader
+                        full = "".join(chunks)
+                        log_path.write_text(
+                            full
+                            + f"\n[timeout] job {job_id} killed after {timeout_seconds}s idle\n",
+                            encoding="utf-8",
+                        )
+                        log_written = True
+                        raise CliTimeoutError(
+                            f"collection job {job_id} idle for {timeout_seconds}s; "
+                            f"process killed. Last output: {full[-500:]}"
+                        )
+                    await asyncio.wait({reader}, timeout=5.0)
+                return reader.result(), "".join(chunks)
+            except CliTimeoutError:
+                raise
+            except Exception:
+                if not reader.done():
+                    reader.cancel()
+                raise
+        else:
+            code = await _read_stdout()
+            return code, "".join(chunks)
+    finally:
+        _procs.pop(job_id, None)
+        if not log_written:
+            log_path.write_text("".join(chunks), encoding="utf-8")
 
 
 async def run_collection_job(
@@ -92,27 +199,38 @@ async def run_collection_job(
     *,
     fulltext_path: str | None = None,
     supplementary_path: str | None = None,
+    supplementary_paths: list[str] | None = None,
     resume_from: str | None = None,
+    force_include: bool = False,
 ) -> dict[str, Any] | None:
     args = [
         "run-job",
         "--pmid",
         pmid,
         "--out-dir",
-        str(job_dir(job_id)),
+        str(job_dir(job_id).resolve()),
         "--job-id",
         job_id,
         "--concurrency",
         "2",
     ]
     if fulltext_path:
-        args.extend(["--file", fulltext_path])
-    if supplementary_path:
-        args.extend(["--supp-file", supplementary_path])
+        args.extend(["--file", str(Path(fulltext_path).resolve())])
+    paths = list(supplementary_paths or [])
+    if supplementary_path and supplementary_path not in paths:
+        paths.append(supplementary_path)
+    for path in paths:
+        args.extend(["--supp-file", str(Path(path).resolve())])
     if resume_from:
         args.extend(["--resume-from", resume_from])
+    if force_include:
+        args.append("--force-include")
 
-    code, output = await _run_cli(job_id, args)
+    code, output = await _run_cli(
+        job_id,
+        args,
+        timeout_seconds=settings.collection_stage_timeout_seconds,
+    )
     state = read_job_json(job_id)
     if state is None:
         raise RuntimeError(f"Job finished without job.json (exit {code}): {output[-2000:]}")
@@ -123,6 +241,23 @@ async def run_collection_job(
         "rejected",
     )
     if code != 0 and not terminal:
+        # Child died while job.json still says "running" — typically a backend
+        # restart / OOM / crash mid-stage. Make it resumable instead of dumping
+        # raw stderr (often just "Using data root…" log lines) as the failure.
+        if state.get("status") == "running":
+            stage = state.get("currentStage") or state.get("nextStage") or "stage5"
+            state["status"] = "awaiting_continue"
+            state["nextStage"] = stage
+            state["error"] = (
+                f"Stage {stage} process exited unexpectedly (code {code})"
+            )
+            state["message"] = (
+                f"Stage {stage} was interrupted before finishing "
+                "(backend restart, crash, or process killed). "
+                "Click Continue to retry this stage."
+            )
+            write_job_json(job_id, state)
+            return state
         raise RuntimeError(state.get("error") or output[-2000:] or f"exit code {code}")
     return state
 
@@ -135,9 +270,9 @@ async def ingest_fulltext(job_id: str, pmid: str, file_path: str) -> None:
             "--pmid",
             pmid,
             "--file",
-            file_path,
+            str(Path(file_path).resolve()),
             "--out-dir",
-            str(job_dir(job_id)),
+            str(job_dir(job_id).resolve()),
         ],
         log_name="ingest-fulltext.log",
     )
@@ -153,9 +288,9 @@ async def ingest_supplementary(job_id: str, pmid: str, file_path: str) -> None:
             "--pmid",
             pmid,
             "--file",
-            file_path,
+            str(Path(file_path).resolve()),
             "--out-dir",
-            str(job_dir(job_id)),
+            str(job_dir(job_id).resolve()),
         ],
         log_name="ingest-supp.log",
     )
@@ -164,6 +299,13 @@ async def ingest_supplementary(job_id: str, pmid: str, file_path: str) -> None:
 
 
 def _resume_from_state(state: dict[str, Any]) -> str | None:
+    # Terminal jobs must never restart from stage1 — that would re-run the whole
+    # pipeline and make a stale "Continue" bubble show an earlier stage's plan.
+    # A "completed"/"rejected" job is genuinely done. An "error" job may be
+    # resumed from its nextStage (e.g. after a timeout or backend restart), but
+    # only when the caller explicitly asks — plain polling never auto-restarts.
+    if state.get("status") in ("completed", "rejected"):
+        return None
     next_stage = state.get("nextStage")
     if next_stage:
         return str(next_stage)
@@ -181,7 +323,9 @@ async def schedule_job(
     *,
     fulltext_path: str | None = None,
     supplementary_path: str | None = None,
+    supplementary_paths: list[str] | None = None,
     resume_from: str | None = None,
+    force_include: bool = False,
 ) -> None:
     if job_id in _running and not _running[job_id].done():
         return
@@ -193,8 +337,31 @@ async def schedule_job(
                 pmid,
                 fulltext_path=fulltext_path,
                 supplementary_path=supplementary_path,
+                supplementary_paths=supplementary_paths,
                 resume_from=resume_from,
+                force_include=force_include,
             )
+        except CliTimeoutError as exc:
+            logger.warning("collection job %s timed out: %s", job_id, exc)
+            job_path = job_dir(job_id) / "job.json"
+            payload = read_job_json(job_id) or {
+                "jobId": job_id,
+                "pmid": pmid,
+                "stages": {},
+                "summary": {},
+            }
+            # Return to a resumable pause so the UI shows a "Continue" button and
+            # the user can retry the same stage (nextStage was left untouched).
+            payload.update(
+                {
+                    "status": "awaiting_continue",
+                    "error": str(exc),
+                    "message": "Stage timed out (no response from the collection agent for "
+                    f"{settings.collection_stage_timeout_seconds}s). The process was killed; "
+                    "click Continue to retry.",
+                }
+            )
+            job_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         except Exception as exc:
             logger.exception("collection job %s failed", job_id)
             job_path = job_dir(job_id) / "job.json"
@@ -218,11 +385,50 @@ async def schedule_job(
     _running[job_id] = asyncio.create_task(_worker())
 
 
-async def resume_job(job_id: str, pmid: str) -> None:
+async def resume_job(
+    job_id: str,
+    pmid: str,
+    resume_from: str | None = None,
+    *,
+    force_include: bool = False,
+) -> None:
     state = read_job_json(job_id) or {}
-    resume_from = _resume_from_state(state)
+    # Terminal jobs are finished — do not re-run from stage1. Keep the result
+    # so a stale "Continue" bubble simply reflects the final state. An explicit
+    # resume_from (sent by the UI "Continue" button after an error/timeout) is
+    # allowed to retry from that stage. force_include overrides Stage-1 reject.
+    if state.get("status") == "completed":
+        return
+    if state.get("status") == "rejected" and not force_include:
+        return
+    if not resume_from:
+        resume_from = _resume_from_state(state)
     if not resume_from:
         resume_from = "stage1"
+    if force_include:
+        resume_from = "stage1"
+    # If a previous run is still registered but dead/hung, kill the stale child
+    # and cancel the old task so a new process can actually start. Otherwise a
+    # zombie task keeps the job "running" forever and resume silently no-ops.
+    existing = _running.get(job_id)
+    if existing and not existing.done():
+        stale = _procs.get(job_id)
+        if stale is not None:
+            logger.warning(
+                "resume job %s: killing stale child pid %s before rescheduling",
+                job_id,
+                stale.pid,
+            )
+            try:
+                stale.kill()
+                await stale.wait()
+            except (ProcessLookupError, asyncio.CancelledError):
+                pass
+        existing.cancel()
+        try:
+            await existing
+        except (asyncio.CancelledError, Exception):
+            pass
     # Clear pause flags before resuming; point UI at the stage about to run.
     job_path = job_dir(job_id) / "job.json"
     if job_path.is_file():
@@ -231,8 +437,18 @@ async def resume_job(job_id: str, pmid: str) -> None:
         payload["awaitingUpload"] = None
         payload["currentStage"] = resume_from
         payload["nextStage"] = resume_from
+        if force_include:
+            payload["message"] = "Including paper by user request…"
+        if payload.get("error"):
+            payload.pop("error", None)
+            payload["message"] = f"Retrying stage {resume_from}…"
         job_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    await schedule_job(job_id, pmid, resume_from=resume_from)
+    await schedule_job(
+        job_id,
+        pmid,
+        resume_from=resume_from,
+        force_include=force_include,
+    )
 
 
 async def resume_after_upload(job_id: str, pmid: str) -> None:

@@ -15,6 +15,19 @@ from app.config import settings
 _PMID_RE = re.compile(r"\b(?:PMID[:\s#]*)?(\d{7,8})\b", re.I)
 _STEM_PMID_RE = re.compile(r"^(\d{7,8})$")
 
+# agent-backend/ — relative CONVERSATIONS / COLLECTION_JOBS paths resolve here.
+# Collection job dirs themselves live under collection-agent/runtime (absolute
+# default); relative env values like ../collection-agent/runtime/... still work.
+_BACKEND_ROOT = Path(__file__).resolve().parent.parent
+
+
+def resolve_backend_path(path: str | Path) -> Path:
+    """Absolute path under agent-backend when `path` is relative."""
+    p = Path(path)
+    if not p.is_absolute():
+        p = _BACKEND_ROOT / p
+    return p.resolve()
+
 
 def extract_pmid(text: str | None) -> str | None:
     if not text:
@@ -67,9 +80,45 @@ def resolve_pmid(
 
 
 def jobs_root() -> Path:
-    root = Path(settings.collection_jobs_dir)
+    root = resolve_backend_path(settings.collection_jobs_dir)
     root.mkdir(parents=True, exist_ok=True)
     return root
+
+
+def collection_root() -> Path:
+    """Parent of jobs dir — holds cross-job logs (e.g. contributions.jsonl)."""
+    root = resolve_backend_path(settings.collection_jobs_dir).parent
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def contributions_log_path() -> Path:
+    """Centralized log of users who chose "Yes, contribute" (curator-facing)."""
+    return collection_root() / "contributions.jsonl"
+
+
+def append_contribution_record(
+    pmid: str,
+    *,
+    job_id: str | None = None,
+    note: str | None = None,
+) -> None:
+    """Append one contributor intent line to the centralized curator log.
+
+    The frontend only sends the intent ("Yes, contribute"); the PMID is the key
+    payload — the full curated data stays in the job's own directory and is
+    linked here via jobId so curators can pull the artifacts.
+    """
+    record = {
+        "pmid": pmid,
+        "contributedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+    }
+    if job_id:
+        record["jobId"] = job_id
+    if note and note.strip():
+        record["note"] = note.strip()
+    with contributions_log_path().open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
 def job_dir(job_id: str) -> Path:
@@ -392,11 +441,13 @@ def write_user_table_hints(
                 "condition": str((raw or {}).get("condition") or f"{num}/{den}").strip(),
             }
         )
+    proteome_cols = extract_proteome_columns(note)
     hints = {
         "selections": cleaned,
         "note": (note or "").strip() or None,
         "preferProteinLog2": bool(prefer_protein_log2) if prefer_protein_log2 else None,
         "derivedRatios": derived_clean or None,
+        "proteomeColumns": proteome_cols or None,
         "updatedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
     }
     # Drop null optional fields for cleaner JSON
@@ -404,6 +455,8 @@ def write_user_table_hints(
         hints.pop("preferProteinLog2", None)
     if not hints["derivedRatios"]:
         hints.pop("derivedRatios", None)
+    if not hints["proteomeColumns"]:
+        hints.pop("proteomeColumns", None)
     path = user_hints_path(job_id, pmid)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(hints, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
@@ -457,6 +510,97 @@ def extract_sheet_hints(text: str) -> dict[str, str]:
         sheet = m.group(2).strip().rstrip(".,;:")
         if file and sheet and file not in out:
             out[file] = sheet
+    return out
+
+
+def extract_proteome_columns(text: str | None) -> dict[str, str]:
+    """Parse user guidance naming the protein-level columns, e.g.
+
+    "proteome data should collected from total proteome Log(ASB2/MCS) |
+    total proteome p-value" → {"ratioCol": "total proteome Log(ASB2/MCS)",
+                               "pValueCol": "total proteome p-value"}
+    """
+    t = (text or "").strip()
+    if not t:
+        return {}
+
+    def _clean(s: str) -> str:
+        return s.strip().strip('"\'“”‘’ ')
+
+    def _looks_like_prose(s: str) -> bool:
+        low = s.lower()
+        if len(s) > 80:
+            return True
+        if re.search(
+            r"\b(missing|contains?|matched|should|do not|skip|please|only|protein-level data)\b",
+            low,
+        ):
+            return True
+        if s.count(" ") >= 6:
+            return True
+        return False
+
+    _RATIO_MARK = re.compile(r"log\s*2?|ratio|fc\b|fold", re.I)
+    _PVAL_MARK = re.compile(r"p\s*[- ]?value|pval|q\s*[- ]?value", re.I)
+
+    ratio: str | None = None
+    pval: str | None = None
+
+    # Prefer explicit "from A | B" / "columns A | B" patterns only
+    m_from = re.search(
+        r"(?:from|columns?|use)\s+['\"]?([^|\n]+?)['\"]?\s*\|\s*['\"]?([^|\n]+?)['\"]?",
+        t,
+        re.I,
+    )
+    if m_from:
+        a, b = _clean(m_from.group(1)), _clean(m_from.group(2))
+        if _RATIO_MARK.search(a) and not _looks_like_prose(a):
+            ratio = a
+        elif _RATIO_MARK.search(b) and not _looks_like_prose(b):
+            ratio = b
+        if _PVAL_MARK.search(a) and not _looks_like_prose(a):
+            pval = a
+        elif _PVAL_MARK.search(b) and not _looks_like_prose(b):
+            pval = b
+    else:
+        # Quoted column names near proteome / protein Log2 wording
+        for m in re.finditer(r'["\']([^"\']{2,80})["\']', t):
+            col = _clean(m.group(1))
+            if _looks_like_prose(col):
+                continue
+            if not ratio and _RATIO_MARK.search(col) and not _PVAL_MARK.search(col):
+                ratio = col
+            elif not pval and _PVAL_MARK.search(col):
+                pval = col
+
+    def _trim_col(s: str | None) -> str | None:
+        if not s:
+            return None
+        if _looks_like_prose(s):
+            return None
+        s = re.sub(r"\s*(?:column|col\.?|field|header|for\s+protein.*)$", "", s, flags=re.I)
+        m = re.search(
+            r"(?:total\s+proteome|total\s+protein|"
+            r"proteome\s+(?:log2?|ratio|fc|fold|quant)|"
+            r"protein\s+(?:log2?|ratio|fc|fold|quant))",
+            s,
+            re.I,
+        )
+        if m:
+            s = s[m.start() :]
+        s = s.strip().strip('"\'“”‘’ ').strip(".,;: ")
+        if _looks_like_prose(s):
+            return None
+        return s or None
+
+    ratio = _trim_col(ratio)
+    pval = _trim_col(pval)
+
+    out: dict[str, str] = {}
+    if ratio and ratio != pval:
+        out["ratioCol"] = ratio
+    if pval:
+        out["pValueCol"] = pval
     return out
 
 
@@ -620,6 +764,31 @@ def looks_like_stage5_guidance(message: str) -> bool:
         return True
     if extract_sheet_hints(t):
         return True
+    # Sample / sheet-as-sample corrections (e.g. MCF7 / MDA-MB-231 sheets)
+    if re.search(r"mismatch\s*sample", t, re.I):
+        return True
+    if re.search(r"sheet.+as.+(?:different\s+)?samples?", t, re.I):
+        return True
+    if re.search(r"(?:different|separate|distinct)\s+samples?", t, re.I) and re.search(
+        r"sheet", t, re.I
+    ):
+        return True
+    if re.search(r"use.+sheets?.+as.+samples?", t, re.I):
+        return True
+    if re.search(r"each\s+sheet.+(?:sample|cell\s*line)", t, re.I):
+        return True
+    if re.search(r"三个|不同", t) and re.search(
+        r"sample|样品|细胞系|sheet", t, re.I
+    ):
+        return True
+    if re.search(r"样品不对|样品错|sample\s*(?:wrong|mismatch|incorrect)", t, re.I):
+        return True
+    if re.search(r"\bsamples?\b", t, re.I) and re.search(r"\bsheets?\b", t, re.I):
+        return True
+    if re.search(r"cell\s*lines?", t, re.I) and re.search(
+        r"\b(sample|sheet|different|three)\b", t, re.I
+    ):
+        return True
     keys = (
         r"为什么",
         r"为啥",
@@ -642,6 +811,20 @@ def looks_like_stage5_guidance(message: str) -> bool:
         r"定量表",
         r"count\s+log",
         r"extract\s+ptm",
+        r"\bcolumn\b",
+        r"表头",
+        r"列名",
+        r"amino\s*acid",
+        r"position",
+        r"\bsty\b",
+        r"\bsample\b",
+        r"样品",
+        r"细胞系",
+        r"\bsheet\b",
+        r"site[- ]level",
+        r"split\s+(?:this\s+)?column",
+        r"phosphosite",
+        r"protein\s*\+\s*phosphosite",
     )
     return any(re.search(k, t, re.I) for k in keys)
 

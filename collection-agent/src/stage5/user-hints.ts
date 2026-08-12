@@ -26,6 +26,11 @@ export interface UserTableHints {
     isLog2: boolean
     condition: string
   }>
+  /** User-named columns for protein-level Log2Ratio / P value. */
+  proteomeColumns?: {
+    ratioCol?: string
+    pValueCol?: string
+  }
   updatedAt: string
 }
 
@@ -51,6 +56,7 @@ export function saveUserTableHints(
   note?: string,
   preferProteinLog2?: boolean,
   derivedRatios?: UserTableHints["derivedRatios"],
+  proteomeColumns?: UserTableHints["proteomeColumns"],
 ): UserTableHints {
   const hints: UserTableHints = {
     selections: selections
@@ -62,6 +68,18 @@ export function saveUserTableHints(
     note: note?.trim() || undefined,
     preferProteinLog2: preferProteinLog2 || undefined,
     derivedRatios: derivedRatios?.length ? derivedRatios : undefined,
+    ...(proteomeColumns?.ratioCol || proteomeColumns?.pValueCol
+      ? {
+          proteomeColumns: {
+            ...(proteomeColumns?.ratioCol
+              ? { ratioCol: String(proteomeColumns.ratioCol).trim() }
+              : {}),
+            ...(proteomeColumns?.pValueCol
+              ? { pValueCol: String(proteomeColumns.pValueCol).trim() }
+              : {}),
+          },
+        }
+      : {}),
     updatedAt: new Date().toISOString(),
   }
   const path = userHintsPath(pmid)
@@ -115,9 +133,193 @@ export function noteWantsProteinLog2(note: string | undefined | null): boolean {
   const t = (note || "").toLowerCase()
   if (!t) return false
   if (/log2?\s*ratio\s*\(\s*protein\s*\)/i.test(t)) return true
+  if (/missing\s+log2?\s*ratio\s*\(\s*protein\s*\)/i.test(t)) return true
   if (/protein[-\s_]*(?:level\s+)?(?:log2?\s*)?(?:ratio|fc|fold)/i.test(t)) return true
+  if (/protein[- ]level\s+data/i.test(t)) return true
   if (/蛋白质/.test(note || "") && /(定量|log|ratio|比值)/i.test(t)) return true
   if (/蛋白/.test(note || "") && /(log2?ratio|定量值|定量表)/i.test(t)) return true
+  return false
+}
+
+/**
+ * Sheet names the user says hold whole-proteome / protein-level ratios
+ * (e.g. "'pro' contains only protein-level data", 'do not skip "pro"').
+ */
+export function extractProteomeSheetNames(note: string | undefined | null): string[] {
+  const t = note || ""
+  if (!t) return []
+  const out: string[] = []
+  const seen = new Set<string>()
+  const add = (raw: string) => {
+    const s = (raw || "").trim().replace(/[.,;:]+$/, "")
+    if (!s || /^(sheet|file|table|the|this|that|use)$/i.test(s)) return
+    const key = s.toLowerCase()
+    if (seen.has(key)) return
+    seen.add(key)
+    out.push(s)
+  }
+  const patterns = [
+    /['"“‘]([A-Za-z][\w .\-]{0,40}?)['"”’]\s*contains?\s+(?:only\s+)?protein/gi,
+    /do\s+not\s+skip\s+['"“‘]([^'"”’]{1,40})['"”’]/gi,
+    /do\s+not\s+skip\s+([A-Za-z][\w.\-]{1,40})\b/gi,
+    /\bsheets?\s+['"“‘]([^'"”’]{1,40})['"”’]\s+(?:is|has|contains?|holds?)\s+(?:only\s+)?(?:protein|proteome)/gi,
+    /\bsheets?\s+([A-Za-z][\w.\-]{1,40})\s+(?:is|has|contains?|holds?)\s+(?:only\s+)?(?:protein|proteome)/gi,
+  ]
+  for (const re of patterns) {
+    let m: RegExpExecArray | null
+    re.lastIndex = 0
+    while ((m = re.exec(t))) add(m[1])
+  }
+  return out
+}
+
+/** User asks to treat each Excel sheet as a distinct Sample. */
+export function noteWantsSheetAsSample(note: string | undefined | null): boolean {
+  const t = (note || "").toLowerCase()
+  if (!t) return false
+  if (/mismatch\s*sample/i.test(t)) return true
+  if (/sheet.+as.+(?:different\s+)?samples?/i.test(t)) return true
+  if (/(?:different|separate|distinct)\s+samples?/i.test(t) && /sheet/i.test(t)) return true
+  if (/each\s+sheet.+(?:sample|cell\s*line)/i.test(t)) return true
+  if (/use.+sheets?.+as.+samples?/i.test(t)) return true
+  if (/三个|不同/.test(note || "") && /sample|样品|细胞系|sheet/i.test(t)) return true
+  if (/样品不对|样品错|sample\s*(?:wrong|mismatch|incorrect)/i.test(t)) return true
+  return false
+}
+
+export interface ColumnRoleHints {
+  uniprotCol?: string
+  geneCol?: string
+  positionCol?: string
+  aminoAcidCol?: string
+  /** Combined gene/protein + site column to split (e.g. "Protein + Phosphosite"). */
+  siteCombinedCol?: string
+  /** Long-format per-row contrast column (e.g. "condition"). */
+  conditionCol?: string
+}
+
+function roleKeyFromText(role: string): keyof ColumnRoleHints | null {
+  const r = role.toLowerCase().replace(/\s+/g, " ").trim()
+  if (/氨基酸|残基类型/.test(role) || (/amino/.test(r) && !/position/.test(r))) return "aminoAcidCol"
+  if (/^aa$/.test(r) || /^residue(\s*types?)?$/.test(r)) return "aminoAcidCol"
+  if (/位点|位置/.test(role) || /position|^pos$|site\s*number/.test(r)) return "positionCol"
+  if (/uniprot|protein\s*ids?|accession/.test(r)) return "uniprotCol"
+  if (/^conditions?$|^contrasts?$|^comparisons?$/.test(r) || (/condition/.test(r) && !/gene|amino|site/.test(r)))
+    return "conditionCol"
+  if (/^gene(\s*names?)?$/.test(r) || (/gene/.test(r) && !/amino|position|site/.test(r)))
+    return "geneCol"
+  // gene + amino acid + position bundled → combined site column
+  if (
+    /phosphosite|combined\s*site|site\s*id|split/.test(r) ||
+    (/gene/.test(r) && /amino|acide|acid|position|site/.test(r)) ||
+    (/amino/.test(r) && /position/.test(r))
+  ) {
+    return "siteCombinedCol"
+  }
+  return null
+}
+
+/**
+ * Parse free-text column role hints, e.g.
+ * "column AA is Amino acid", "STY is the position", "ProteinID = UniProt",
+ * "Protein + Phosphosite contains amino acid and position — split this column".
+ */
+export function extractColumnRoleHints(text: string): ColumnRoleHints {
+  const out: ColumnRoleHints = {}
+  if (!text) return out
+  // Require "column" prefix OR a short identifier-like header (avoid "1433S_S74 means amino acid=S")
+  const re =
+    /(?:\bcolumn\s+)["']?([A-Za-z][\w.\-+ ]{0,60}?)["']?\s*(?:is|are|=|means?|等于|是)\s*(?:the\s+|an?\s+)?["']?(amino\s*acids?|residue(?:\s*types?)?|positions?|sites?|uniprot(?:\s*ids?)?|protein\s*ids?|accessions?|gene(?:\s*names?)?|氨基酸|位点|残基(?:类型)?|位置)["']?/gi
+  let m: RegExpExecArray | null
+  while ((m = re.exec(text))) {
+    const col = (m[1] || "").trim()
+    const role = roleKeyFromText(m[2] || "")
+    if (!col || !role) continue
+    if (/^(use|the|this|that|sheet|file|table)$/i.test(col)) continue
+    out[role] = col
+  }
+
+  // Short headers without the word "column": "STY is the position", "AA = amino acid"
+  const shortRe =
+    /\b([A-Za-z][\w.\-]{0,24})\s*(?:is|are|=|means?|等于|是)\s*(?:the\s+|an?\s+)?["']?(amino\s*acids?|residue(?:\s*types?)?|positions?|sites?|uniprot(?:\s*ids?)?|protein\s*ids?|accessions?|gene(?:\s*names?)?|氨基酸|位点|残基(?:类型)?|位置)["']?/gi
+  while ((m = shortRe.exec(text))) {
+    const col = (m[1] || "").trim()
+    const role = roleKeyFromText(m[2] || "")
+    if (!col || !role) continue
+    if (/^(use|the|this|that|sheet|file|table|example|for|means)$/i.test(col)) continue
+    // Skip example tokens like 1433S_S74 / P04637_S15 / CIC-S739
+    if (/[_-]([STYK])\d{1,5}$/i.test(col) || /^\d/.test(col)) continue
+    if (out[role]) continue
+    out[role] = col
+  }
+
+  // "use feature_names as gene name_amino acid position" / "use X as gene+AA+pos"
+  const useAsRe =
+    /\buse\s+["']?([A-Za-z][\w.\-]{1,60})["']?\s+as\s+([^.!?\n,]{3,100}?)(?=,|\.|$|for\s+example|e\.g\.|should)/gi
+  while ((m = useAsRe.exec(text))) {
+    const col = (m[1] || "").trim()
+    const rolePhrase = (m[2] || "").trim()
+    if (!col || /^(the|this|that|sheet|file|table)$/i.test(col)) continue
+    const role = roleKeyFromText(rolePhrase)
+    if (role === "siteCombinedCol" || (/gene/i.test(rolePhrase) && /amino|position|site|acide|acid/i.test(rolePhrase))) {
+      out.siteCombinedCol = col
+    } else if (role && !out[role]) {
+      out[role] = col
+    }
+  }
+
+  // Combined site columns — prefer explicit "column …" phrasing
+  const combinedRes = [
+    /\bcolumn\s+["']([^"']{2,80})["']\s*(?:contains?|holds?|stores?|has|includes?)\s*(?:the\s+)?(?:amino\s*acids?|position|phosphosite|site)/gi,
+    /\bcolumn\s+["']([^"']{2,80})["'][^.!?\n]{0,120}?\b(?:split|parse)\b/gi,
+    /\bsplit\b[^.!?\n]{0,60}?\bcolumn\s+["']([^"']{2,80})["']/gi,
+    /\bsplit\b[^.!?\n]{0,40}?["']([^"']{2,80})["']/gi,
+    /\bcolumn\s+["']([^"']{2,80})["']\s*(?:is|=|means?)\s*(?:a\s+)?(?:combined|gene\s*\+?\s*site|protein\s*\+?\s*(?:phospho)?site)/gi,
+    // unquoted: use feature_names … split / feature_names should be split
+    /\b(?:use\s+)?([A-Za-z][\w.\-]{1,40})\b[^.!?\n]{0,80}?\b(?:should\s+be\s+)?split\b/gi,
+  ]
+  for (const cre of combinedRes) {
+    cre.lastIndex = 0
+    while ((m = cre.exec(text))) {
+      const col = (m[1] || "").trim()
+      if (!col || /^(use|the|this|that|sheet|file|table|phos|proteome|example|for|by)$/i.test(col))
+        continue
+      // Skip example site tokens mistaken as column names
+      if (/[_-]([A-Za-z])\d{1,5}$/i.test(col)) continue
+      out.siteCombinedCol = col
+      break
+    }
+    if (out.siteCombinedCol) break
+  }
+
+  // Quoted header that looks like a combined site column, near split/site-level wording
+  if (!out.siteCombinedCol && /split|site[- ]level|amino\s*acids?.*position|position.*amino/i.test(text)) {
+    const named = text.match(
+      /["']([^"']*(?:phosphosite|protein\s*\+\s*phosphosite|gene\s*\+\s*site|modification\s*sites?|feature[_\s-]?names?)[^"']*)["']/i,
+    )
+    if (named?.[1]) out.siteCombinedCol = named[1].trim()
+  }
+  return out
+}
+
+/** User says a sheet holds site-level PTM rows (override proteome misclassification). */
+export function noteWantsSiteLevelSheet(note: string | undefined | null): boolean {
+  const t = (note || "").toLowerCase()
+  if (!t) return false
+  if (/site[- ]level/.test(t)) return true
+  if (/stores?\s+site/.test(t)) return true
+  if (/split\s+(?:this\s+)?column/.test(t) && /(?:amino|position|phosphosite|site)/i.test(t)) {
+    return true
+  }
+  if (/\bsplit\b/.test(t) && /(?:amino|position|feature[_\s-]?names?|cic-|gene)/i.test(t)) {
+    return true
+  }
+  if (/contains?\s+amino\s*acids?\s+and\s+position/.test(t)) return true
+  if (/phosphosite/.test(t) && /split|amino|position/.test(t)) return true
+  if (/use\s+\w+.+\bas\b.+(?:gene|amino|position)/i.test(t) && /split|amino|position/i.test(t)) {
+    return true
+  }
+  if (/feature[_\s-]?names?/.test(t) && /(?:gene|amino|position|split)/i.test(t)) return true
   return false
 }
 

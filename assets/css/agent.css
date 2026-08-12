@@ -1255,7 +1255,7 @@ body.agent-page * {
 }
 .collection-think-sub {
   font-size: var(--font-size-xs);
-  font-weight: 600;
+  font-weight: 500;
   margin: 8px 0 4px;
   color: var(--text);
 }
@@ -1316,7 +1316,7 @@ body.agent-page * {
 }
 .collection-preview-sheet-name {
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--text-light);
   margin-bottom: 6px;
 }
@@ -1385,11 +1385,11 @@ body.agent-page * {
   color: var(--text);
 }
 .collection-answer-text .collection-answer-strong {
-  font-weight: 700;
+  font-weight: 600;
   color: var(--text);
 }
 .collection-answer-text .collection-answer-em {
-  font-weight: 700;
+  font-weight: 600;
   color: var(--primary);
 }
 .collection-answer-text .collection-answer-strong .collection-answer-em {
@@ -1516,6 +1516,10 @@ body.agent-page * {
   background: rgba(14, 116, 211, 0.04);
   padding: 12px;
 }
+.collection-teach.is-stale {
+  opacity: 0.55;
+  pointer-events: none;
+}
 .collection-teach-title {
   font-weight: 650;
   font-size: var(--font-size-sm);
@@ -1592,16 +1596,19 @@ body.agent-page * {
   background: rgba(14, 116, 211, 0.04);
 }
 .collection-paper-title {
-  font-weight: 650;
+  font-weight: 600;
   font-size: var(--font-size-sm);
-  color: var(--text);
+  color: var(--text-light);
   margin-bottom: 6px;
   line-height: 1.4;
 }
 .collection-paper-abs {
   font-size: var(--font-size-xs);
   color: var(--text-light);
-  line-height: 1.5;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  max-height: none;
+  overflow: visible;
 }
 
 .collection-downloads {
@@ -1672,8 +1679,12 @@ button.collection-file-card {
   border-radius: 12px;
   background: rgba(14, 116, 211, 0.06);
 }
+.collection-contribute-intro {
+  color: var(--primary);
+  font-weight: 500;
+}
 .collection-contribute-title {
-  font-weight: 650;
+  font-weight: 500;
   font-size: var(--font-size-sm);
   margin-bottom: 4px;
   color: var(--primary);

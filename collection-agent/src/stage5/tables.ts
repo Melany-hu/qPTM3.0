@@ -22,8 +22,8 @@ const MAX_CANDIDATE_FILES = 10
 const MAX_SHEETS_PER_FILE = 40
 
 const PREVIEW_ROWS = 5
-/** Cap rows loaded for parsing (per sheet). */
-export const MAX_PARSE_ROWS = 40_000
+/** Cap rows loaded for parsing (per sheet). Long-format PTM tables can exceed 100k. */
+export const MAX_PARSE_ROWS = 600_000
 
 export interface SheetInventory {
   name: string

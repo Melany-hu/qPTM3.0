@@ -256,7 +256,7 @@ function createCollectionPanelEl(jobId, seedData) {
   panel.dataset.planMode = 'full';
   panel.innerHTML = `
     <div class="plan-panel-header">
-      <i class="ri-database-2-line"></i>
+      <i class="ri-route-line"></i>
       <span class="collection-plan-title">Data Collection Pipeline</span>
       <i class="ri-arrow-down-s-line toggle-arrow"></i>
     </div>
@@ -842,7 +842,7 @@ function renderTableHintsFormHtml(candidates, jobId, { mode = 'teach' } = {}) {
   const body =
     mode === 'adjust'
       ? ''
-      : 'Select the file/sheet(s) that contain site-level quantitative PTM ratios, then apply. You can also describe derived contrasts in the note (e.g. log2(P5/P1), log2(P7/P1)).';
+      : 'Select the file/sheet(s) that contain site-level quantitative PTM ratios, then apply. You can also describe derived contrasts in the note.';
   if (!Array.isArray(candidates) || !candidates.length) {
     return `
       <div class="collection-teach">
@@ -850,13 +850,18 @@ function renderTableHintsFormHtml(candidates, jobId, { mode = 'teach' } = {}) {
         <div class="collection-teach-body">No inventoried sheets yet. Upload a ZIP/Excel/CSV first, then select sheets here.</div>
       </div>`;
   }
+  // Unique per form instance so label[for] does not jump to an older teach box
+  // still present in chat history after re-parse.
+  const formUid = `hint-${String(jobId || 'job').slice(0, 8)}-${Date.now().toString(36)}-${Math.random()
+    .toString(36)
+    .slice(2, 7)}`;
   const rows = candidates
     .map((c, i) => {
       const label = c.sheetName
         ? `${c.entryPath} → ${c.sheetName}`
         : c.entryPath;
       const headers = (c.headers || []).slice(0, 8).join(' | ');
-      const id = `hint-${i}`;
+      const id = `${formUid}-${i}`;
       const badge = c.notInventoried
         ? '<span class="collection-teach-rows">not auto-scanned</span>'
         : '';
@@ -895,8 +900,10 @@ async function fetchTableCandidates(jobId) {
   }
 }
 
-async function submitTableHints(jobId, contentDiv, panel) {
-  const box = contentDiv.querySelector('.collection-teach');
+async function submitTableHints(jobId, contentDiv, panel, triggerBtn) {
+  const box =
+    (triggerBtn && triggerBtn.closest('.collection-teach')) ||
+    contentDiv.querySelector('.collection-teach');
   if (!box) return;
   const selections = [];
   box.querySelectorAll('input[type="checkbox"]:checked').forEach((el) => {
@@ -910,12 +917,29 @@ async function submitTableHints(jobId, contentDiv, panel) {
     alert('Select at least one file/sheet, or describe it in the note.');
     return;
   }
-  const btn = box.querySelector('.collection-teach-apply');
+  const btn = triggerBtn || box.querySelector('.collection-teach-apply');
   if (btn) btn.disabled = true;
+  // Freeze older teach forms so their note/checkboxes cannot be submitted by mistake.
+  document.querySelectorAll('.collection-teach').forEach((el) => {
+    if (el === box) return;
+    el.querySelectorAll('input, textarea, button').forEach((ctrl) => {
+      ctrl.disabled = true;
+    });
+    el.classList.add('is-stale');
+  });
 
-  // Create a new answer bubble so the re-parse result appears in its own box
-  // instead of overwriting the current one (which keeps the Adjust tables UI).
-  const resultContentDiv = addMessage('assistant', '');
+  const pmidText = panel?.querySelector('.collection-pmid')?.textContent || '';
+  const pmid = pmidText.replace(/^PMID\s+/i, '').trim() || null;
+  // New turn + panel so later chat guidance keeps activeCollectionPanel on stage5.
+  const { panel: nextPanel, contentDiv: resultContentDiv } = beginCollectionTurn(jobId, pmid, {
+    current_stage: 'stage5',
+    next_stage: 'stage5',
+    status: 'running',
+    stages: {},
+  });
+  nextPanel.dataset.expectedStage = 'stage5';
+  nextPanel.dataset.planModeLocked = 'focus';
+  nextPanel.classList.remove('collapsed');
   showContentLoading(resultContentDiv, 'Re-parsing quantitative tables…');
   try {
     const res = await fetch(`${COLLECTION_URL}/jobs/${jobId}/table-hints`, {
@@ -926,8 +950,15 @@ async function submitTableHints(jobId, contentDiv, panel) {
     });
     if (!res.ok) throw new Error(`Hints HTTP ${res.status}`);
     const body = await res.json();
-    if (panel && body.job) updateCollectionPanel(panel, body.job);
-    await streamCollectionJob(jobId, panel, resultContentDiv);
+    if (body.job) {
+      updateCollectionPanel(nextPanel, {
+        ...body.job,
+        current_stage: 'stage5',
+        currentStage: 'stage5',
+        status: 'running',
+      });
+    }
+    await streamCollectionJob(jobId, nextPanel, resultContentDiv);
   } catch (err) {
     if (err.name === 'AbortError') {
       hideContentLoading(resultContentDiv);
@@ -952,7 +983,7 @@ function bindTableHintsForm(contentDiv, panel, jobId) {
     setSendButtonToStop();
     const abortController = new AbortController();
     currentAbortController = abortController;
-    submitTableHints(jobId, contentDiv, panel).finally(() => {
+    submitTableHints(jobId, contentDiv, panel, btn).finally(() => {
       if (currentAbortController === abortController) currentAbortController = null;
       setSendButtonToSend();
     });
@@ -1036,9 +1067,10 @@ async function renderCollectionMessage(contentDiv, data, event, panel) {
   let paperHtml = '';
   if (stage === 'stage1' && (awaitingContinue || rejected) && summary.paper) {
     const paper = summary.paper;
+    const abs = String(paper.abstract || '').trim();
     paperHtml = `<div class="collection-paper-card">
       <div class="collection-paper-title">${escapeHtml(paper.title || '')}</div>
-      ${paper.abstract ? `<div class="collection-paper-abs">${escapeHtml(String(paper.abstract).slice(0, 700))}${String(paper.abstract).length > 700 ? '…' : ''}</div>` : ''}
+      ${abs ? `<div class="collection-paper-abs">${escapeHtml(abs)}</div>` : ''}
     </div>`;
   }
 
@@ -1128,6 +1160,10 @@ async function renderCollectionMessage(contentDiv, data, event, panel) {
   ) {
     contributeHtml = renderContributeOfferHtml(data);
   }
+  // The contribution invitation is shown as a blue line right above the card.
+  const contributeIntroHtml = contributeHtml
+    ? `<p class="collection-answer-text collection-contribute-intro" style="white-space:pre-wrap;color:var(--primary);">${CONTRIBUTE_INTRO}</p>`
+    : '';
 
   // Downloads first, then Continue / Upload actions at the bottom-left.
   const downloadsHtml = renderCollectionDownloadsHtml(jobId, data);
@@ -1153,6 +1189,18 @@ async function renderCollectionMessage(contentDiv, data, event, panel) {
       metaHtml +
       collectionAnswerBlock(after, colorStyle) +
       downloadsHtml +
+      actionsHtml;
+  } else if (
+    stage === 'stage4' &&
+    scoutPreviewHtml &&
+    hasSeg('<<<AFTER_SCOUT>>>')
+  ) {
+    const [before, after] = splitCollectionSegments(message, ['<<<AFTER_SCOUT>>>']);
+    bodyHtml =
+      collectionAnswerBlock(before, colorStyle) +
+      scoutPreviewHtml +
+      downloadsHtml +
+      collectionAnswerBlock(after, colorStyle) +
       actionsHtml;
   } else if (
     stage === 'stage5' &&
@@ -1185,6 +1233,7 @@ async function renderCollectionMessage(contentDiv, data, event, panel) {
       scoutPreviewHtml +
       msPreviewHtml +
       teachHtml +
+      contributeIntroHtml +
       contributeHtml +
       downloadsHtml +
       actionsHtml;
@@ -1199,7 +1248,11 @@ async function renderCollectionMessage(contentDiv, data, event, panel) {
 
   if ((needsHints || allowHints) && jobId) {
     bindTableHintsForm(contentDiv, panel, jobId);
+    if (panel) panel.dataset.acceptGuidance = '1';
+  } else if (panel) {
+    delete panel.dataset.acceptGuidance;
   }
+  refreshCollectionInputPlaceholder();
   if (completed) {
     bindContributeButtons(contentDiv, panel, data);
   } else if (contentDiv.querySelector('.collection-contribute-yes, .collection-contribute-no')) {
@@ -1259,8 +1312,18 @@ function renderCollectionActionsHtml(data, event) {
       <button type="button" class="collection-file-card collection-upload-btn" data-upload-kind="${escapeHtml(kind)}" data-accept="${escapeHtml(accept)}"><i class="ri-upload-2-line"></i><span>${escapeHtml(label)}</span></button>
     </div>`;
   }
+  if (status === 'error') {
+    const stage = data?.current_stage || data?.currentStage || data?.next_stage || data?.nextStage || '';
+    if (/^stage[1-6]$/.test(stage)) {
+      return `<div class="collection-actions">
+      <button type="button" class="collection-btn collection-continue-btn"><i class="ri-play-line"></i> Continue</button>
+      <button type="button" class="collection-file-card collection-retry-btn"><i class="ri-chat-1-line"></i><span>Try another paper</span></button>
+    </div>`;
+    }
+  }
   if (status === 'rejected') {
     return `<div class="collection-actions">
+      <button type="button" class="collection-btn collection-include-btn"><i class="ri-checkbox-circle-line"></i> Include</button>
       <button type="button" class="collection-file-card collection-retry-btn"><i class="ri-chat-1-line"></i><span>Try another paper</span></button>
     </div>`;
   }
@@ -1292,14 +1355,17 @@ function bindCollectionActions(contentDiv, panel, data) {
       const input = document.createElement('input');
       input.type = 'file';
       input.accept = accept;
+      if (kind === 'supplementary') input.multiple = true;
       input.addEventListener('change', async () => {
-        const file = input.files && input.files[0];
-        if (!file) return;
-        const uploadKind = resolveCollectionUploadKind(
-          { ...data, awaiting_upload: kind },
-          file.name,
-        );
-        await uploadCollectionFile(jobId, uploadKind, file, panel);
+        const picked = input.files ? Array.from(input.files) : [];
+        if (!picked.length) return;
+        for (const file of picked) {
+          const uploadKind = resolveCollectionUploadKind(
+            { ...data, awaiting_upload: kind },
+            file.name,
+          );
+          await uploadCollectionFile(jobId, uploadKind, file, panel);
+        }
       });
       input.click();
     });
@@ -1313,6 +1379,14 @@ function bindCollectionActions(contentDiv, panel, data) {
         field.focus();
         field.placeholder = 'Enter a new PMID, or upload a PDF / quant table…';
       }
+    });
+  }
+  const includeBtn = contentDiv.querySelector('.collection-include-btn');
+  if (includeBtn && includeBtn.dataset.bound !== '1') {
+    includeBtn.dataset.bound = '1';
+    includeBtn.addEventListener('click', () => {
+      if (!jobId || !panel) return;
+      forceIncludeCollectionJob(jobId, panel, contentDiv);
     });
   }
 }
@@ -1368,6 +1442,9 @@ function renderCollectionDownloadsHtml(jobId, data) {
   if (!cards.length) return '';
   return `<div class="collection-downloads">${cards.join('')}</div>`;
 }
+
+const CONTRIBUTE_INTRO =
+  'If you are willing, you can contribute these curated results to the qPTM database to help other researchers.';
 
 function renderContributeOfferHtml(data) {
   const offer = data.offer_contribute || data.offerContribute || (data.summary && data.summary.offerContribute);
@@ -1470,14 +1547,60 @@ function updateCollectionPanel(panel, data) {
   const next = data.next_stage || data.nextStage;
   if (next) panel.dataset.nextStage = next;
   const stage = data.current_stage || data.currentStage || '';
-  // Keep panel expanded while pipeline is running so live thinking is visible.
+  if (stage) panel.dataset.currentStage = stage;
   const status = data.status || '';
+  if (status) panel.dataset.status = status;
+  // Keep panel expanded while pipeline is running so live thinking is visible.
   if (status === 'running') panel.classList.remove('collapsed');
   const pmidEl = panel.querySelector('.collection-pmid');
   if (pmidEl && data.pmid) {
     pmidEl.textContent = stage === 'stage1' ? `PMID ${data.pmid}` : '';
   }
   renderCollectionPlanSteps(panel, data);
+}
+
+/** Latest collection turn that can accept Stage5 free-text guidance from the input box. */
+function findCollectionGuidanceTarget() {
+  const panels = [...document.querySelectorAll('.collection-panel[data-job-id]')];
+  for (let i = panels.length - 1; i >= 0; i--) {
+    const panel = panels[i];
+    const jobId = panel.dataset.jobId;
+    if (!jobId) continue;
+    const body = panel.parentElement;
+    const content = body?.querySelector('.msg-content');
+    const teach = content?.querySelector('.collection-teach:not(.is-stale)');
+    const stage = panel.dataset.currentStage || '';
+    const status = panel.dataset.status || '';
+    const accept =
+      panel.dataset.acceptGuidance === '1' ||
+      Boolean(teach) ||
+      ((stage === 'stage5' || stage === 'stage6') &&
+        ['awaiting_continue', 'awaiting_upload'].includes(status));
+    if (accept) return { jobId, panel, contentDiv: content || null };
+  }
+  if (activeCollectionPanel?.dataset?.jobId) {
+    const stage = activeCollectionPanel.dataset.currentStage || '';
+    if (stage === 'stage5' || stage === 'stage6') {
+      return {
+        jobId: activeCollectionPanel.dataset.jobId,
+        panel: activeCollectionPanel,
+        contentDiv: activeCollectionPanel.parentElement?.querySelector('.msg-content') || null,
+      };
+    }
+  }
+  return null;
+}
+
+function refreshCollectionInputPlaceholder() {
+  if (!inputField) return;
+  const target = findCollectionGuidanceTarget();
+  if (target) {
+    inputField.placeholder =
+      'Describe table/column guidance to re-parse (e.g. STY is amino acid, AA is position)…';
+  } else {
+    inputField.placeholder =
+      'Ask about a PTM site, or upload a pdf file for literature collection...';
+  }
 }
 
 async function submitContribute(panel, willing, contentDivOverride) {
@@ -1613,31 +1736,48 @@ async function parseSseBufferLines(lines, onEvent, state = { currentEvent: null 
       const data = JSON.parse(line.substring(6));
       const event = state.currentEvent;
       state.currentEvent = null;
-      await onEvent(event, data);
+      // onEvent may return false / 'stop' to end the stream early.
+      const result = await onEvent(event, data);
+      if (result === false || result === 'stop') return true;
     }
   }
-  return state;
+  return false;
 }
 
 async function parseSseStream(response, onEvent) {
+  if (!response.body) return;
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
   const state = { currentEvent: null };
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) {
-      buffer += decoder.decode();
-      if (buffer) {
-        await parseSseBufferLines(buffer.split('\n'), onEvent, state);
-        buffer = '';
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        buffer += decoder.decode();
+        if (buffer) {
+          await parseSseBufferLines(buffer.split('\n'), onEvent, state);
+          buffer = '';
+        }
+        break;
       }
-      break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      const stop = await parseSseBufferLines(lines, onEvent, state);
+      if (stop) {
+        // Stream is locked by this reader — cancel the reader, not response.body.
+        try {
+          await reader.cancel();
+        } catch (_) {
+          /* ignore */
+        }
+        break;
+      }
     }
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
-    await parseSseBufferLines(lines, onEvent, state);
+  } catch (err) {
+    if (err?.name === 'AbortError') return;
+    throw err;
   }
 }
 
@@ -1716,8 +1856,7 @@ async function streamCollectionJob(jobId, panel, contentDiv) {
         const mapped =
           status === 'completed' ? 'done' : status === 'error' ? 'error' : status;
         await handleTerminal(mapped, data);
-        try { response.body?.cancel(); } catch (_) { /* ignore */ }
-        return;
+        return 'stop';
       }
       if (event === 'status') {
         const stage = data.current_stage || data.currentStage || '';
@@ -1733,7 +1872,7 @@ async function streamCollectionJob(jobId, panel, contentDiv) {
       }
       if (['awaiting_continue', 'awaiting_upload', 'done', 'rejected', 'error'].includes(event)) {
         await handleTerminal(event, data);
-        try { response.body?.cancel(); } catch (_) { /* ignore */ }
+        return 'stop';
       }
     });
   } finally {
@@ -1806,6 +1945,8 @@ async function resumeCollectionJob(jobId, panel, contentDivFromBtn) {
   try {
     const res = await fetch(`${COLLECTION_URL}/jobs/${jobId}/resume`, {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ resume_from: nextHint }),
       signal: abortController.signal,
     });
     if (!res.ok) throw new Error(`Resume HTTP ${res.status}`);
@@ -1817,6 +1958,63 @@ async function resumeCollectionJob(jobId, panel, contentDivFromBtn) {
       currentStage: nextHint,
       next_stage: nextHint,
       nextStage: nextHint,
+      status: 'running',
+    });
+    await streamCollectionJob(jobId, nextPanel, contentDiv);
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      hideContentLoading(contentDiv);
+      contentDiv.innerHTML = '<p style="color:var(--text-muted);font-style:italic;">Collection stopped.</p>';
+      return;
+    }
+    hideContentLoading(contentDiv);
+    contentDiv.innerHTML = `<p style="color:#c0392b;">${escapeHtml(err.message)}</p>`;
+  } finally {
+    if (currentAbortController === abortController) currentAbortController = null;
+    setSendButtonToSend();
+  }
+}
+
+/** Override Stage-1 exclude and continue the pipeline for this PMID. */
+async function forceIncludeCollectionJob(jobId, panel, contentDivFromBtn) {
+  if (isStreaming) return;
+  setSendButtonToStop();
+  const abortController = new AbortController();
+  currentAbortController = abortController;
+  const prevContent =
+    contentDivFromBtn ||
+    panel?.parentElement?.querySelector('.msg-content') ||
+    null;
+  if (prevContent) {
+    prevContent.querySelectorAll('.collection-actions button').forEach((btn) => {
+      btn.disabled = true;
+    });
+  }
+  const pmidText = panel.querySelector('.collection-pmid')?.textContent || '';
+  const pmid = pmidText.replace(/^PMID\s+/i, '').trim() || null;
+  persistCollectionUserTurn('Include').catch(() => {});
+  addMessage('user', 'Include');
+  const { panel: nextPanel, contentDiv } = beginCollectionTurn(jobId, pmid, {
+    current_stage: 'stage1',
+    next_stage: 'stage2',
+    status: 'running',
+    stages: {},
+  });
+  nextPanel.dataset.expectedStage = 'stage2';
+  nextPanel.dataset.planModeLocked = 'focus';
+  nextPanel.classList.remove('collapsed');
+  showContentLoading(contentDiv, 'Including paper and continuing collection…');
+  try {
+    const res = await fetch(`${COLLECTION_URL}/jobs/${jobId}/resume`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ force_include: true, resume_from: 'stage1' }),
+      signal: abortController.signal,
+    });
+    if (!res.ok) throw new Error(`Include HTTP ${res.status}`);
+    const data = await res.json();
+    updateCollectionPanel(nextPanel, {
+      ...data,
       status: 'running',
     });
     await streamCollectionJob(jobId, nextPanel, contentDiv);
@@ -1921,7 +2119,6 @@ async function startCollectionFlow(message, files) {
     const fd = new FormData();
     if (message) fd.append('message', message);
     let fulltextAdded = false;
-    let suppAdded = false;
     const uploadingFiles = [];
     files.forEach((file) => {
       const kind = classifyUploadKind(file.name);
@@ -1929,9 +2126,9 @@ async function startCollectionFlow(message, files) {
         fd.append('fulltext', file);
         fulltextAdded = true;
         uploadingFiles.push(file);
-      } else if (kind === 'supplementary' && !suppAdded) {
+      } else if (kind === 'supplementary') {
+        // Append every tabular file so site + proteome tables all reach Stage4/5.
         fd.append('supplementary', file);
-        suppAdded = true;
         uploadingFiles.push(file);
       }
     });
@@ -1958,7 +2155,13 @@ async function startCollectionFlow(message, files) {
 
     if (data.needs_pmid) {
       hideContentLoading(contentDiv);
-      contentDiv.innerHTML = `<p style="color:#c0392b;">${escapeHtml(data.message || 'Could not resolve PMID.')}</p>`;
+      contentDiv.innerHTML = `<p style="color:#c0392b;">${escapeHtml(data.message || 'Could not resolve PMID.')}</p>
+        <p style="color:var(--text-muted);margin-top:8px;">Tip: enter <code>PMID 12345678</code> in the input box, then upload the PDF again — or rename the file to <code>12345678.pdf</code>.</p>`;
+      const field = document.getElementById('inputField');
+      if (field) {
+        field.focus();
+        field.placeholder = 'Enter PMID (e.g. 38670996), then re-upload the PDF…';
+      }
       return;
     }
 
@@ -2074,10 +2277,63 @@ async function loadConversation(id, { force = false } = {}) {
       }
       chatHistory.push({ role: msg.role, content: msg.content });
     });
+    await refreshStoredCollectionJobs(data.messages || []);
     renderSidebar();
     chatArea.scrollTop = chatArea.scrollHeight;
+    refreshCollectionInputPlaceholder();
   } catch (err) {
     console.warn('Failed to load conversation:', err);
+  }
+}
+
+/**
+ * After restoring a conversation, refresh collection job states from the live
+ * job files. A stage6 result is normally persisted by the browser tab that ran
+ * it, but if that tab was closed mid-run the final message is never stored —
+ * so re-sync the tail of the conversation with the actual job state.
+ */
+async function refreshStoredCollectionJobs(messages) {
+  const lastByJob = new Map();
+  (messages || []).forEach((msg) => {
+    const c = msg?.meta?.collection;
+    if (!c?.job_id) return;
+    lastByJob.set(c.job_id, {
+      lastStage: c.current_stage || c.currentStage || '',
+      lastStatus: c.status || '',
+    });
+  });
+  for (const [jobId, info] of lastByJob) {
+    try {
+      const res = await fetch(`${COLLECTION_URL}/jobs/${jobId}`);
+      if (!res.ok) continue;
+      const data = await res.json();
+      const status = data.status || '';
+      const terminal = ['completed', 'rejected', 'error'].includes(status);
+      if (!terminal) continue;
+      // Already reflected by the last stored collection message.
+      if (info.lastStatus === status) continue;
+      const msg = document.createElement('div');
+      msg.className = 'message assistant';
+      const body = document.createElement('div');
+      body.className = 'assistant-body';
+      const panel = createCollectionPanelEl(jobId, {
+        current_stage: data.current_stage || 'stage6',
+        status: 'running',
+        stages: data.stages || {},
+      });
+      const contentDiv = document.createElement('div');
+      contentDiv.className = 'msg-content';
+      contentDiv.dataset.skipPersist = '1';
+      body.appendChild(panel);
+      body.appendChild(contentDiv);
+      msg.appendChild(body);
+      chatArea.appendChild(msg);
+      const event = status === 'completed' ? 'done' : status;
+      await renderCollectionMessage(contentDiv, { ...data, job_id: jobId }, event, panel);
+      if (data.message) chatHistory.push({ role: 'assistant', content: data.message });
+    } catch (_) {
+      /* ignore */
+    }
   }
 }
 
@@ -2473,6 +2729,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   } else if (conversationId) {
     persistConversationId(null);
   }
+  refreshCollectionInputPlaceholder();
 });
 
 chatArea.addEventListener('click', (e) => {
@@ -3141,7 +3398,37 @@ function looksLikeCollectionGuidance(text) {
   if (/\buse\b.+\.(?:xlsx|xls|csv)/i.test(t)) return true;
   if (/→|->|=>/.test(t) && /\.(xlsx|xls|csv)/i.test(t)) return true;
   if (/蛋白/.test(t) && /(定量|log|ratio|比值|定量表)/i.test(t)) return true;
-  return /为什么|为啥|没有|漏了|没读|读入|重新解析|condition|re-?parse|missing|should (?:use|include|read)|附表|定量表|extract\s+ptm|count\s+log/i.test(
+  // Column-role corrections from Adjust-tables / chat (e.g. "column AA is position")
+  if (/\bcolumn\b/i.test(t) && /\b(amino|position|residue|uniprot|protein|gene|sty|aa)\b/i.test(t)) {
+    return true;
+  }
+  if (
+    /\b(sty|aa|position|residue)\b/i.test(t) &&
+    /\b(is|are|=|means?|等于|是)\b/i.test(t) &&
+    /\b(amino|position|residue|site|位点|氨基酸)\b/i.test(t)
+  ) {
+    return true;
+  }
+  // Sample / sheet-as-sample (e.g. MCF7 / MDA-MB-231 sheets are different samples)
+  if (/mismatch\s*sample/i.test(t)) return true;
+  if (/sheet.+as.+(?:different\s+)?samples?/i.test(t)) return true;
+  if (/(?:different|separate|distinct)\s+samples?/i.test(t) && /sheet/i.test(t)) return true;
+  if (/use.+sheets?.+as.+samples?/i.test(t)) return true;
+  if (/each\s+sheet.+(?:sample|cell\s*line)/i.test(t)) return true;
+  if (/\bsamples?\b/i.test(t) && /\bsheets?\b/i.test(t)) return true;
+  if (/cell\s*lines?/i.test(t) && /\b(sample|sheet|different|three)\b/i.test(t)) return true;
+  if (/三个|不同/.test(t) && /sample|样品|细胞系|sheet/i.test(t)) return true;
+  if (/样品不对|样品错|sample\s*(?:wrong|mismatch|incorrect)/i.test(t)) return true;
+  // Combined-site / split-column Teach notes
+  if (/site[- ]level/i.test(t)) return true;
+  if (/split\s+(?:this\s+)?column/i.test(t)) return true;
+  if (/phosphosite/i.test(t) && /split|amino|position|column/i.test(t)) return true;
+  if (/protein\s*\+\s*phosphosite/i.test(t)) return true;
+  if (/missing\s+log2?\s*ratio\s*\(\s*protein\s*\)/i.test(t)) return true;
+  if (/protein[- ]level/i.test(t)) return true;
+  if (/do\s+not\s+skip/i.test(t)) return true;
+  if (/protein\s*groups?/i.test(t) && /uniprot/i.test(t)) return true;
+  return /为什么|为啥|没有|漏了|没读|读入|重新解析|condition|re-?parse|missing|should (?:use|include|read)|附表|定量表|extract\s+ptm|count\s+log|列名|表头|\bsample\b|样品|细胞系|\bsheet\b/i.test(
     t,
   );
 }
@@ -3216,19 +3503,23 @@ async function sendMessage() {
   inputField.value = '';
   resizeInputField();
 
-  // Stage5 free-text intervention: when a collection job is paused after parse,
-  // route correction messages (missing file / Log2Ratio / Condition) to guidance.
-  const activeJobId = activeCollectionPanel?.dataset?.jobId;
-  const activeStage = activeCollectionPanel?.dataset?.currentStage || '';
-  if (
-    activeJobId &&
-    !files.length &&
-    text &&
-    looksLikeCollectionGuidance(text) &&
-    (activeStage === 'stage5' || activeStage === 'stage6')
-  ) {
-    await sendCollectionGuidance(activeJobId, text, activeCollectionPanel);
-    return;
+  // Stage5 free-text intervention from the bottom input-wrapper: when a collection
+  // job is paused with Adjust tables / teach UI (or stage5/6 awaiting), route the
+  // message to /guidance instead of starting a new chat / collection job.
+  const guidanceTarget = findCollectionGuidanceTarget();
+  if (guidanceTarget && !files.length && text) {
+    const openTeach = Boolean(
+      guidanceTarget.contentDiv?.querySelector('.collection-teach:not(.is-stale)'),
+    );
+    const acceptFlag = guidanceTarget.panel.dataset.acceptGuidance === '1';
+    // When Adjust tables / teach UI is open, any free-text from the input box is
+    // treated as Stage5 guidance. Otherwise only guidance-like messages route here.
+    if (openTeach || acceptFlag || looksLikeCollectionGuidance(text)) {
+      activeCollectionPanel = guidanceTarget.panel;
+      await sendCollectionGuidance(guidanceTarget.jobId, text, guidanceTarget.panel);
+      refreshCollectionInputPlaceholder();
+      return;
+    }
   }
 
   let routeCollection = files.some((f) => classifyUploadKind(f.name) !== 'unknown');

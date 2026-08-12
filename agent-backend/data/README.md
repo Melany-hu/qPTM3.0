@@ -62,8 +62,11 @@ data/
 │   ├── COMPARTMENTS/            # subcellular localization (PMID 24573882)
 │   ├── SubCELL/                 # compartment-specific PPIs (PMID 39373488)
 │   └── iNuLoC/                  # DNL + nuclear prob (PMID 40087285)
-└── _runtime/conversations/
 ```
+
+Runtime state (conversations, collection jobs, eval) lives under
+`agent-backend/runtime/`, not under `data/`.
+
 
 ## ActiveDriverDB (`disease/ActiveDriverDB`)
 

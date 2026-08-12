@@ -16,8 +16,10 @@ interface CliArgs {
   outDir?: string
   jobId?: string
   filePath?: string
-  suppFilePath?: string
+  /** One or more --supp-file values. */
+  suppFilePaths?: string[]
   resumeFrom?: string
+  forceInclude?: boolean
   concurrency?: number
   model?: string
 }
@@ -34,8 +36,9 @@ Usage:
 run-job options:
   --job-id <id>           Job id (default: job-<pmid>)
   --file <path>           Manual fulltext PDF/XML
-  --supp-file <path>      Supplementary table file
+  --supp-file <path>      Supplementary table file (repeatable)
   --resume-from <stage>   auto | stage1 | stage2 | stage3 | stage4 | stage5 | stage6
+  --force-include         Override Stage-1 exclude (user Include button)
   --concurrency <n>       Parallel LLM calls (default 1)
   --model <id>            e.g. opencode-go/deepseek-v4-flash
 
@@ -71,11 +74,15 @@ function parseArgs(argv: string[]): CliArgs {
       continue
     }
     if (a === "--supp-file" && argv[i + 1]) {
-      args.suppFilePath = argv[++i]
+      ;(args.suppFilePaths ??= []).push(argv[++i])
       continue
     }
     if (a === "--resume-from" && argv[i + 1]) {
       args.resumeFrom = argv[++i]
+      continue
+    }
+    if (a === "--force-include") {
+      args.forceInclude = true
       continue
     }
     if (a === "--concurrency" && argv[i + 1]) {
@@ -108,10 +115,15 @@ async function runIngestFulltext(opts: CliArgs): Promise<void> {
 }
 
 async function runIngestSupp(opts: CliArgs): Promise<void> {
-  if (!opts.pmid || !opts.filePath) {
-    throw new Error("ingest-supp requires --pmid and --file")
+  const paths = [...(opts.suppFilePaths ?? []), ...(opts.filePath ? [opts.filePath] : [])]
+  if (!opts.pmid || paths.length === 0) {
+    throw new Error("ingest-supp requires --pmid and --file (or --supp-file)")
   }
-  const result = ingestManualSupplementary({ pmid: opts.pmid, filePath: opts.filePath })
+  const result = ingestManualSupplementary({
+    pmid: opts.pmid,
+    filePaths: paths,
+    merge: true,
+  })
   console.log(JSON.stringify(result, null, 2))
 }
 
@@ -125,15 +137,19 @@ async function runJob(opts: CliArgs): Promise<void> {
     outDir: opts.outDir,
     pmid: opts.pmid,
     fulltextPath: opts.filePath,
-    supplementaryPath: opts.suppFilePath,
+    supplementaryPaths: opts.suppFilePaths,
     resumeFrom: (opts.resumeFrom as "auto" | undefined) ?? "auto",
+    forceInclude: Boolean(opts.forceInclude),
     concurrency: opts.concurrency,
     model: opts.model,
     onLog: (msg) => console.error(msg),
   })
   console.log(JSON.stringify(state, null, 2))
   const prior = readJobState(opts.outDir)
-  if (prior?.status === "error") process.exit(1)
+  // Force-exit so the node process cannot hang on background handles kept alive
+  // by the pi-ai runtime (sockets, timers) — a hanging child keeps the job in
+  // "running" forever and blocks resume. All state is already persisted to disk.
+  process.exit(prior?.status === "error" ? 1 : 0)
 }
 
 async function main(): Promise<void> {

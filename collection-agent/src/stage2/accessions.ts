@@ -62,3 +62,42 @@ export function sourceFromId(id: string): RepoSource {
   if (u.startsWith("PDC")) return "PDC"
   return "unknown"
 }
+
+/**
+ * Pick identifiers to feed Stage-3 meta extraction.
+ *
+ * MassIVE PROXI keyword lookup historically dumped ~100 unrelated MSV ids into
+ * Stage-2 manifests. Prefer accessions that actually appear in the paper
+ * excerpt; if the Stage-2 list looks like that pollution and the text has no
+ * IDs, drop the MassIVE bulk rather than poisoning Identifier.
+ */
+export function selectKnownIdentifiersForMeta(
+  repos: Array<{ id: string; source: string; via?: string }>,
+  excerpt: string,
+): AccessionHit[] {
+  const normalized = (repos || [])
+    .map((r) => ({
+      id: (r.id || "").toUpperCase().trim(),
+      source: (r.source as RepoSource) || sourceFromId(r.id || ""),
+      via: r.via || "stage2",
+    }))
+    .filter((r) => r.id)
+
+  const inExcerpt = extractAccessions(excerpt || "", "excerpt")
+  if (inExcerpt.length > 0) {
+    const repoById = new Map(normalized.map((r) => [r.id, r]))
+    const overlap = inExcerpt
+      .map((h) => repoById.get(h.id))
+      .filter((h): h is AccessionHit => Boolean(h))
+    // Prefer Stage-2 metadata for IDs confirmed in text; else trust text regex
+    return overlap.length > 0 ? mergeAccessions(overlap) : inExcerpt
+  }
+
+  const massive = normalized.filter((r) => r.source === "MassIVE")
+  const other = normalized.filter((r) => r.source !== "MassIVE")
+  // Heuristic: PROXI keyword dumps are large and almost entirely MassIVE
+  if (massive.length > 5 && massive.length >= normalized.length - 1) {
+    return other
+  }
+  return mergeAccessions(normalized)
+}

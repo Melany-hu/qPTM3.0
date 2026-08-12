@@ -308,7 +308,7 @@ The system prompt (`app/llm/prompts.py`, `REACT_SYSTEM_PROMPT`) encodes investig
 
 ## 7. Evaluation
 
-Automated regression evaluation is performed with `agent-backend/data/_runtime/eval/run_agent_eval.py`, which issues a benchmark set of 30 questions (Q1–Q30) covering kinase identification, conditions, localization, disease, mutations, capability-gap honesty, and non-TP53 proteins. Results are logged as JSONL with tool-call traces, keyword checks, and latency.
+Automated regression evaluation is performed with `agent-backend/runtime/eval/run_agent_eval.py`, which issues a benchmark set of 30 questions (Q1–Q30) covering kinase identification, conditions, localization, disease, mutations, capability-gap honesty, and non-TP53 proteins. Results are logged as JSONL with tool-call traces, keyword checks, and latency.
 
 ---
 

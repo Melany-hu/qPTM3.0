@@ -48,12 +48,10 @@ export async function fetchPxDataset(accession: string): Promise<AccessionHit[]>
 
 /** Expand a set of accessions via PX Central cross-links */
 export async function expandViaProteomeXchange(ids: string[]): Promise<AccessionHit[]> {
+  const interesting = ids.filter((id) => /^(PXD|MSV|PDC|PASS)/i.test(id))
   const all: AccessionHit[] = []
-  for (const id of ids) {
-    // PX Central is mainly useful for PXD / MSV style accessions
-    if (!/^(PXD|MSV|PDC|PASS)/i.test(id)) continue
-    const hits = await fetchPxDataset(id)
-    all.push(...hits)
-  }
+  // PX Central lookups are independent — run them concurrently (bounded).
+  const results = await Promise.all(interesting.map((id) => fetchPxDataset(id)))
+  for (const hits of results) all.push(...hits)
   return all
 }

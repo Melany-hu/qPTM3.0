@@ -16,9 +16,24 @@ import { QratioMapChain } from "../chains/qratio/agent.js"
 import type { SuppScoutRecord } from "./stage4-supp.js"
 import { createLlmRuntime, type LlmRuntime } from "../runtime.js"
 import {
+  entryPathMatches,
+  extractColumnRoleHints,
+  extractSheetHintsFromText,
+  isHintedSheet,
+  loadUserTableHints,
+  noteWantsProteinLog2,
+  noteWantsSheetAsSample,
+  noteWantsSiteLevelSheet,
+  extractProteomeSheetNames,
+  resolveForceIncludePaths,
+  type UserTableHints,
+} from "../stage5/user-hints.js"
+import {
   HEURISTIC_HIGH,
   HEURISTIC_MIN_PARSE,
   alignConditionsToStage3,
+  applyColumnRoleHints,
+  applyProteomeColumnHints,
   heuristicMapSheet,
   mappingIsParsable,
   repairSiteColumnMapping,
@@ -31,20 +46,13 @@ import {
   type DerivedRatioSpec,
 } from "../stage5/derived-ratio.js"
 import {
-  entryPathMatches,
-  extractSheetHintsFromText,
-  isHintedSheet,
-  loadUserTableHints,
-  noteWantsProteinLog2,
-  resolveForceIncludePaths,
-  type UserTableHints,
-} from "../stage5/user-hints.js"
-import {
+  dedupeQratioRows,
   parseMappedSheet,
   QRATIO_CSV_HEADER,
   qratioToCsvLine,
   type QratioRow,
 } from "../stage5/parse-rows.js"
+import { sheetsAlignWithStage3Samples } from "../stage5/sample-map.js"
 import {
   alignProteomeConditions,
   classifySheetKind,
@@ -103,8 +111,10 @@ export interface Stage5ThinkingStep {
     | "start"
     | "inventory"
     | "candidates"
+    | "sample_from_sheet"
     | "try_sheet"
     | "mapping"
+    | "progress"
     | "parsed"
     | "skip"
     | "summary"
@@ -138,6 +148,7 @@ function mappingColumnsBrief(mapping: ColumnMapping): Record<string, unknown> {
     positionCol: mapping.positionCol,
     aminoAcidCol: mapping.aminoAcidCol,
     siteCombinedCol: mapping.siteCombinedCol,
+    conditionCol: mapping.conditionCol ?? null,
     modSeqCol: mapping.modSeqCol,
     ratioColumns: mapping.ratioColumns.map((r) => ({
       column: r.column,
@@ -512,7 +523,13 @@ async function resolveMapping(opts: {
     if (m.skip || cleaned.intensityOnly) {
       return { ...cleaned, skip: true }
     }
-    return repairSiteColumnMapping(cleaned, opts.sheet.headers)
+    // User column-role note first, then STY+AA layout repair (data-driven) last.
+    const withRoles = applyColumnRoleHints(
+      cleaned,
+      opts.sheet.headers,
+      extractColumnRoleHints(opts.userGuidance || ""),
+    )
+    return repairSiteColumnMapping(withRoles, opts.sheet.headers)
   }
 
   let heuristic = stripIntensityRatioColumns(
@@ -610,13 +627,19 @@ async function resolveMapping(opts: {
       }
     }
 
+    const mergeLongFormat = (m: ColumnMapping & { skip?: boolean }) => ({
+      ...m,
+      conditionCol: m.conditionCol || heuristic.conditionCol || null,
+      siteCombinedCol: m.siteCombinedCol || heuristic.siteCombinedCol,
+    })
+
     if (mappingIsParsable(llmMapped) && llmMapped.confidence >= heuristic.confidence - 0.05) {
-      return finish(llmMapped)
+      return finish(mergeLongFormat(llmMapped))
     }
     if (mappingIsParsable(heuristic) && heuristic.confidence >= HEURISTIC_MIN_PARSE) {
       return finish(heuristic)
     }
-    if (mappingIsParsable(llmMapped)) return finish(llmMapped)
+    if (mappingIsParsable(llmMapped)) return finish(mergeLongFormat(llmMapped))
     return finish(heuristic)
   } catch (err) {
     return finish({
@@ -900,6 +923,23 @@ async function processOnePmid(opts: {
   let tried = 0
   let bestScore = -1
 
+  // Stage3 multi-sample + sheets named like those samples → treat each sheet as Sample
+  const sheetSampleAlign = sheetsAlignWithStage3Samples(
+    candidates.map((c) => c.sheet.name),
+    lit.sample || "",
+  )
+  const preferSheetAsSample =
+    noteWantsSheetAsSample(hints?.note) || sheetSampleAlign.aligned
+  if (sheetSampleAlign.aligned) {
+    think({
+      step: "sample_from_sheet",
+      message: `Stage3 lists ${sheetSampleAlign.matchedSamples.length} Sample(s) that match sheet names (${sheetSampleAlign.matchedSheets.join(", ")}); assigning Sample from each sheet.`,
+    })
+    mappingNotes.push(
+      `sheet_as_sample:${sheetSampleAlign.matchedSheets.join("|")}`,
+    )
+  }
+
   for (const c of tryList) {
     tried++
     const kind = classifySheetKind(c.sheet.name, c.sheet.headers)
@@ -924,16 +964,31 @@ async function processOnePmid(opts: {
       })
     }
     if (kind === "proteome") {
-      mappingNotes.push(`${c.entryPath}#${c.sheet.name}:proteome(defer)`)
+      // User Teach note can override proteome misclassification (e.g. combined
+      // Protein+Phosphosite columns that look like proteome without Position).
+      const forceSite =
+        noteWantsSiteLevelSheet(hints?.note) ||
+        Boolean(extractColumnRoleHints(hints?.note || "").siteCombinedCol)
+      if (!forceSite) {
+        mappingNotes.push(`${c.entryPath}#${c.sheet.name}:proteome(defer)`)
+        think({
+          step: "skip",
+          message: `Deferred “${c.sheet.name}” as whole-proteome (will try later for protein-level ratios only).`,
+          entryPath: c.entryPath,
+          sheet: c.sheet.name,
+          kind,
+          status: "proteome_defer",
+        })
+        continue
+      }
       think({
-        step: "skip",
-        message: `Deferred “${c.sheet.name}” as whole-proteome (will try later for protein-level ratios only).`,
+        step: "try_sheet",
+        message: `User guidance marks “${c.sheet.name}” as site-level; parsing as site PTM instead of proteome.`,
         entryPath: c.entryPath,
         sheet: c.sheet.name,
-        kind,
-        status: "proteome_defer",
+        kind: "site_ptm",
+        status: "force_site_from_hint",
       })
-      continue
     }
 
     const mapping = await resolveMapping({
@@ -960,6 +1015,8 @@ async function processOnePmid(opts: {
         })
       }
     }
+    // Honor user-named protein-level columns even if the LLM dropped them.
+    effectiveMapping = applyProteomeColumnHints(effectiveMapping, c.sheet.headers, hints)
     bestConf = Math.max(bestConf, effectiveMapping.confidence)
     mappingNotes.push(
       `${c.entryPath}#${c.sheet.name}:${effectiveMapping.source}@${effectiveMapping.confidence.toFixed(2)}${effectiveMapping.notes ? `(${effectiveMapping.notes})` : ""}`,
@@ -1012,6 +1069,15 @@ async function processOnePmid(opts: {
       mapping: effectiveMapping,
       lit,
       fallbackCondition: lit.condition,
+      preferSheetAsSample,
+      onProgress: (message) => {
+        think({
+          step: "progress",
+          message,
+          entryPath: c.entryPath,
+          sheet: c.sheet.name,
+        })
+      },
     })
     if (rows.length === 0) {
       think({
@@ -1047,9 +1113,19 @@ async function processOnePmid(opts: {
     if (allRows.length >= 500_000) break
   }
 
-  // Whole-proteome pass — never accepts ptm_no_site sheets
+  // Whole-proteome pass — never accepts ptm_no_site / site_ptm sheets
   const proteomeRows: ProteomeRow[] = []
   const proteomeSheets: string[] = []
+  const forceProteomeSheets = new Set(
+    extractProteomeSheetNames(hints?.note).map((s) => s.toLowerCase()),
+  )
+  // When user asks for protein Log2Ratio, also try common short proteome sheet titles
+  if (preferProtein || forceProteomeSheets.size > 0) {
+    for (const name of ["pro", "prot", "protein", "proteome"]) {
+      forceProteomeSheets.add(name)
+    }
+  }
+  const roleHints = extractColumnRoleHints(hints?.note || "")
   for (const f of inventory.files) {
     if (!f.localPath || f.error) continue
     for (const sh of f.sheets) {
@@ -1059,23 +1135,48 @@ async function processOnePmid(opts: {
         sawPtmNoSite = true
         continue
       }
-      if (kind !== "proteome") continue
+      if (kind === "site_ptm") continue
+      const forceThis = forceProteomeSheets.has(sh.name.toLowerCase())
+      if (kind !== "proteome" && !forceThis) continue
       if (f.size > 8_000_000) {
         mappingNotes.push(`${f.entryPath}#${sh.name}:skip_proteome_large_file`)
         continue
       }
-      let mapping = heuristicMapProteomeSheet(f.entryPath, {
-        name: sh.name,
-        headers: sh.headers,
-        headerRowIndex: sh.headerRowIndex ?? 0,
-      })
+      let mapping = heuristicMapProteomeSheet(
+        f.entryPath,
+        {
+          name: sh.name,
+          headers: sh.headers,
+          headerRowIndex: sh.headerRowIndex ?? 0,
+        },
+        { force: kind !== "proteome" },
+      )
       if (!mapping) continue
+      // Apply UniProt column role hint (e.g. PG.ProteinGroups is UniProtID)
+      if (roleHints.uniprotCol) {
+        const want = roleHints.uniprotCol.toLowerCase().replace(/[\s_]+/g, " ").trim()
+        const hit =
+          sh.headers.find((h) => h.toLowerCase().replace(/[\s_]+/g, " ").trim() === want) ||
+          sh.headers.find((h) => {
+            const n = h.toLowerCase().replace(/[\s_]+/g, " ").trim()
+            return want.length >= 5 && (n.includes(want) || want.includes(n))
+          })
+        if (hit) {
+          mapping = {
+            ...mapping,
+            uniprotCol: hit,
+            notes: `${mapping.notes}; role_hint:uniprot=${hit}`,
+          }
+        }
+      }
       mapping = alignProteomeConditions(mapping, lit.condition, lit.detailCondition || "")
       const rows = await parseProteomeSheet({
         localPath: f.localPath,
         mapping,
         lit,
         fallbackCondition: lit.condition,
+        preferSheetAsSample,
+        forceProteome: kind !== "proteome",
       })
       if (rows.length === 0) continue
       pushAll(proteomeRows, rows)
@@ -1083,18 +1184,38 @@ async function processOnePmid(opts: {
       mappingNotes.push(
         `${f.entryPath}#${sh.name}:proteome@${mapping.confidence.toFixed(2)}(${mapping.notes};rows=${rows.length})`,
       )
+      think({
+        step: "parsed",
+        message: `Extracted ${rows.length} protein-level row(s) from “${sh.name}” for Log2Ratio (protein).`,
+        entryPath: f.entryPath,
+        sheet: sh.name,
+        rowsAdded: rows.length,
+        status: "proteome",
+      })
       bestConf = Math.max(bestConf, mapping.confidence)
       if (proteomeRows.length >= 50_000) break
     }
     if (proteomeRows.length >= 50_000) break
   }
 
-  const MAX_ROWS_PER_PMID = 100_000
+  const MAX_ROWS_PER_PMID = Number.parseInt(process.env.STAGE5_MAX_ROWS_PER_PMID ?? "600000", 10) || 600_000
   const minSiteRatioRows = Math.max(
     1,
     Number.parseInt(process.env.STAGE5_MIN_SITE_RATIO_ROWS ?? "1", 10) || 1,
   )
   const siteRatioFrac = Number.parseFloat(process.env.STAGE5_SITE_RATIO_MIN_FRAC ?? "0")
+  // One quantitative record per site per sample per condition — collapse
+  // duplicate rows emitted when several ratio columns were mapped onto the
+  // same condition (protein-level fields are merged, not dropped).
+  if (allRows.length > 0) {
+    const before = allRows.length
+    const deduped = dedupeQratioRows(allRows)
+    allRows.length = 0
+    pushAll(allRows, deduped)
+    if (deduped.length < before) {
+      mappingNotes.push(`dedupe_site_rows:${before}->${deduped.length}`)
+    }
+  }
   if (allRows.length > MAX_ROWS_PER_PMID) {
     mappingNotes.push(`truncated_rows:${allRows.length}->${MAX_ROWS_PER_PMID}`)
     allRows.length = MAX_ROWS_PER_PMID

@@ -129,6 +129,7 @@ export function parseQratioMapOutput(
     positionCol: asStr(o.positionCol),
     aminoAcidCol: asStr(o.aminoAcidCol),
     siteCombinedCol: asStr(o.siteCombinedCol),
+    conditionCol: asStr(o.conditionCol),
     modSeqCol: asStr(o.modSeqCol) || asStr(o.modSequenceCol),
     ratioColumns,
     pValueColumns: parsePCols(o.pValueColumns),

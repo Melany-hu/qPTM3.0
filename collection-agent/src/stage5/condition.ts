@@ -34,6 +34,54 @@ function isSilacRatioMetadataSuffix(suffix: string): boolean {
   return /^(variability|count|significance|shift)\b/i.test(suffix.trim())
 }
 
+/** Treatment token from sheet titles like "Table S2_ETO" / "S3_HU". */
+export function treatmentTokenFromSheet(sheetName: string): string {
+  const s = (sheetName || "").trim()
+  if (!s) return ""
+  // Prefer last underscore segment when it looks like a drug/treatment abbrev
+  const parts = s.split(/[_\s]+/).filter(Boolean)
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const p = parts[i]
+    if (/^(table|sheet|tab|supp|supplementary|s\d+|fig|figure)$/i.test(p)) continue
+    if (/^s?\d+[a-z]?$/i.test(p)) continue
+    if (/^[A-Za-z][A-Za-z0-9+-]{0,15}$/.test(p) && !/^(vs|versus|ratio|log|fc)$/i.test(p)) {
+      return p
+    }
+  }
+  return ""
+}
+
+/** "30min" / "30 MIN" / "120minutes" → "30 min". */
+function formatTimeArm(raw: string): string {
+  const t = raw.replace(/_/g, " ").replace(/\s+/g, " ").trim()
+  const m = t.match(/^(\d+(?:\.\d+)?)\s*(min|mins|minutes|h|hr|hrs|hours|d|day|days)?$/i)
+  if (!m) return t
+  const n = m[1]
+  const u = (m[2] || "").toLowerCase()
+  if (!u || /^min/.test(u)) return `${n} min`
+  if (/^h/.test(u)) return `${n} h`
+  if (/^d/.test(u)) return `${n} d`
+  return `${n} ${u}`
+}
+
+/**
+ * Turn spreadsheet arms like "30min_CNT" / "ETO 30min_Ctr" into Stage3-ish
+ * "ETO 30 min/Ctr" when the sheet name (or label itself) carries the treatment.
+ */
+export function enrichTimeVsControlLabel(base: string, sheetName = ""): string {
+  const s = (base || "").trim()
+  if (!s) return s
+  // Optional leading treatment: "ETO 30min_CNT", "ETO_30 min/Ctr"
+  const m = s.match(
+    /^(?:([A-Za-z][A-Za-z0-9+-]{0,15})[\s_]+)?(\d+(?:\.\d+)?\s*(?:min|mins|minutes|h|hr|hrs|hours|d|day|days)?)\s*[_\-/\s]\s*(cnt|ctr|ctrl|con|ctl|control|controls|untreated|vehicle|dmso|sham)$/i,
+  )
+  if (!m) return s
+  const time = formatTimeArm(m[2])
+  const right = /sham/i.test(m[3]) ? "Sham" : "Ctr"
+  const treat = (m[1] || treatmentTokenFromSheet(sheetName) || "").trim()
+  return treat ? `${treat} ${time}/${right}` : `${time}/${right}`
+}
+
 /** Condition label from a ratio column header (shared by heuristic + proteome). */
 export function conditionLabelFromRatioHeader(h: string, sheetName = ""): string {
   const n = (h || "").trim()
@@ -47,6 +95,16 @@ export function conditionLabelFromRatioHeader(h: string, sheetName = ""): string
     /abundance\s*ratio\s*:?\s*\(?\s*(heavy|light|medium)\s*\)?\s*\/\s*\(?\s*(heavy|light|medium)/i,
   )
   if (m) return `${m[1]}/${m[2]}`
+
+  // Parenthesized contrasts: log2 Kac(ATN/Ctrl), Kac(ATN/Ctrl), Lac(H/L)
+  m = n.match(/\(([^/]+)\/([^)]+)\)\s*$/)
+  if (m) {
+    const left = m[1].trim()
+    const right = m[2].trim()
+    if (left && right && left.length < 60 && right.length < 60) {
+      return enrichTimeVsControlLabel(`${left}/${right}`, sheetName)
+    }
+  }
 
   m = n.match(/ratio\s+([^/\s]+)\s*\/\s*([^/\s]+)/i)
   let base = ""
@@ -62,14 +120,32 @@ export function conditionLabelFromRatioHeader(h: string, sheetName = ""): string
     }
   }
   if (!base) {
-    m = n.match(/(?:log2?(?:\s*ratio)?|fc|fold(?:\s*change)?)\s*[:_\-]?\s*(.+)$/i)
+    // Trailing LogFC / _log2FC (must run BEFORE leading log/fc match —
+    // otherwise "30min_CNT_LogFC" is misread as log+"FC")
+    m = n.match(/^(.+?)[_\s-]+(?:log2?fc|logfc|log2?(?:\s*ratio)?)$/i)
+    if (m) {
+      const rest = m[1].replace(/\b(normalized|peptide|protein|site)\b/gi, "").trim()
+      if (rest.length > 1 && rest.length < 80) base = rest
+    }
+  }
+  if (!base) {
+    // Leading "Fold change …" / "FC …" / "log2 …" (anchored — avoid matching inside LogFC)
+    m = n.match(/^(?:log2?(?:\s*ratio)?|fc|fold(?:\s*change)?)\s*[:_\-]?\s*(.+)$/i)
     if (m) {
       const rest = m[1].replace(/\b(normalized|peptide|protein|site)\b/gi, "").trim()
       if (rest.length > 1 && rest.length < 80) base = rest
     }
   }
   if (!base) base = cleanMappedCondition(n) || n
-  base = base.replace(/^\(+/, "").replace(/\)+$/, "").replace(/^[:\-\s]+/, "").trim()
+  base = base.replace(/^\(+/, "").trim()
+  // Unwrap only fully parenthesized labels like "(ATN/Ctrl)" — not "Kac(ATN/Ctrl)"
+  if (/^\([^)]+\)$/.test(base)) {
+    base = base.slice(1, -1).trim()
+  }
+  base = base.replace(/^[:\-\s]+/, "").trim()
+  // Strip residual trailing Log/FC crumbs left by cleanMappedCondition
+  base = base.replace(/[_\s-]+(?:log2?fc|logfc|log2?|fc)$/i, "").trim()
+  base = enrichTimeVsControlLabel(base, sheetName)
   if (/^B\d+\s*\/\s*B\d+$/i.test(base) && sheetName && /vs\.?/i.test(sheetName)) {
     return sheetName.replace(/\s+/g, " ").trim()
   }
@@ -180,8 +256,26 @@ export function isCrypticCondition(cond: string): boolean {
 export function cleanMappedCondition(mapped: string): string {
   return mapped
     .replace(/\s*(?:adj\.?\s*)?(?:p[- ]?value|pvalue|q[- ]?value|fdr)\s*$/i, "")
-    .replace(/\s*(?:log2?\s*)?(?:ratio|fold\s*change|fc)\s*$/i, "")
+    .replace(/[_\s-]*(?:log2?fc|logfc)$/i, "")
+    .replace(/\s*(?:log2?\s*)?(?:ratio|fold\s*change)\s*$/i, "")
+    .replace(/(?:^|[\s_-])fc\s*$/i, "")
     .replace(/\s+/g, " ")
+    .trim()
+}
+
+/**
+ * Canonical key so near-duplicate labels collapse:
+ * "ETO 30 min/Ctr" ≡ "ETO 30min_Ctr" ≡ "ETO_30min_CNT".
+ */
+export function canonicalizeConditionKey(cond: string): string {
+  return (cond || "")
+    .toLowerCase()
+    .replace(/[_\-/]+/g, " ")
+    .replace(/\b(cnt|ctrl|con|ctl|controls?|untreated|vehicle|dmso)\b/g, "ctr")
+    .replace(/(\d+(?:\.\d+)?)\s*(minutes?|mins?)/g, "$1min")
+    .replace(/(\d+(?:\.\d+)?)\s*(hours?|hrs?)/g, "$1h")
+    .replace(/(\d+(?:\.\d+)?)\s*(days?)/g, "$1d")
+    .replace(/[()\[\]\s]+/g, "")
     .trim()
 }
 
@@ -192,22 +286,50 @@ function stage3Parts(stage3Condition: string): string[] {
     .filter(Boolean)
 }
 
+function splitGluedTimeToken(t: string): string[] {
+  const m = t.match(
+    /^(\d+(?:\.\d+)?)(min|mins|minutes|h|hr|hrs|hours|d|day|days|wk|wks|week|weeks|mo|mos|month|months)$/i,
+  )
+  if (!m) return [t]
+  const unit = m[2].toLowerCase()
+  let u = unit
+  if (/^min/.test(unit)) u = "min"
+  else if (/^h/.test(unit)) u = "h"
+  else if (/^d/.test(unit) || /^day/.test(unit)) u = "d"
+  else if (/^w/.test(unit)) u = "wk"
+  else if (/^mo/.test(unit)) u = "mo"
+  return [m[1], u]
+}
+
 function normTokens(s: string): string[] {
-  return s
+  const raw = s
     .toLowerCase()
     .replace(/ratio\b/g, " ")
     .replace(/\bvs\.?\b/g, " ")
     .split(/[^a-z0-9]+/)
     .filter((t) => t.length >= 1)
+  const out: string[] = []
+  for (const t of raw) out.push(...splitGluedTimeToken(t))
+  return out
 }
 
 function expandToken(t: string): Set<string> {
   const out = new Set<string>([t])
   const map: Record<string, string[]> = {
-    ctr: ["control", "ctrl", "con", "ctl"],
-    ctrl: ["control", "ctr", "con"],
-    con: ["control", "ctr", "ctrl"],
-    control: ["ctr", "ctrl", "con"],
+    ctr: ["control", "ctrl", "con", "ctl", "cnt"],
+    ctrl: ["control", "ctr", "con", "ctl", "cnt"],
+    con: ["control", "ctr", "ctrl", "ctl", "cnt"],
+    ctl: ["control", "ctr", "ctrl", "con", "cnt"],
+    cnt: ["control", "ctr", "ctrl", "con", "ctl"],
+    control: ["ctr", "ctrl", "con", "ctl", "cnt"],
+    controls: ["ctr", "ctrl", "con", "ctl", "cnt", "control"],
+    mins: ["min", "minutes"],
+    minutes: ["min", "mins"],
+    min: ["mins", "minutes"],
+    hrs: ["h", "hr", "hours"],
+    hours: ["h", "hr", "hrs"],
+    hr: ["h", "hrs", "hours"],
+    h: ["hr", "hrs", "hours"],
     ex: ["exercise"],
     exercise: ["ex"],
     ir: ["ischemia", "reperfusion"],
@@ -437,7 +559,11 @@ export function matchStage3Condition(
   }
   if (parts.length === 1 && (isCrypticCondition(cleaned) || !cleaned)) return parts[0]
 
-  const exact = parts.find((p) => p.toLowerCase() === cleaned.toLowerCase())
+  const exact = parts.find(
+    (p) =>
+      p.toLowerCase() === cleaned.toLowerCase() ||
+      canonicalizeConditionKey(p) === canonicalizeConditionKey(cleaned),
+  )
   if (exact) return exact
 
   let best: string | null = null
@@ -463,7 +589,10 @@ export function resolveRowCondition(
   stage3Condition: string,
   detailCondition = "",
 ): string {
-  const mapped = cleanMappedCondition(mappedCondition || "")
+  const mapped = enrichTimeVsControlLabel(
+    cleanMappedCondition(mappedCondition || ""),
+    "",
+  )
   const candidates = conditionCandidates(stage3Condition, detailCondition)
   const parts = candidates.length > 0 ? candidates : stage3Parts(stage3Condition)
 

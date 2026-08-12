@@ -18,7 +18,7 @@ import {
   type MappedPValueColumn,
   type MappedRatioColumn,
 } from "./heuristic.js"
-import { resolveRowSample, type QratioRow } from "./parse-rows.js"
+import { resolveRowSample, resolveSheetAsSample, type QratioRow } from "./parse-rows.js"
 import { resolveSingleModification } from "./ptm.js"
 import { loadSheetData } from "./tables.js"
 
@@ -75,14 +75,16 @@ export function hasPtmCues(sheetName: string, headers: string[]): boolean {
   const name = sheetName.toLowerCase()
   // Sheet titles that are clearly PTM / site tables
   if (
-    /site[_\s-]?quant|modification\s*sites?|lactyl|phospho|kla\b|acetylome|ubiquit/.test(name)
+    /site[_\s-]?quant|modification\s*sites?|lactyl|phospho|phos\b|kla\b|acetylome|ubiquit/.test(
+      name,
+    )
   ) {
     return true
   }
   // Header-level PTM markers (do not use bare "protein description")
   if (
     hasAny(headers, (n) =>
-      /modified\s*sequence|localization\s*prob|lactylation|phosphorylation\s*prob|modification\s*sites?|^amino\s*acids?$|positions?\s+within\s+proteins?|phospho\s*\(sty\)|glygly\s*\(k\)|acetyl\s*\(k\)|kla\b/.test(
+      /modified\s*sequence|localization\s*prob|lactylation|phosphorylation\s*prob|modification\s*sites?|^amino\s*acids?$|positions?\s+within\s+proteins?|phospho\s*\(sty\)|glygly\s*\(k\)|acetyl\s*\(k\)|kla\b|phosphosite|protein\s*\+\s*phosphosite|gene\s*\+\s*(?:phospho)?site|^feature[_\s-]?names?$/.test(
         n,
       ),
     )
@@ -92,7 +94,9 @@ export function hasPtmCues(sheetName: string, headers: string[]): boolean {
   // Strong PTM vocabulary in headers (not sheet-name alone — avoid false hits on GO tables)
   if (
     hasAny(headers, (n) =>
-      /\b(lactyl|phospho|ubiquit|succinyl|malonyl|crotonyl|glygly)\b/.test(n),
+      /\b(lactyl|phospho|phosphosite|ubiquit|succinyl|malonyl|crotonyl|glygly|kac|kla|acetyl)\b/.test(
+        n,
+      ),
     )
   ) {
     return true
@@ -106,11 +110,24 @@ export function hasSiteColumns(headers: string[]): boolean {
     (n) =>
       /^positions?$/.test(n) ||
       /^sites?$/.test(n) ||
+      /^aa$/.test(n) ||
+      // Phospho residue-type columns (S/T/Y); often paired with AA=position
+      /^sty$/.test(n) ||
+      /^s\s*\/\s*t\s*\/\s*y$/.test(n) ||
+      /^residue\s*types?$/.test(n) ||
       /positions?\s+within\s+proteins?/.test(n) ||
       /site\s*positions?/.test(n) ||
       /^amino\s*acids?$/.test(n) ||
       /modification\s*sites?/.test(n) ||
-      /^phosphosite/.test(n),
+      /phosphosite/.test(n) ||
+      /protein\s*\+\s*phosphosite/.test(n) ||
+      /gene(?:\s*name)?\s*\+\s*(?:phospho)?site/.test(n) ||
+      /uniprot.*\+\s*phosphosite|phosphosite.*\+\s*uniprot/.test(n) ||
+      /^feature[_\s-]?names?$/.test(n) ||
+      // Acetylome / lactylome etc. — align with heuristic scorePosition()
+      /modified\s*lysine|modfied\s*lysine|mod(?:ified)?\s*lys/.test(n) ||
+      /modified\s*(serine|threonine|tyrosine|residue)/.test(n) ||
+      /phospho_?location/.test(n),
   )
 }
 
@@ -123,6 +140,10 @@ function hasIdColumn(headers: string[]): boolean {
       /protein\s*accession/.test(n) ||
       /^proteins?$/.test(n) ||
       /^protein\s*ids?$/.test(n) ||
+      /protein\s*groups?/.test(n) ||
+      /^pg\./.test(n) ||
+      /^leading\s*proteins?$/.test(n) ||
+      /^majority\s*protein\s*ids?$/.test(n) ||
       /^gene\s*names?$/.test(n) ||
       /^gene\s*symbols?$/.test(n) ||
       /^genes?$/.test(n),
@@ -134,11 +155,13 @@ function scoreProteomeRatio(n: string): number {
   if (/variability|count|unique|razor|sequence\s*coverage|coverage\s*%|mw\s*\[|peptides$/.test(n))
     return 0
   if (/^1\s*\/\s*/.test(n)) return 2
-  if (/site|peptide|mod|phospho|lactyl|kla/.test(n) && /ratio|fc|fold|log/.test(n)) return 0
+  if (/site|peptide|mod|phospho|lactyl|kla|kac/.test(n) && /ratio|fc|fold|log/.test(n)) return 0
   let s = 0
   if (/(log\s*2|log2)/.test(n) && /(ratio|fc|fold)/.test(n)) s = 10
+  else if (/^log\s*2?\s*fc$|^logfc$|^log\.?\s*fc$/.test(n)) s = 9
   else if (/\bratio\b/.test(n)) s = 9
   else if (/\bfold\s*change\b|\bfc\b/.test(n)) s = 8
+  else if (/log\s*fc|logfc/.test(n)) s = 8
   else if (/(log\s*2|log2)/.test(n)) s = 6
   if (/(normalized|nomolized)/.test(n) && s > 0) s += 1
   // Prefer protein-level wording
@@ -166,7 +189,9 @@ function hasOnlyIntensity(headers: string[]): boolean {
 function proteomeNameBoost(sheetName: string): number {
   const n = sheetName.toLowerCase()
   if (/proteome|protein\s*quant|total\s*protein|global\s*protein|protein[_\s-]?list/.test(n)) return 3
-  if (/^avsb$|^avs\b|protein/.test(n) && !/site|pept|mod/.test(n)) return 1
+  // Short sheet titles used for whole-proteome tables (e.g. "pro", "prot")
+  if (/^pro$|^prot$|^proteins?$/.test(n)) return 3
+  if (/^avsb$|^avs\b|protein/.test(n) && !/site|pept|mod|phos/.test(n)) return 1
   return 0
 }
 
@@ -208,6 +233,9 @@ function findBest(headers: string[], scoreFn: (n: string) => number, min: number
 
 function scoreUniprot(n: string): number {
   if (/uniprot/.test(n)) return 10
+  if (/^pg\.?\s*protein\s*groups?$/.test(n) || /^protein\s*groups?$/.test(n)) return 9
+  if (/protein\s*groups?/.test(n) && !/count|number|razor/.test(n)) return 8
+  if (/^leading\s*proteins?$/.test(n) || /^majority\s*protein\s*ids?$/.test(n)) return 8
   if (/protein\s*accession|^accession/.test(n)) return 9
   if (/^proteins?$|^protein\s*ids?$/.test(n)) return 8
   if (/accession/.test(n)) return 6
@@ -222,7 +250,7 @@ function scoreGene(n: string): number {
 }
 
 function isLog2Header(n: string): boolean {
-  return /log\s*2|log2|2\s*log|2log/.test(n)
+  return /log\s*2|log2|2\s*log|2log|^log\s*fc$|^logfc$|^log\.?\s*fc$|log\s*fc/.test(n)
 }
 
 function conditionFromHeader(h: string, sheetName: string): string {
@@ -237,9 +265,12 @@ function ratioIsLog2Header(n: string): boolean {
 export function heuristicMapProteomeSheet(
   entryPath: string,
   sheet: { name: string; headers: string[]; headerRowIndex?: number },
+  opts?: { force?: boolean },
 ): ProteomeMapping | null {
   const kind = classifySheetKind(sheet.name, sheet.headers)
-  if (kind !== "proteome") return null
+  // Never promote PTM site / site-less-mod sheets to proteome
+  if (kind === "site_ptm" || kind === "ptm_no_site") return null
+  if (kind !== "proteome" && !opts?.force) return null
 
   const headers = sheet.headers.filter(Boolean)
   const uniprotCol = findBest(headers, scoreUniprot, 5)
@@ -291,10 +322,11 @@ export function heuristicMapProteomeSheet(
 
   let confidence = 0.55
   if (uniprotCol) confidence += 0.2
-  else if (geneCol) confidence += 0.12
-  confidence += Math.min(0.2, ratioColumns.length * 0.05)
+  else if (geneCol) confidence += 0.1
+  confidence += Math.min(ratioColumns.length, 4) * 0.05
   confidence += proteomeNameBoost(sheet.name) * 0.05
-  confidence = Math.min(1, confidence)
+  if (opts?.force) confidence = Math.max(confidence, 0.7)
+  confidence = Math.min(confidence, 0.95)
 
   return {
     entryPath,
@@ -305,7 +337,7 @@ export function heuristicMapProteomeSheet(
     geneCol: uniprotCol ? null : geneCol,
     ratioColumns,
     pValueColumns: pValueColumns.slice(0, 24),
-    notes: `proteome; ratios=${ratioColumns.length}`,
+    notes: `proteome; ratios=${ratioColumns.length}${opts?.force ? "; forced" : ""}`,
   }
 }
 
@@ -353,6 +385,9 @@ export async function parseProteomeSheet(opts: {
   lit: LiteratureInfoRow
   fallbackCondition: string
   maxRows?: number
+  preferSheetAsSample?: boolean
+  /** Skip classifySheetKind===proteome gate (user Teach force). */
+  forceProteome?: boolean
 }): Promise<ProteomeRow[]> {
   const { headers, rows } = loadSheetData(
     opts.localPath,
@@ -363,9 +398,16 @@ export async function parseProteomeSheet(opts: {
   if (!headers.length) return []
 
   // Safety re-check: refuse if this sheet looks like PTM-without-site
-  if (classifySheetKind(opts.mapping.sheetName, headers) !== "proteome") return []
+  const kind = classifySheetKind(opts.mapping.sheetName, headers)
+  if (kind === "site_ptm" || kind === "ptm_no_site") return []
+  if (kind !== "proteome" && !opts.forceProteome) return []
 
   const m = opts.mapping
+  const sheetSample = resolveSheetAsSample(
+    m.sheetName,
+    opts.lit.sample,
+    Boolean(opts.preferSheetAsSample),
+  )
   const singlePtm = resolveSingleModification({
     litPtms: opts.lit.ptms,
     sheetName: m.sheetName,
@@ -441,6 +483,7 @@ export async function parseProteomeSheet(opts: {
       out.push({
         pmid: opts.lit.pmid,
         sample: resolveRowSample(opts.lit.sample, {
+          tableSample: sheetSample,
           condition,
           conditionSampleMap: opts.lit.conditionSampleMap,
         }),

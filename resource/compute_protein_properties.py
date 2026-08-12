@@ -5,7 +5,7 @@ Compute per-residue physicochemical properties for protein sequences.
 Uses IUPred3 (long) for disorder, NetSurfP-3.0 for exposure/surface/secondary
 structure, and Kyte-Doolittle lookup tables for hydropathy, polar, and charge.
 
-Output fields match dbSAM wildtype_info and qPTM2026 proinfo formats:
+Output:
   Disorder, ExposeBuried, SurfaceAccessbility, SecondStructure,
   Hydropathy, Polar, Charge
 

@@ -2,7 +2,7 @@
  * Stage 5 — turn mapped sheet rows into qratio records.
  */
 import type { LiteratureInfoRow } from "../types.js"
-import { resolveRowCondition } from "./condition.js"
+import { canonicalizeConditionKey, resolveRowCondition } from "./condition.js"
 import { mapGenesToUniprot, normalizeGeneSymbol } from "./gene-uniprot.js"
 import type { ColumnMapping } from "./heuristic.js"
 import { resolveSingleModification } from "./ptm.js"
@@ -12,10 +12,10 @@ import {
 } from "./silac-contrast.js"
 import { derivedIntensityLog2Fc } from "./derived-ratio.js"
 import { isValidUniprotAccession, parsePhosphositeCombinedId } from "./phosphosite-id.js"
-import { resolveRowSample } from "./sample-map.js"
+import { resolveRowSample, resolveSheetAsSample } from "./sample-map.js"
 import { loadSheetData } from "./tables.js"
 
-export { resolveRowSample } from "./sample-map.js"
+export { resolveRowSample, resolveSheetAsSample } from "./sample-map.js"
 export {
   buildConditionSampleMap,
   inferSampleFromCondition,
@@ -247,7 +247,8 @@ function pickPValue(
       const pc = p.condition.toLowerCase().replace(/\s+/g, "")
       return pc && (condKey.includes(pc) || pc.includes(condKey))
     })
-  if (!hit && candidates.length === 1 && mapping.ratioColumns.filter((r) => r.level === level).length === 1) {
+  if (!hit && candidates.length === 1) {
+    // Long-format / single p-value column shared across all contrasts
     hit = candidates[0]
   }
   if (!hit) return ""
@@ -265,6 +266,10 @@ export function parseMappedSheet(opts: {
   maxRows?: number
   /** Precomputed gene→UniProt map (optional; built automatically when geneCol set) */
   geneToUniprot?: Map<string, string>
+  /** Prefer Excel sheet name as the Sample for each row. */
+  preferSheetAsSample?: boolean
+  /** Progress while mapping genes / scanning large sheets. */
+  onProgress?: (message: string) => void
 }): Promise<QratioRow[]> {
   return parseMappedSheetAsync(opts)
 }
@@ -276,7 +281,12 @@ async function parseMappedSheetAsync(opts: {
   fallbackCondition: string
   maxRows?: number
   geneToUniprot?: Map<string, string>
+  preferSheetAsSample?: boolean
+  onProgress?: (message: string) => void
 }): Promise<QratioRow[]> {
+  opts.onProgress?.(
+    `Loading sheet “${opts.mapping.sheetName}” (large tables may take a few minutes)…`,
+  )
   const { headers, rows } = loadSheetData(
     opts.localPath,
     opts.mapping.sheetName,
@@ -284,8 +294,14 @@ async function parseMappedSheetAsync(opts: {
     opts.mapping.headerRowIndex,
   )
   if (!headers.length) return []
+  opts.onProgress?.(`Loaded ${rows.length.toLocaleString()} data row(s) from “${opts.mapping.sheetName}”.`)
 
   const m = opts.mapping
+  const sheetSample = resolveSheetAsSample(
+    m.sheetName,
+    opts.lit.sample,
+    Boolean(opts.preferSheetAsSample),
+  )
   // qPTM Modification column: exactly one PTM type per quantitative row
   const singlePtm = resolveSingleModification({
     litPtms: opts.lit.ptms,
@@ -299,6 +315,7 @@ async function parseMappedSheetAsync(opts: {
   const aaIdx = colIndex(headers, m.aminoAcidCol)
   const siteIdx = colIndex(headers, m.siteCombinedCol)
   const modSeqIdx = colIndex(headers, m.modSeqCol ?? null)
+  const condIdx = colIndex(headers, m.conditionCol ?? null)
   const uniprotKbIdx = findUniprotKbIndex(headers)
   if (uIdx < 0 && gIdx < 0 && siteIdx < 0 && uniprotKbIdx < 0) return []
 
@@ -309,21 +326,34 @@ async function parseMappedSheetAsync(opts: {
       const g = normalizeGeneSymbol(row[gIdx] ?? "")
       if (g) genesForLookup.push(g)
     }
-  }
-  if (uIdx >= 0) {
-    for (const row of rows) {
-      const combined = parsePhosphositeCombinedId(row[uIdx] ?? "")
-      if (combined && !combined.isUniprotAcc) genesForLookup.push(combined.geneOrAcc)
+  } else {
+    // Only scan combined site cells when there is no dedicated gene column
+    if (uIdx >= 0) {
+      for (const row of rows) {
+        const combined = parsePhosphositeCombinedId(row[uIdx] ?? "")
+        if (combined && !combined.isUniprotAcc) genesForLookup.push(combined.geneOrAcc)
+      }
     }
-  }
-  if (siteIdx >= 0 && siteIdx !== uIdx) {
-    for (const row of rows) {
-      const combined = parsePhosphositeCombinedId(row[siteIdx] ?? "")
-      if (combined && !combined.isUniprotAcc) genesForLookup.push(combined.geneOrAcc)
+    if (siteIdx >= 0 && siteIdx !== uIdx) {
+      for (const row of rows) {
+        const combined = parsePhosphositeCombinedId(row[siteIdx] ?? "")
+        if (combined && !combined.isUniprotAcc) genesForLookup.push(combined.geneOrAcc)
+      }
     }
   }
   if (!geneMap && genesForLookup.length > 0) {
-    geneMap = await mapGenesToUniprot([...new Set(genesForLookup)], opts.lit.organism)
+    const uniqCount = new Set(genesForLookup.map(normalizeGeneSymbol).filter(Boolean)).size
+    opts.onProgress?.(`Mapping ${uniqCount.toLocaleString()} gene symbol(s) → UniProt…`)
+    geneMap = await mapGenesToUniprot([...new Set(genesForLookup)], opts.lit.organism, {
+      onProgress: (done, total) => {
+        if (done === total || done % 200 === 0 || done === 1) {
+          opts.onProgress?.(`Gene→UniProt ${done.toLocaleString()}/${total.toLocaleString()}…`)
+        }
+      },
+    })
+    opts.onProgress?.(
+      `Gene→UniProt done: ${geneMap.size.toLocaleString()} symbol(s) resolved.`,
+    )
   }
 
   const peptideRatios = m.ratioColumns.filter((r) => r.level === "peptide")
@@ -348,7 +378,15 @@ async function parseMappedSheetAsync(opts: {
     useSilacContrasts && drivers.length > 0 ? buildSilacGenotypeContrasts(drivers) : []
 
   const out: QratioRow[] = []
-  for (const row of rows) {
+  const yieldEvery = 10_000
+  for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+    const row = rows[rowIndex]
+    if (rowIndex > 0 && rowIndex % yieldEvery === 0) {
+      opts.onProgress?.(
+        `Scanning rows ${rowIndex.toLocaleString()}/${rows.length.toLocaleString()} (${out.length.toLocaleString()} kept)…`,
+      )
+      await new Promise<void>((r) => setImmediate(r))
+    }
     let uid = ""
     let position = posIdx >= 0 ? (row[posIdx] ?? "").trim() : ""
     let aminoAcid = aaIdx >= 0 ? (row[aaIdx] ?? "").trim() : ""
@@ -372,6 +410,18 @@ async function parseMappedSheetAsync(opts: {
       if (!aminoAcid) aminoAcid = combined.aminoAcid
       if (combined.isUniprotAcc) uid = combined.geneOrAcc
       else if (!geneFromCombined) geneFromCombined = combined.geneOrAcc
+    }
+
+    // The mapped Position column may itself hold combined ACC_AA### values
+    // (e.g. "Uniprot_diGly position" → "E9Q1G8_K235", or "CIC-S739").
+    if (position && !/^\d+$/.test(position)) {
+      const combined = parsePhosphositeCombinedId(position)
+      if (combined) {
+        if (combined.isUniprotAcc) uid = combined.geneOrAcc
+        else if (!geneFromCombined) geneFromCombined = combined.geneOrAcc
+        position = combined.position
+        aminoAcid = combined.aminoAcid
+      }
     }
 
     if (!uid && uIdx >= 0) {
@@ -488,6 +538,7 @@ async function parseMappedSheetAsync(opts: {
         out.push({
           pmid: opts.lit.pmid,
           sample: resolveRowSample(opts.lit.sample, {
+            tableSample: sheetSample,
             condition,
             conditionSampleMap: opts.lit.conditionSampleMap,
           }),
@@ -527,6 +578,7 @@ async function parseMappedSheetAsync(opts: {
         out.push({
           pmid: opts.lit.pmid,
           sample: resolveRowSample(opts.lit.sample, {
+            tableSample: sheetSample,
             condition,
             conditionSampleMap: opts.lit.conditionSampleMap,
           }),
@@ -582,8 +634,9 @@ async function parseMappedSheetAsync(opts: {
         pProt = pickPValue(m, headers, row, ratio.condition, "protein")
       }
 
+      const rowCond = condIdx >= 0 ? (row[condIdx] ?? "").trim() : ""
       const condition = resolveRowCondition(
-        ratio.condition?.trim() || "",
+        rowCond || ratio.condition?.trim() || "",
         opts.lit.condition || opts.fallbackCondition || "",
         opts.lit.detailCondition || "",
       )
@@ -591,6 +644,7 @@ async function parseMappedSheetAsync(opts: {
       out.push({
         pmid: opts.lit.pmid,
         sample: resolveRowSample(opts.lit.sample, {
+          tableSample: sheetSample,
           condition,
           conditionSampleMap: opts.lit.conditionSampleMap,
         }),
@@ -628,6 +682,76 @@ export function qratioToCsvLine(r: QratioRow): string {
     r.pValueProtein,
   ]
   return cells.map(csvEscape).join(",")
+}
+
+/**
+ * Normalize a condition label for dedupe so redundant variants of the same
+ * biological comparison collapse into one record:
+ *   "ASB2β overexpression/CON (normalized)" → "ASB2β overexpression/CON"
+ *   "… Normalized to Total …" → "…"
+ * These come from one table exposing both a raw ratio and its total-protein
+ * normalized variant — for qPTM they are one site×condition row.
+ */
+function normalizeDedupeCondition(cond: string): string {
+  const cleaned = (cond || "")
+    .replace(/\s*\(\s*normalized\s*\)\s*$/i, "")
+    .replace(/\s+normalized\s+to\s+total\s*$/i, "")
+    .replace(/\s+normalized\s*$/i, "")
+    .replace(/[-_ ]*normalizedtotal$/i, "")
+    .replace(/[()\s]+$/g, "")
+    .trim()
+  // Orthographic variants of the same biology share one key
+  return canonicalizeConditionKey(cleaned) || cleaned.toLowerCase()
+}
+
+/** True when a condition label explicitly marks a normalized variant. */
+function isNormalizedCondition(cond: string): boolean {
+  return /normalized|normalised/i.test(cond || "")
+}
+
+/**
+ * Drop duplicate site-level rows: keep one row per (sample, condition, Modification,
+ * UniProt ID, amino acid, position), where "normalized" variants of a condition are
+ * merged into the same record. When several ratio columns were mapped onto the same
+ * contrast (e.g. "diGly Log(ASB2/MCS)" and "diGly Normalized to Total …"),
+ * each previously produced a row — users expect one quantitative record per
+ * site per sample per condition per modification. Sample and Modification are part
+ * of the key so the same residue measured in different cell lines / tissues, or
+ * with different PTMs, is kept separately.
+ * Non-empty protein-level fields are merged onto the kept row so no data is
+ * lost; the primary (non-normalized) row's values win.
+ */
+export function dedupeQratioRows(rows: QratioRow[]): QratioRow[] {
+  const kept: QratioRow[] = []
+  const seen = new Set<string>()
+  const keyOf = (r: QratioRow) =>
+    `${(r.sample || "").trim().toLowerCase()}\u0000${normalizeDedupeCondition(r.condition)}\u0000${(r.ptms || "").trim().toLowerCase()}\u0000${r.uniprotId}\u0000${r.aminoAcid}\u0000${r.position}`
+  const merge = (a: QratioRow, b: QratioRow): QratioRow => {
+    const aMain = !isNormalizedCondition(a.condition)
+    const bMain = !isNormalizedCondition(b.condition)
+    // Primary (non-normalized) row's values are preferred; fall back to the other.
+    const pick = (x: string, y: string) =>
+      bMain && !aMain ? y || x : aMain && !bMain ? x || y : x || y
+    return {
+      ...a,
+      condition: bMain && !aMain ? b.condition : a.condition,
+      log2RatioPeptide: pick(a.log2RatioPeptide, b.log2RatioPeptide),
+      pValuePeptide: pick(a.pValuePeptide, b.pValuePeptide),
+      log2RatioProtein: a.log2RatioProtein || b.log2RatioProtein,
+      pValueProtein: a.pValueProtein || b.pValueProtein,
+    }
+  }
+  for (const r of rows) {
+    const key = keyOf(r)
+    if (seen.has(key)) {
+      const i = kept.findIndex((k) => keyOf(k) === key)
+      if (i >= 0) kept[i] = merge(kept[i], r)
+      continue
+    }
+    seen.add(key)
+    kept.push(r)
+  }
+  return kept
 }
 
 function csvEscape(v: string): string {

@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { MetaChain } from "../chains/meta/agent.js"
 import { createLlmRuntime, type LlmRuntime } from "../runtime.js"
+import { selectKnownIdentifiersForMeta } from "../stage2/accessions.js"
 import type { Stage2Manifest } from "../stage2/discover.js"
 import type { FulltextRecord } from "../stage2/fulltext.js"
 import { loadFulltextExcerpt } from "../stage3/text.js"
@@ -51,7 +52,7 @@ export interface Stage3Input {
   abstract: string
   hasXml: boolean
   hasPdf: boolean
-  repositories: Array<{ id: string; source: string }>
+  repositories: Array<{ id: string; source: string; via?: string }>
 }
 
 function loadDiscoverByPmid(): Map<string, Stage2Manifest> {
@@ -141,6 +142,7 @@ export function loadStage3EligibleInputs(options: {
       repositories: (disc?.repositories ?? []).map((r) => ({
         id: r.id,
         source: r.source,
+        via: r.via,
       })),
     })
   }
@@ -227,6 +229,7 @@ export async function runStage3Meta(options: Stage3Options = {}): Promise<Stage3
 
       if (!excerpt.excerpt.trim()) {
         options.onProgress?.("empty-text", `[${index + 1}/${eligible.length}] PMID ${item.pmid}: no extractable text (source: ${excerpt.textSource})`)
+        const knownEmpty = selectKnownIdentifiersForMeta(item.repositories, "")
         const empty: LiteratureInfoRow = {
           pmid: item.pmid,
           title: item.title,
@@ -240,8 +243,8 @@ export async function runStage3Meta(options: Stage3Options = {}): Promise<Stage3
           conditionSampleMap: "",
           enrichmentMethod: "",
           massSpectrometer: "",
-          msDataSource: item.repositories.map((r) => r.source).filter(Boolean)[0] ?? "",
-          identifier: item.repositories.map((r) => r.id).join("; "),
+          msDataSource: knownEmpty.map((r) => r.source).filter(Boolean)[0] ?? "",
+          identifier: knownEmpty.map((r) => r.id).join("; "),
           status: "error",
           confidence: 0,
           textSource: excerpt.textSource,
@@ -254,13 +257,15 @@ export async function runStage3Meta(options: Stage3Options = {}): Promise<Stage3
         return null
       }
 
+      const knownIdentifiers = selectKnownIdentifiersForMeta(item.repositories, excerpt.excerpt)
+
       options.onProgress?.("llm-call", `[${index + 1}/${eligible.length}] Calling LLM to extract metadata for PMID ${item.pmid} (source: ${excerpt.textSource})…`)
       const row = await chain.run({
         pmid: item.pmid,
         title: item.title,
         excerpt: excerpt.excerpt,
         textSource: excerpt.textSource,
-        knownIdentifiers: item.repositories,
+        knownIdentifiers,
       })
       options.onProgress?.("llm-done", `[${index + 1}/${eligible.length}] LLM response received for PMID ${item.pmid}`)
 
@@ -272,6 +277,7 @@ export async function runStage3Meta(options: Stage3Options = {}): Promise<Stage3
     } catch (err) {
       options.onProgress?.("error", `[${index + 1}/${eligible.length}] Error extracting metadata for PMID ${item.pmid}: ${err instanceof Error ? err.message : String(err)}`)
       options.onError?.(item.pmid, err, index)
+      const knownErr = selectKnownIdentifiersForMeta(item.repositories, item.abstract || "")
       const fallback: LiteratureInfoRow = {
         pmid: item.pmid,
         title: item.title,
@@ -285,8 +291,8 @@ export async function runStage3Meta(options: Stage3Options = {}): Promise<Stage3
         conditionSampleMap: "",
         enrichmentMethod: "",
         massSpectrometer: "",
-        msDataSource: item.repositories.map((r) => r.source).filter(Boolean)[0] ?? "",
-        identifier: item.repositories.map((r) => r.id).join("; "),
+        msDataSource: knownErr.map((r) => r.source).filter(Boolean)[0] ?? "",
+        identifier: knownErr.map((r) => r.id).join("; "),
         status: "error",
         confidence: 0,
         textSource: item.hasXml ? "xml" : item.hasPdf ? "abstract" : "none",

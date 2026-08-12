@@ -10,8 +10,10 @@ from pydantic_settings import BaseSettings
 from pathlib import Path
 
 
-_DATA_ROOT = Path(__file__).parent.parent / "data"
-_REPO_ROOT = Path(__file__).parent.parent.parent
+_BACKEND_ROOT = Path(__file__).parent.parent
+_DATA_ROOT = _BACKEND_ROOT / "data"
+_RUNTIME_ROOT = _BACKEND_ROOT / "runtime"
+_REPO_ROOT = _BACKEND_ROOT.parent
 
 
 class Settings(BaseSettings):
@@ -76,14 +78,21 @@ class Settings(BaseSettings):
     compartments_data_dir: str = str(_DATA_ROOT / "localization" / "COMPARTMENTS")
     inuloc_data_dir: str = str(_DATA_ROOT / "localization" / "iNuLoC")
 
-    # Runtime (not scientific data)
-    conversations_data_dir: str = str(_DATA_ROOT / "_runtime" / "conversations")
+    # Runtime state for the chat backend (not scientific data)
+    conversations_data_dir: str = str(_RUNTIME_ROOT / "conversations")
 
     # Collection Agent (literature-mining pipeline — Node subprocess)
     collection_agent_dir: str = str(_REPO_ROOT / "collection-agent")
-    collection_jobs_dir: str = str(_DATA_ROOT / "_runtime" / "collection" / "jobs")
+    # Job workspaces belong with collection-agent (CLI cwd), not agent-backend/data.
+    collection_jobs_dir: str = str(
+        _REPO_ROOT / "collection-agent" / "runtime" / "collection" / "jobs"
+    )
     collection_node_bin: str = "/opt/node22/bin/node"
     collection_max_upload_bytes: int = 50 * 1024 * 1024
+    # Hard *idle* deadline (seconds): kill only when the child emits no stdout
+    # for this long. Large Stage5 parses send heartbeats so wall-clock can exceed
+    # this value safely; a truly hung process is still reaped.
+    collection_stage_timeout_seconds: int = 1800
     # pi-ai id, e.g. opencode-go/deepseek-v4-flash — separate from DEEPSEEK_MODEL (chat)
     collection_model: str = ""
     # Comma-separated pi-ai provider/model ids tried after COLLECTION_MODEL

@@ -161,6 +161,14 @@ def _startup_register_tools() -> None:
     """Register all tools on FastAPI startup."""
     register_all_tools()
     conv_store.init_db()
+    # Jobs left in "running" after a crash/restart can never finish (no in-memory
+    # task survived). Flag them so the UI stops spinning and lets the user resume.
+    try:
+        from app.collection.runner import mark_interrupted_jobs
+
+        mark_interrupted_jobs()
+    except Exception:
+        logger.exception("failed to mark interrupted collection jobs")
 
 
 # ── SSE helpers ───────────────────────────────────────────────────

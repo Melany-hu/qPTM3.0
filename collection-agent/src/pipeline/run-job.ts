@@ -3,7 +3,7 @@
  * Runs one stage (or stage5→6 chain) per invocation; pauses for user Continue.
  */
 import { existsSync, readFileSync } from "node:fs"
-import { join } from "node:path"
+import { basename, join } from "node:path"
 import { ingestManualFulltext } from "../ingest/manual-fulltext.js"
 import { ingestManualSupplementary } from "../ingest/manual-supp.js"
 import { hasUserUploadedSupplementary } from "../ingest/register-supp-job.js"
@@ -13,7 +13,7 @@ import type { FulltextRecord } from "../stage2/fulltext.js"
 import { fulltextPmidDir } from "../stage2/fulltext.js"
 import type { SuppScoutRecord } from "../pipeline/stage4-supp.js"
 import { resolveAbstractsForPmids } from "../stage1/resolve-abstracts.js"
-import { runStage1Screen } from "./stage1.js"
+import { runStage1Screen, runForceInclude } from "./stage1.js"
 import { runStage2Discover } from "./stage2.js"
 import { runStage2Fulltext } from "./stage2-fulltext.js"
 import { runStage3Meta } from "./stage3.js"
@@ -59,7 +59,10 @@ export interface RunCollectionJobOptions {
   pmid: string
   fulltextPath?: string
   supplementaryPath?: string
+  supplementaryPaths?: string[]
   resumeFrom?: StageName | "auto"
+  /** Bypass Stage-1 LLM exclude and force-include this PMID (user override). */
+  forceInclude?: boolean
   concurrency?: number
   model?: string
   onLog?: (msg: string) => void
@@ -243,12 +246,20 @@ export async function runCollectionJob(options: RunCollectionJobOptions): Promis
       await ingestManualFulltext({ pmid, filePath: options.fulltextPath })
     }
 
-    if (options.supplementaryPath && existsSync(options.supplementaryPath)) {
-      if (!isTabularUpload(options.supplementaryPath)) {
-        throw new Error(`Unsupported supplementary file: ${options.supplementaryPath}`)
+    const suppPaths = [
+      ...(options.supplementaryPaths ?? []),
+      ...(options.supplementaryPath ? [options.supplementaryPath] : []),
+    ].filter((p, i, arr) => p && arr.indexOf(p) === i && existsSync(p))
+    if (suppPaths.length > 0) {
+      for (const p of suppPaths) {
+        if (!isTabularUpload(p)) {
+          throw new Error(`Unsupported supplementary file: ${p}`)
+        }
       }
-      log(`Ingesting user supplementary tables for ${pmid}`)
-      ingestManualSupplementary({ pmid, filePath: options.supplementaryPath })
+      log(
+        `Ingesting user supplementary tables for ${pmid} (${suppPaths.length} file(s): ${suppPaths.map((p) => basename(p)).join(", ")})`,
+      )
+      ingestManualSupplementary({ pmid, filePaths: suppPaths, merge: true })
     }
 
     // ── Paper overview (before Stage 1) ─────────────────────────────────────
@@ -289,58 +300,103 @@ export async function runCollectionJob(options: RunCollectionJobOptions): Promis
           summary: { stage1Thinking: [...thinking1] },
         })
       }
-      emit1("start", "Starting PTM relevance screening")
-      emit1("classify", "Classifying abstract with LLM...")
 
-      const s1 = await runStage1Screen({
-        pmid,
-        all: true,
-        rescreen: true,
-        concurrency: 1,
-        model: options.model,
-        onLog: log,
-      })
-      const screen = loadAllScreenResults().find((r) => r.pmid === pmid)
+      let screen = loadAllScreenResults().find((r) => r.pmid === pmid)
+      let s1: unknown = null
       const paper = (state.summary?.paper as Record<string, string>) ?? {}
 
-      emit1("result", `Decision: ${screen?.decision || "unknown"}, confidence: ${screen?.confidence ?? "N/A"}`)
-      emit1("done", `PTM types: ${(screen?.ptmTypes || []).join(", ") || "none"}`)
-
-      if (screen?.decision === "exclude") {
-        return patchJobState(options.outDir, {
-          jobId: options.jobId,
+      if (options.forceInclude) {
+        emit1("force", "User chose Include — overriding Stage-1 exclude")
+        await runForceInclude({
           pmid,
-          status: "rejected",
-          currentStage: "stage1",
-          nextStage: null,
-          offerContribute: false,
-          message: messageRejected({
-            title: (paper.title as string) || screen.title,
-            reason: screen.reason,
-            ptmTypes: screen.ptmTypes,
-          }),
-          stages: { stage1: "completed" },
-          summary: { stage1: s1, stage1Screen: screen, paper, stage1Thinking: thinking1 },
+          onLog: log,
         })
-      }
+        screen = loadAllScreenResults().find((r) => r.pmid === pmid)
+        s1 = { forcedInclude: true }
+        emit1("result", "Decision: include (user override)")
+        emit1("done", "Proceeding into the collection pipeline")
+      } else {
+        emit1("start", "Starting PTM relevance screening")
+        emit1("classify", "Classifying abstract with LLM...")
 
-      if (screen?.decision === "uncertain") {
-        return pauseContinue(
-          "stage1",
-          messageUncertain({
-            title: (paper.title as string) || screen.title,
-            abstract: paper.abstract as string | undefined,
-            reason: screen.reason,
-            confidence: screen.confidence,
-          }),
-          { stage1: s1, stage1Screen: screen, paper, stage1Thinking: thinking1, ...artifactSummary(pmid) },
-        )
+        s1 = await runStage1Screen({
+          pmid,
+          all: true,
+          rescreen: true,
+          concurrency: 1,
+          model: options.model,
+          onLog: log,
+        })
+        screen = loadAllScreenResults().find((r) => r.pmid === pmid)
+
+        emit1("result", `Decision: ${screen?.decision || "unknown"}, confidence: ${screen?.confidence ?? "N/A"}`)
+        emit1("done", `PTM types: ${(screen?.ptmTypes || []).join(", ") || "none"}`)
+
+        if (screen?.decision === "exclude") {
+          return patchJobState(options.outDir, {
+            jobId: options.jobId,
+            pmid,
+            status: "rejected",
+            currentStage: "stage1",
+            nextStage: null,
+            offerContribute: false,
+            message: messageRejected({
+              title: (paper.title as string) || screen.title,
+              reason: screen.reason,
+              ptmTypes: screen.ptmTypes,
+            }),
+            stages: { stage1: "completed" },
+            summary: { stage1: s1, stage1Screen: screen, paper, stage1Thinking: thinking1 },
+          })
+        }
+
+        if (screen?.decision === "uncertain") {
+          return pauseContinue(
+            "stage1",
+            messageUncertain({
+              title: (paper.title as string) || screen.title,
+              abstract: paper.abstract as string | undefined,
+              reason: screen.reason,
+              confidence: screen.confidence,
+            }),
+            { stage1: s1, stage1Screen: screen, paper, stage1Thinking: thinking1, ...artifactSummary(pmid) },
+          )
+        }
       }
 
       markStage("stage1", "completed")
       const hasFulltext = !needsFulltextUpload(pmid)
-      // PDF/XML already present (user upload or prior fetch): skip Stage 2 UI → Stage 3 next.
-      if (hasFulltext) {
+
+      // User Include override: do not pause again — continue into Stage 2/3 now.
+      if (options.forceInclude) {
+        log("Stage 1: force-include — continuing pipeline without pause")
+        state = patchJobState(options.outDir, {
+          jobId: options.jobId,
+          pmid,
+          status: "running",
+          currentStage: hasFulltext ? "stage3" : "stage2",
+          nextStage: hasFulltext ? "stage3" : "stage2",
+          message: messageInclude({
+            title: (paper.title as string) || screen?.title,
+            abstract: paper.abstract as string | undefined,
+            ptmTypes: screen?.ptmTypes,
+            hasFulltext,
+          }),
+          stages: { stage1: "completed" },
+          summary: {
+            stage1: s1,
+            stage1Screen: screen,
+            paper,
+            stage1Thinking: thinking1,
+            ...artifactSummary(pmid),
+          },
+        })
+        if (hasFulltext) {
+          markStage("stage2", "skipped")
+          // Fall through to Stage 3 below
+        }
+        // else fall through to Stage 2 below
+      } else if (hasFulltext) {
         log("Stage 1: full text already present — skip Stage 2 pause, next is Stage 3")
         let s2discover: unknown = { skipped: true }
         try {
@@ -373,17 +429,18 @@ export async function runCollectionJob(options: RunCollectionJobOptions): Promis
           },
           "stage3",
         )
+      } else {
+        return pauseContinue(
+          "stage1",
+          messageInclude({
+            title: (paper.title as string) || screen?.title,
+            abstract: paper.abstract as string | undefined,
+            ptmTypes: screen?.ptmTypes,
+            hasFulltext: false,
+          }),
+          { stage1: s1, stage1Screen: screen, paper, stage1Thinking: thinking1, ...artifactSummary(pmid) },
+        )
       }
-      return pauseContinue(
-        "stage1",
-        messageInclude({
-          title: (paper.title as string) || screen?.title,
-          abstract: paper.abstract as string | undefined,
-          ptmTypes: screen?.ptmTypes,
-          hasFulltext: false,
-        }),
-        { stage1: s1, stage1Screen: screen, paper, stage1Thinking: thinking1, ...artifactSummary(pmid) },
-      )
     }
 
     // ── Stage 2: Full text acquisition ──────────────────────────────────────
@@ -561,28 +618,46 @@ export async function runCollectionJob(options: RunCollectionJobOptions): Promis
         message: "Parsing quantitative tables…",
         summary: { stage5Thinking: [] },
       })
-      const s5 = await runStage5Parse({
-        pmid,
-        all: true,
-        allJobs: true,
-        likelyOnly: false,
-        concurrency,
-        resume: true,
-        model: options.model,
-        onThinking: (step) => {
-          thinking.push(step)
-          const trimmed = thinking.slice(-60)
-          patchJobState(options.outDir, {
-            jobId: options.jobId,
-            pmid,
-            status: "running",
-            currentStage: "stage5",
-            // Keep a stable user-facing status; detailed steps live in stage5Thinking (plan panel).
-            message: "Parsing quantitative tables…",
-            summary: { stage5Thinking: trimmed },
-          })
-        },
-      })
+      // Keep the backend idle-timeout alive during long gene lookups / big sheets.
+      const heartbeat = setInterval(() => {
+        console.log(`[heartbeat] stage5 ${new Date().toISOString()} pmid=${pmid}`)
+        patchJobState(options.outDir, {
+          jobId: options.jobId,
+          pmid,
+          status: "running",
+          currentStage: "stage5",
+          message: "Parsing quantitative tables…",
+          summary: { stage5Thinking: thinking.slice(-60) },
+        })
+      }, 15_000)
+      let s5: Awaited<ReturnType<typeof runStage5Parse>>
+      try {
+        s5 = await runStage5Parse({
+          pmid,
+          all: true,
+          allJobs: true,
+          likelyOnly: false,
+          concurrency,
+          resume: true,
+          model: options.model,
+          onThinking: (step) => {
+            thinking.push(step)
+            const trimmed = thinking.slice(-60)
+            patchJobState(options.outDir, {
+              jobId: options.jobId,
+              pmid,
+              status: "running",
+              currentStage: "stage5",
+              // Keep a stable user-facing status; detailed steps live in stage5Thinking (plan panel).
+              message: "Parsing quantitative tables…",
+              summary: { stage5Thinking: trimmed },
+            })
+            if (step.message) console.log(`[stage5] ${step.message}`)
+          },
+        })
+      } finally {
+        clearInterval(heartbeat)
+      }
       markStage("stage5", "completed")
 
       const rowCount = (s5 as { totalRows?: number }).totalRows ?? 0
@@ -710,10 +785,8 @@ export async function runCollectionJob(options: RunCollectionJobOptions): Promis
           ? {}
           : { contribution: { willing: null } }),
         message: messageMsUrlsComplete({
-          rowCount,
           totalUrls: s6.totalUrls,
           statusNote: s6.error ? `Note: ${s6.error}` : undefined,
-          offerContribute: !alreadyChose && rowCount > 0,
         }),
         summary: {
           stage6: { ...s6, identifier },

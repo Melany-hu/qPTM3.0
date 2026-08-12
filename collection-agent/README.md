@@ -2,7 +2,7 @@
 
 Interactive literature collection pipeline for **qPTM2026** (`agent.php` → Data collection mode).
 
-Each PMID runs as a single job under `agent-backend/data/_runtime/collection/jobs/{job_id}/`. The user steps through Stage 1–6 with Continue / upload prompts; outputs are CSV artifacts for download (no MySQL).
+Each PMID runs as a single job under `collection-agent/runtime/collection/jobs/{job_id}/`. The user steps through Stage 1–6 with Continue / upload prompts; outputs are CSV artifacts for download (no MySQL).
 
 ## CLI (invoked by agent-backend)
 

@@ -18,7 +18,7 @@ if ($envUrl) {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>qPTM | Agent</title>
 <script src="assets/js/include.js"></script>
-<link rel="stylesheet" href="assets/css/agent.css?v=20260807-stopbtn">
+<link rel="stylesheet" href="assets/css/agent.css?v=20260812-stage1-include">
 
 </head>
 <body class="agent-page">
@@ -96,6 +96,6 @@ window.QPTM_AGENT_CONFIG = {
   chatUrl: <?php echo json_encode($BACKEND_URL, JSON_UNESCAPED_SLASHES); ?>
 };
 </script>
-<script src="assets/js/agent.js?v=20260808-alwaysopen"></script>
+<script src="assets/js/agent.js?v=20260812-stage4-dl-below"></script>
 </body>
 </html>

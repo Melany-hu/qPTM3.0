@@ -7,7 +7,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 
 from app.collection.models import (
@@ -29,6 +29,7 @@ from app.collection.runner import (
 from app.collection.pmid_from_files import resolve_pmid_from_uploads
 from app.collection.uploads import classify_upload_filename
 from app.collection.store import (
+    append_contribution_record,
     fulltext_artifact,
     job_dir,
     looks_like_stage5_guidance,
@@ -53,6 +54,8 @@ from app.config import settings
 
 router = APIRouter(prefix="/collection", tags=["collection"])
 
+_STAGE_ORDER = ("stage1", "stage2", "stage3", "stage4", "stage5", "stage6")
+
 _ALLOWED_EXT = {".pdf", ".xml", ".zip", ".xlsx", ".xls", ".csv", ".tsv"}
 _MAX_BYTES = settings.collection_max_upload_bytes
 
@@ -71,9 +74,7 @@ async def _save_upload(job_id: str, upload: UploadFile, prefix: str) -> Path:
         raise HTTPException(400, "Missing filename")
     content = await upload.read()
     _validate_upload(upload.filename, len(content))
-    dest = uploads_dir(job_id) / f"{prefix}{Path(upload.filename).suffix.lower()}"
-    dest.write_bytes(content)
-    return dest
+    return _write_upload(job_id, upload.filename, content, prefix)
 
 
 async def _read_upload(upload: UploadFile) -> tuple[str, bytes]:
@@ -84,8 +85,18 @@ async def _read_upload(upload: UploadFile) -> tuple[str, bytes]:
     return upload.filename, content
 
 
+def _safe_upload_name(filename: str) -> str:
+    name = Path(filename).name.replace("\\", "_").replace("/", "_").strip()
+    return name or "upload.bin"
+
+
 def _write_upload(job_id: str, filename: str, content: bytes, prefix: str) -> Path:
-    dest = uploads_dir(job_id) / f"{prefix}{Path(filename).suffix.lower()}"
+    # Keep original basename for supplementary tables so multi-file ZIPs retain
+    # distinct names (supp1.xlsx + supp2.xlsx). Fulltext still uses a stable prefix.
+    if prefix == "supplementary":
+        dest = uploads_dir(job_id) / _safe_upload_name(filename)
+    else:
+        dest = uploads_dir(job_id) / f"{prefix}{Path(filename).suffix.lower()}"
     dest.write_bytes(content)
     return dest
 
@@ -95,12 +106,12 @@ async def create_job(
     message: str | None = Form(default=None),
     pmid: str | None = Form(default=None),
     fulltext: UploadFile | None = File(default=None),
-    supplementary: UploadFile | None = File(default=None),
+    supplementary: list[UploadFile] | None = File(default=None),
 ) -> CollectionJobResponse:
     body = CollectionJobCreate(message=message, pmid=pmid)
     upload_names: list[str] = []
     fulltext_blob: tuple[str, bytes] | None = None
-    supplementary_blob: tuple[str, bytes] | None = None
+    supplementary_blobs: list[tuple[str, bytes]] = []
 
     if fulltext and fulltext.filename:
         name, content = await _read_upload(fulltext)
@@ -109,12 +120,14 @@ async def create_job(
         upload_names.append(name)
         fulltext_blob = (name, content)
 
-    if supplementary and supplementary.filename:
-        name, content = await _read_upload(supplementary)
+    for item in supplementary or []:
+        if not item or not item.filename:
+            continue
+        name, content = await _read_upload(item)
         if classify_upload_filename(name) != "supplementary":
             raise HTTPException(400, f"supplementary field accepts ZIP/Excel/CSV only, got: {name}")
         upload_names.append(name)
-        supplementary_blob = (name, content)
+        supplementary_blobs.append((name, content))
 
     resolved_pmid = resolve_pmid(
         pmid=body.pmid if body else None,
@@ -125,8 +138,7 @@ async def create_job(
         blobs: list[tuple[str, bytes]] = []
         if fulltext_blob:
             blobs.append(fulltext_blob)
-        if supplementary_blob:
-            blobs.append(supplementary_blob)
+        blobs.extend(supplementary_blobs)
         if blobs:
             resolved_pmid = await resolve_pmid_from_uploads(blobs)
 
@@ -136,9 +148,9 @@ async def create_job(
             status="error",
             message=(
                 "Could not resolve PMID from the upload. "
-                "The PDF/XML had no readable PMID or DOI we could map to PubMed. "
-                "Please enter a PMID in the message (e.g. Collect PMID 38670996), "
-                "or rename the file like 38670996.pdf."
+                "Tried reading PMID/DOI from the file and matching the article title to PubMed. "
+                "Please type a PMID in the message (e.g. 38670996), "
+                "or rename the PDF like 38670996.pdf."
             ),
             needs_pmid=True,
         )
@@ -146,21 +158,21 @@ async def create_job(
     job_id = new_job_id()
     job_dir(job_id)
     fulltext_path: str | None = None
-    supplementary_path: str | None = None
+    supplementary_paths: list[str] = []
 
     if fulltext_blob:
         saved = _write_upload(job_id, fulltext_blob[0], fulltext_blob[1], "fulltext")
         fulltext_path = str(saved)
 
-    if supplementary_blob:
-        saved = _write_upload(job_id, supplementary_blob[0], supplementary_blob[1], "supplementary")
-        supplementary_path = str(saved)
+    for name, content in supplementary_blobs:
+        saved = _write_upload(job_id, name, content, "supplementary")
+        supplementary_paths.append(str(saved))
 
     await schedule_job(
         job_id,
         resolved_pmid,
         fulltext_path=fulltext_path,
-        supplementary_path=supplementary_path,
+        supplementary_paths=supplementary_paths or None,
     )
     return CollectionJobResponse(**job_state_to_response(job_id, resolved_pmid))
 
@@ -242,14 +254,27 @@ async def upload_file(
 
 
 @router.post("/jobs/{job_id}/resume", response_model=CollectionJobResponse)
-async def resume_collection_job(job_id: str) -> CollectionJobResponse:
+async def resume_collection_job(job_id: str, request: Request) -> CollectionJobResponse:
     if not job_dir(job_id).exists():
         raise HTTPException(404, "Job not found")
     state = job_state_to_response(job_id)
     pmid = state.get("pmid")
     if not pmid:
         raise HTTPException(400, "Job has no PMID")
-    await resume_job(job_id, pmid)
+    # Honor the stage the UI is showing (its "Continue" target) when provided.
+    resume_from: str | None = None
+    force_include = False
+    try:
+        body = await request.json()
+        candidate = (body or {}).get("resume_from")
+        if candidate:
+            candidate = str(candidate).strip()
+            if candidate in _STAGE_ORDER and candidate != "stage1":
+                resume_from = candidate
+        force_include = bool((body or {}).get("force_include"))
+    except Exception:
+        pass
+    await resume_job(job_id, pmid, resume_from=resume_from, force_include=force_include)
     return CollectionJobResponse(**job_state_to_response(job_id, pmid))
 
 
@@ -281,6 +306,13 @@ async def contribute_collection_job(
     }
     state["offerContribute"] = False
     if body.willing:
+        # Record the contribution intent centrally so curators can pull the
+        # curated data (PMID links to the job's artifacts via jobId).
+        append_contribution_record(
+            str(state.get("pmid") or ""),
+            job_id=job_id,
+            note=body.note,
+        )
         state["message"] = (
             (state.get("message") or "").rstrip()
             + "\n\nThank you for offering to contribute to qPTM! "
@@ -496,7 +528,8 @@ async def post_stage5_guidance(job_id: str, body: CollectionGuidanceRequest) -> 
             400,
             "Could not interpret this as Stage5 table guidance. "
             "Mention an Excel/CSV filename (e.g. pr2c00756_si_002.xlsx), "
-            "a sheet (file → Sheet), or contrasts like log2(P5/P1).",
+            "a sheet (file → Sheet), contrasts like log2(P5/P1), "
+            "or sample/sheet mapping (e.g. each sheet is a different sample).",
         )
 
     # If user only asked about protein Log2Ratio / derived ratios with no file, still re-parse
@@ -565,12 +598,45 @@ async def post_stage5_guidance(job_id: str, body: CollectionGuidanceRequest) -> 
     }
 
 
+_UTF8_BOM = b"\xef\xbb\xbf"
+_CSV_CHUNK = 1024 * 1024
+
+
+def _iter_csv_with_bom(path: Path):
+    """Stream a UTF-8 CSV, prepending a BOM so Excel decodes β/µ/etc. correctly.
+
+    Files are written as plain UTF-8 (no BOM); Windows Excel opens them with the
+    ANSI codepage (GBK on Chinese systems), which mis-reads multi-byte chars
+    (UTF-8 β = CE B2 → GBK "尾"). A leading UTF-8 BOM forces Excel to use UTF-8.
+    """
+    with path.open("rb") as fh:
+        head = fh.read(len(_UTF8_BOM))
+        if head != _UTF8_BOM:
+            yield _UTF8_BOM
+            yield head
+        else:
+            yield head
+        while True:
+            chunk = fh.read(_CSV_CHUNK)
+            if not chunk:
+                break
+            yield chunk
+
+
+def _csv_response(path: Path, filename: str) -> StreamingResponse:
+    return StreamingResponse(
+        _iter_csv_with_bom(path),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.get("/jobs/{job_id}/download/literature_info")
-async def download_literature_info(job_id: str) -> FileResponse:
+async def download_literature_info(job_id: str):
     path = stage3_artifact(job_id)
     if not path:
         raise HTTPException(404, "Experimental_info.csv not ready")
-    return FileResponse(path, filename=f"Experimental_info_{job_id[:8]}.csv", media_type="text/csv")
+    return _csv_response(path, f"Experimental_info_{job_id[:8]}.csv")
 
 
 @router.get("/jobs/{job_id}/download/fulltext")
@@ -599,16 +665,16 @@ async def download_supplementary(job_id: str) -> FileResponse:
 
 
 @router.get("/jobs/{job_id}/download/qratio")
-async def download_qratio(job_id: str) -> FileResponse:
+async def download_qratio(job_id: str):
     path = stage5_artifact(job_id)
     if not path:
         raise HTTPException(404, "Quantitative_data.csv not ready")
-    return FileResponse(path, filename=f"Quantitative_data_{job_id[:8]}.csv", media_type="text/csv")
+    return _csv_response(path, f"Quantitative_data_{job_id[:8]}.csv")
 
 
 @router.get("/jobs/{job_id}/download/ms-urls")
-async def download_ms_urls(job_id: str) -> FileResponse:
+async def download_ms_urls(job_id: str):
     path = stage6_urls_artifact(job_id)
     if not path:
         raise HTTPException(404, "MS_URLs.csv not ready")
-    return FileResponse(path, filename=f"MS_URLs_{job_id[:8]}.csv", media_type="text/csv")
+    return _csv_response(path, f"MS_URLs_{job_id[:8]}.csv")

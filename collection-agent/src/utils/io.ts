@@ -925,9 +925,12 @@ export function loadStage3Results(): LiteratureInfoRow[] {
     if (!t) continue
     try {
       const row = JSON.parse(t) as LiteratureInfoRow
-      if (!row.conditionSampleMap) {
-        row.conditionSampleMap = buildConditionSampleMap(row.sample || "", row.condition || "")
-      }
+      // Always sanitize: drop Cond=>Sample collisions (multi-sample shared contrast)
+      row.conditionSampleMap = buildConditionSampleMap(
+        row.sample || "",
+        row.condition || "",
+        row.conditionSampleMap || "",
+      )
       out.push(row)
     } catch {
       // skip

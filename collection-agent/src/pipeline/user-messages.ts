@@ -8,6 +8,7 @@
 export const UI_SEG = {
   AFTER_PAPER: "<<<AFTER_PAPER>>>",
   AFTER_META: "<<<AFTER_META>>>",
+  AFTER_SCOUT: "<<<AFTER_SCOUT>>>",
   AFTER_QRATIO: "<<<AFTER_QRATIO>>>",
   AFTER_ADJUST: "<<<AFTER_ADJUST>>>",
   AFTER_CONTRIBUTE: "<<<AFTER_CONTRIBUTE>>>",
@@ -18,20 +19,13 @@ export function messageRejected(opts: {
   reason?: string
   ptmTypes?: string[]
 }): string {
-  const title = (opts.title || "").trim()
-  const reason = (opts.reason || "").trim()
-  const lines = [
+  return [
     "After screening, this paper does not appear to contain quantitative post-translational modification (PTM) proteomics data, so it cannot enter the qPTM collection pipeline.",
-  ]
-  if (title) lines.push(`Paper: ${title}`)
-  if (reason) lines.push(`Reason: ${reason}`)
-  lines.push(
     "",
-    "qPTM mainly curates site-level quantitative PTM mass-spectrometry results (Condition, Log2Ratio, etc.).",
-    "If you believe this paper does include quantitative PTM tables, try another PMID, or upload a PDF / supplementary file that contains the quant tables.",
-    "You can also keep chatting below — I can help you judge whether a paper is suitable for collection.",
-  )
-  return lines.join("\n")
+    UI_SEG.AFTER_PAPER,
+    "qPTM mainly curates site-level quantitative PTM mass-spectrometry results.",
+    "If you still want to collect data from this paper, click Include to continue anyway.",
+  ].join("\n")
 }
 
 export function messageUncertain(opts: {
@@ -109,10 +103,12 @@ export function messageSuppMissing(): string {
 }
 
 export function messageSuppOk(): string {
-  return (
-    "Supplementary quantitative tables located. " +
-    "You can download the supplementary package below, review the scout details, then click Continue to parse them into the qratio schema."
-  )
+  return [
+    "Supplementary quantitative tables located.",
+    "",
+    UI_SEG.AFTER_SCOUT,
+    "Click Continue to parse quantitative data.",
+  ].join("\n")
 }
 
 export function messageParseEmpty(): string {
@@ -126,7 +122,12 @@ export function messageParseEmpty(): string {
 }
 
 export function messageUserSuppReady(): string {
-  return "User-uploaded supplementary tables detected, then click Continue to parse quantitative data."
+  return [
+    "User-uploaded supplementary tables detected.",
+    "",
+    UI_SEG.AFTER_SCOUT,
+    "Click Continue to parse quantitative data.",
+  ].join("\n")
 }
 
 export function messageParseOk(rowCount: number, opts?: { proteinFilled?: number; sheetsUsed?: string }): string {
@@ -164,22 +165,14 @@ export function messageParseOk(rowCount: number, opts?: { proteinFilled?: number
 }
 
 export function messageMsUrlsComplete(opts: {
-  rowCount: number
   totalUrls?: number
   statusNote?: string
-  offerContribute?: boolean
 }): string {
   const lines = ["MS repository download links have been resolved."]
   if (opts.totalUrls != null && Number.isFinite(opts.totalUrls)) {
-    lines.push(`Found ${opts.totalUrls} download URL(s) from PRIDE / iProX / jPOST / CPTAC.`)
+    lines.push(`Found ${opts.totalUrls} download URL(s).`)
   }
   if (opts.statusNote) lines.push(opts.statusNote)
-  if (opts.offerContribute !== false && opts.rowCount > 0) {
-    lines.push("")
-    lines.push(
-      "If you are willing, you can contribute these curated results to the qPTM database to help other researchers.",
-    )
-  }
   return lines.join("\n")
 }
 

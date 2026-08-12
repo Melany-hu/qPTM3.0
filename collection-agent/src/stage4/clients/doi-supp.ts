@@ -217,6 +217,60 @@ async function downloadOne(ref: DoiSuppFileRef, timeoutMs: number): Promise<Down
 }
 
 /**
+ * Download the ranked candidate list with a small parallel window.
+ * Early-break heuristics (network blocked, enough files, got a ZIP, too many
+ * sequential misses) still apply — results are processed in rank order.
+ */
+async function downloadCandidates(
+  tryList: DoiSuppFileRef[],
+  files: DoiSuppFetchResult["files"],
+  seenName: Set<string>,
+  notes: string[],
+): Promise<void> {
+  const windowSize = 4
+  let consecutiveMiss = 0
+  let consecutiveNetwork = 0
+  let i = 0
+  while (i < tryList.length && files.length < 12) {
+    const window = tryList.slice(i, i + windowSize)
+    const outcomes = await Promise.all(
+      window.map((ref) => {
+        const timeoutMs = ref.source === "guess" ? 15_000 : 60_000
+        return downloadOne(ref, timeoutMs)
+      }),
+    )
+    for (let k = 0; k < window.length; k++) {
+      const ref = window[k]
+      const got = outcomes[k]
+      if (files.length >= 12) break
+      if (!got.ok) {
+        consecutiveMiss++
+        if (got.reason === "network") consecutiveNetwork++
+        else consecutiveNetwork = 0
+        // CDN unreachable → stop early instead of probing dozens of URLs
+        if (consecutiveNetwork >= 3 && files.length === 0) {
+          notes.push("network-blocked")
+          return
+        }
+        if (ref.source === "guess" && files.length > 0 && consecutiveMiss >= 6) return
+        continue
+      }
+      consecutiveMiss = 0
+      consecutiveNetwork = 0
+      let name = got.filename
+      if (seenName.has(name)) name = `${ref.source}_${files.length + 1}_${name}`
+      seenName.add(name)
+      files.push({ filename: name, buffer: got.buffer, url: got.url })
+      if (/\.zip$/i.test(name) && got.buffer.subarray(0, 2).toString("ascii") === "PK") {
+        notes.push("got-zip")
+        return
+      }
+    }
+    i += windowSize
+  }
+}
+
+/**
  * Discover + download publisher supplementary tabular files for a DOI.
  */
 export async function fetchDoiSupplementaryFiles(doi: string): Promise<DoiSuppFetchResult> {
@@ -273,36 +327,8 @@ export async function fetchDoiSupplementaryFiles(doi: string): Promise<DoiSuppFe
   const tryList = ranked.filter((r) => rankFile(r) >= 2).slice(0, 24)
   const files: DoiSuppFetchResult["files"] = []
   const seenName = new Set<string>()
-  let consecutiveMiss = 0
-  let consecutiveNetwork = 0
 
-  for (const ref of tryList) {
-    if (files.length >= 12) break
-    const timeoutMs = ref.source === "guess" ? 15_000 : 60_000
-    const got = await downloadOne(ref, timeoutMs)
-    if (!got.ok) {
-      consecutiveMiss++
-      if (got.reason === "network") consecutiveNetwork++
-      else consecutiveNetwork = 0
-      // CDN unreachable → stop early instead of probing dozens of URLs
-      if (consecutiveNetwork >= 3 && files.length === 0) {
-        notes.push("network-blocked")
-        break
-      }
-      if (ref.source === "guess" && files.length > 0 && consecutiveMiss >= 6) break
-      continue
-    }
-    consecutiveMiss = 0
-    consecutiveNetwork = 0
-    let name = got.filename
-    if (seenName.has(name)) name = `${ref.source}_${files.length + 1}_${name}`
-    seenName.add(name)
-    files.push({ filename: name, buffer: got.buffer, url: got.url })
-    if (/\.zip$/i.test(name) && got.buffer.subarray(0, 2).toString("ascii") === "PK") {
-      notes.push("got-zip")
-      break
-    }
-  }
+  await downloadCandidates(tryList, files, seenName, notes)
 
   if (files.length === 0) {
     return {

@@ -20,17 +20,29 @@ function normKey(s: string): string {
     .trim()
 }
 
-/** Parse "Cond=>Sample; Cond2=>Sample2" (also accepts "Cond=Sample"). */
+/** Parse "Cond=>Sample; Cond2=>Sample2" (also accepts "Cond=Sample").
+ * If the same condition is mapped to multiple different samples (common when
+ * Stage3 lists N cell lines that share one contrast), drop that key — Sample
+ * must then come from the sheet / table context, not the condition map.
+ */
 export function parseConditionSampleMap(raw: string): Map<string, string> {
   const out = new Map<string, string>()
+  const ambiguous = new Set<string>()
   for (const part of splitParts(raw)) {
     const m = part.match(/^(.+?)\s*(?:=>|=)\s*(.+)$/)
     if (!m) continue
     const cond = m[1].trim()
     const sample = m[2].trim()
     if (!cond || !sample) continue
-    out.set(normKey(cond), sample)
+    const key = normKey(cond)
+    const prev = out.get(key)
+    if (prev && normKey(prev) !== normKey(sample)) {
+      ambiguous.add(key)
+      continue
+    }
+    out.set(key, sample)
   }
+  for (const k of ambiguous) out.delete(k)
   return out
 }
 
@@ -122,25 +134,92 @@ export function inferSampleFromCondition(stage3Sample: string, condition: string
 /**
  * Build Condition=>Sample map from Stage3 Sample + Condition lists.
  * Used when the LLM did not emit an explicit map.
+ * Multi-sample + shared condition is left empty (ambiguous) — Stage5 should
+ * resolve Sample from per-sample sheets or other table context.
  */
 export function buildConditionSampleMap(
   stage3Sample: string,
   stage3Condition: string,
   explicitMap?: string,
 ): string {
-  if (explicitMap && explicitMap.trim()) return explicitMap.trim()
+  if (explicitMap && explicitMap.trim()) {
+    // Re-serialize after dropping ambiguous Cond=>Sample collisions
+    const map = parseConditionSampleMap(explicitMap)
+    if (map.size === 0) return ""
+    return [...map.entries()]
+      .map(([k, sample]) => {
+        // Recover a readable condition label from the explicit map if possible
+        for (const part of splitParts(explicitMap)) {
+          const m = part.match(/^(.+?)\s*(?:=>|=)\s*(.+)$/)
+          if (!m) continue
+          if (normKey(m[1]) === k && normKey(m[2]) === normKey(sample)) {
+            return `${m[1].trim()}=>${m[2].trim()}`
+          }
+        }
+        return `${k}=>${sample}`
+      })
+      .join("; ")
+  }
   const samples = splitParts(stage3Sample)
   const conditions = splitParts(stage3Condition)
   if (samples.length === 0 || conditions.length === 0) return ""
   if (samples.length === 1) {
     return conditions.map((c) => `${c}=>${samples[0]}`).join("; ")
   }
+  // One shared contrast across many samples cannot name a unique Sample
+  if (conditions.length === 1 && samples.length > 1) return ""
   const pairs: string[] = []
   for (const c of conditions) {
     const s = inferSampleFromCondition(stage3Sample, c)
     if (s) pairs.push(`${c}=>${s}`)
   }
   return pairs.join("; ")
+}
+
+/**
+ * True when Excel sheet names clearly correspond to Stage3 Samples
+ * (e.g. sheets MCF7 / MDA-MB-231 / MDA-MB-436 with the same Stage3 list).
+ */
+export function sheetsAlignWithStage3Samples(
+  sheetNames: string[],
+  stage3Sample: string,
+): { aligned: boolean; matchedSamples: string[]; matchedSheets: string[] } {
+  const samples = splitParts(stage3Sample)
+  const sheets = (sheetNames || []).map((s) => (s || "").trim()).filter(Boolean)
+  const matchedSamples: string[] = []
+  const matchedSheets: string[] = []
+  if (samples.length < 2 || sheets.length === 0) {
+    return { aligned: false, matchedSamples, matchedSheets }
+  }
+
+  for (const sample of samples) {
+    let bestSheet = ""
+    let bestScore = 0
+    for (const sheet of sheets) {
+      if (/^(sheet\s*\d*|quant(?:ified)?|data|table\d*|proteome|phospho|protein)$/i.test(sheet)) {
+        continue
+      }
+      let score = 0
+      if (normKey(sample) === normKey(sheet)) score = 100
+      else score = scoreSampleArm(sample, sheet)
+      if (score > bestScore) {
+        bestScore = score
+        bestSheet = sheet
+      }
+    }
+    if (bestScore >= 50) {
+      matchedSamples.push(sample)
+      matchedSheets.push(bestSheet)
+    }
+  }
+
+  // Need at least 2 Stage3 samples matched to distinct sheets
+  const uniqueSheets = new Set(matchedSheets.map((s) => normKey(s)))
+  const aligned =
+    matchedSamples.length >= 2 &&
+    uniqueSheets.size >= 2 &&
+    matchedSamples.length >= Math.min(samples.length, 2)
+  return { aligned, matchedSamples, matchedSheets }
 }
 
 /**
@@ -175,5 +254,46 @@ export function resolveRowSample(
     if (inferred) return inferred
   }
 
+  return ""
+}
+
+/**
+ * Map an Excel sheet name to a Stage3 Sample when sheets are per-sample
+ * (e.g. sheets MCF7 / MDA-MB-231 / MDA-MB-436).
+ */
+export function resolveSheetAsSample(
+  sheetName: string,
+  stage3Sample: string,
+  preferSheetAsSample = false,
+): string {
+  const sheet = (sheetName || "").trim()
+  if (!sheet) return ""
+  const samples = splitParts(stage3Sample)
+
+  for (const s of samples) {
+    if (normKey(s) === normKey(sheet)) return s
+  }
+  let best = ""
+  let bestScore = 0
+  for (const s of samples) {
+    const score = scoreSampleArm(s, sheet)
+    if (score > bestScore) {
+      bestScore = score
+      best = s
+    }
+  }
+  if (bestScore >= 50) return best
+
+  // Generic sheet titles are not samples
+  if (/^(sheet\s*\d*|quant(?:ified)?|data|table\d*|proteome|phospho|protein)$/i.test(sheet)) {
+    return preferSheetAsSample ? sheet : ""
+  }
+
+  if (preferSheetAsSample) return sheet
+
+  // Multi-sample Stage3 + distinctive sheet name → treat sheet as sample
+  if (samples.length > 1 && /[A-Za-z]/.test(sheet) && sheet.length >= 2) {
+    return sheet
+  }
   return ""
 }
