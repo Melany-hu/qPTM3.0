@@ -21,6 +21,41 @@ export const TABLE_EXTS = new Set([".xlsx", ".xls", ".csv", ".tsv", ".txt"])
 const MAX_CANDIDATE_FILES = 10
 const MAX_SHEETS_PER_FILE = 40
 
+/**
+ * Resolve a column hint against sheet headers.
+ * Supports exact/case-insensitive names and positional aliases from user/LLM
+ * hints: `col_1`, `col1`, `column 1`, `column_1` → headers[0].
+ */
+export function resolveColumnIndex(
+  headers: string[],
+  name: string | null | undefined,
+): number {
+  if (!name || !headers.length) return -1
+  const exact = headers.findIndex((h) => h === name)
+  if (exact >= 0) return exact
+  const lower = name.toLowerCase()
+  const ci = headers.findIndex((h) => (h || "").toLowerCase() === lower)
+  if (ci >= 0) return ci
+
+  const m = String(name)
+    .trim()
+    .match(/^(?:col(?:umn)?[\s._-]*)(\d+)$/i)
+  if (m) {
+    const idx = Number(m[1]) - 1
+    if (Number.isInteger(idx) && idx >= 0 && idx < headers.length) return idx
+  }
+  return -1
+}
+
+/** Like resolveColumnIndex, but returns the real header string (or null). */
+export function resolveColumnName(
+  headers: string[],
+  name: string | null | undefined,
+): string | null {
+  const i = resolveColumnIndex(headers, name)
+  return i >= 0 ? headers[i] : null
+}
+
 const PREVIEW_ROWS = 5
 /** Cap rows loaded for parsing (per sheet). Long-format PTM tables can exceed 100k. */
 export const MAX_PARSE_ROWS = 600_000

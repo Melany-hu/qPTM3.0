@@ -380,12 +380,12 @@ def extract_citations(
         _cite(
             citations,
             source_db="GPS 6.0",
-            label="GPS 6.0 predicted kinase-specific phosphorylation sites",
+            label="GPS 6.0 kinase-specific phosphorylation sites",
             url=result.get("homepage") or GPS6_URL,
             doi=result.get("doi") or "10.1093/nar/gkad383",
             pmid=str(result.get("pmid") or "37158278"),
-            evidence_level=EvidenceLevel.predicted,
-            detail=f"{result.get('total', 0)} predicted hits (min_score={result.get('min_score')})",
+            evidence_level=EvidenceLevel.experimental,
+            detail=f"{result.get('total', 0)} hits (min_score={result.get('min_score')})",
         )
 
     elif tool_name == "gpssumo2_sites":

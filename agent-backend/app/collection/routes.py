@@ -17,6 +17,7 @@ from app.collection.models import (
     CollectionJobResponse,
     CollectionUploadResponse,
     CollectionTableHintsRequest,
+    ResolveUrlsRequest,
 )
 from app.collection.runner import (
     ingest_fulltext,
@@ -24,14 +25,18 @@ from app.collection.runner import (
     job_state_to_response,
     resume_job,
     schedule_job,
+    schedule_resolve_urls_job,
     watch_job_events,
 )
 from app.collection.pmid_from_files import resolve_pmid_from_uploads
 from app.collection.uploads import classify_upload_filename
 from app.collection.store import (
     append_contribution_record,
+    empty_optional_csv_columns,
+    extract_accessions,
     fulltext_artifact,
     job_dir,
+    looks_like_resolve_urls_request,
     looks_like_stage5_guidance,
     mark_upload_ready,
     new_job_id,
@@ -143,6 +148,31 @@ async def create_job(
             resolved_pmid = await resolve_pmid_from_uploads(blobs)
 
     if not resolved_pmid:
+        # Accession-only MS URL resolution (PXD / IPX / …) — no PMID pipeline.
+        accessions = extract_accessions(body.message or "")
+        if accessions and looks_like_resolve_urls_request(body.message):
+            job_id = new_job_id()
+            root = job_dir(job_id)
+            # Seed job.json so the UI can show Stage6 immediately.
+            seed = {
+                "jobId": job_id,
+                "pmid": accessions[0],
+                "status": "running",
+                "currentStage": "stage6",
+                "nextStage": None,
+                "awaitingUpload": None,
+                "message": f"Resolving MS download URLs for {'; '.join(accessions)}…",
+                "stages": {"stage6": "running"},
+                "summary": {
+                    "resolveUrls": True,
+                    "accessions": accessions,
+                },
+                "updatedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            }
+            (root / "job.json").write_text(json.dumps(seed, indent=2), encoding="utf-8")
+            await schedule_resolve_urls_job(job_id, accessions, message=body.message)
+            # resolve_urls is already set from job.json summary.resolveUrls
+            return CollectionJobResponse(**job_state_to_response(job_id, accessions[0]))
         return CollectionJobResponse(
             job_id=new_job_id(),
             status="error",
@@ -150,7 +180,8 @@ async def create_job(
                 "Could not resolve PMID from the upload. "
                 "Tried reading PMID/DOI from the file and matching the article title to PubMed. "
                 "Please type a PMID in the message (e.g. 38670996), "
-                "or rename the PDF like 38670996.pdf."
+                "or rename the PDF like 38670996.pdf. "
+                "To fetch MS download links only, send an accession such as PXD012345."
             ),
             needs_pmid=True,
         )
@@ -182,6 +213,62 @@ async def get_job(job_id: str) -> CollectionJobResponse:
     if not job_dir(job_id).exists():
         raise HTTPException(404, "Job not found")
     return CollectionJobResponse(**job_state_to_response(job_id))
+
+
+@router.post("/resolve-urls", response_model=CollectionJobResponse)
+async def resolve_urls(body: ResolveUrlsRequest) -> CollectionJobResponse:
+    """Resolve PRIDE / iProX / jPOST / MassIVE / PDC download URLs for accessions."""
+    accessions: list[str] = []
+    for raw in [body.accession, *(body.accessions or [])]:
+        if raw:
+            accessions.extend(extract_accessions(str(raw)))
+    if body.message:
+        accessions.extend(extract_accessions(body.message))
+    # Dedupe preserving order
+    seen: set[str] = set()
+    uniq: list[str] = []
+    for a in accessions:
+        if a in seen:
+            continue
+        seen.add(a)
+        uniq.append(a)
+    if not uniq and body.message and looks_like_resolve_urls_request(body.message):
+        uniq = extract_accessions(body.message)
+    if not uniq:
+        raise HTTPException(
+            400,
+            "Provide at least one MS accession (PXD… / IPX… / JPST… / MSV… / PDC…)",
+        )
+
+    job_id = new_job_id()
+    root = job_dir(job_id)
+    seed = {
+        "jobId": job_id,
+        "pmid": body.pmid or uniq[0],
+        "status": "running",
+        "currentStage": "stage6",
+        "nextStage": None,
+        "awaitingUpload": None,
+        "message": f"Resolving MS download URLs for {'; '.join(uniq)}…",
+        "stages": {"stage6": "running"},
+        "summary": {
+            "resolveUrls": True,
+            "accessions": uniq,
+        },
+        "updatedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+    }
+    (root / "job.json").write_text(json.dumps(seed, indent=2), encoding="utf-8")
+    await schedule_resolve_urls_job(
+        job_id,
+        uniq,
+        pmid=body.pmid,
+        title=body.title,
+        organism=body.organism,
+        modification=body.modification,
+        message=body.message,
+    )
+    # resolve_urls is already set from job.json summary.resolveUrls
+    return CollectionJobResponse(**job_state_to_response(job_id, body.pmid or uniq[0]))
 
 
 @router.get("/jobs/{job_id}/stream")
@@ -340,14 +427,47 @@ async def get_metadata_artifact(job_id: str) -> dict:
     row = (state.get("summary") or {}).get("stage3Row")
     if row:
         return {"row": row}
+    pmid = str(state.get("pmid") or "").strip()
     path = stage3_artifact(job_id)
-    if not path:
-        raise HTTPException(404, "Metadata not ready")
-    with path.open(encoding="utf-8", errors="replace") as fh:
-        reader = csv.DictReader(fh)
-        for raw in reader:
-            if (raw.get("PMID") or "").strip() == str(state.get("pmid") or ""):
-                return {"row": raw}
+    if path:
+        with path.open(encoding="utf-8", errors="replace") as fh:
+            reader = csv.DictReader(fh)
+            for raw in reader:
+                if (raw.get("PMID") or "").strip() == pmid:
+                    return {"row": raw}
+    # Fall back to stage3_results.jsonl (includes error shells when literature_info is empty).
+    jsonl = stage3_artifact(job_id, "stage3_results.jsonl")
+    if jsonl and pmid:
+        try:
+            for line in jsonl.read_text(encoding="utf-8", errors="replace").splitlines():
+                t = line.strip()
+                if not t:
+                    continue
+                obj = json.loads(t)
+                if str(obj.get("pmid") or "").strip() != pmid:
+                    continue
+                return {
+                    "row": {
+                        "PMID": obj.get("pmid") or "",
+                        "Title": obj.get("title") or "",
+                        "Sample": obj.get("sample") or "",
+                        "Sample type": obj.get("sampleType") or "",
+                        "Organism": obj.get("organism") or "",
+                        "PTMs": obj.get("ptms") or "",
+                        "Label method": obj.get("labelMethod") or "",
+                        "Condition": obj.get("condition") or "",
+                        "Detail condition": obj.get("detailCondition") or "",
+                        "Enrichment method": obj.get("enrichmentMethod") or "",
+                        "Mass spectrometer": obj.get("massSpectrometer") or "",
+                        "MS data source": obj.get("msDataSource") or "",
+                        "Identifier": obj.get("identifier") or "",
+                        "status": obj.get("status") or "",
+                        "notes": obj.get("notes") or "",
+                        "error": obj.get("error") or "",
+                    }
+                }
+        except (OSError, json.JSONDecodeError):
+            pass
     raise HTTPException(404, "Metadata row not found")
 
 
@@ -384,6 +504,13 @@ async def get_supp_preview(job_id: str) -> dict:
     return {"pmid": pmid, "files": files}
 
 
+_QRATIO_OPTIONAL_COLS = (
+    "Localization probability",
+    "Localization",  # legacy header from earlier builds
+    "PEP",
+)
+
+
 @router.get("/jobs/{job_id}/artifacts/qratio-preview")
 async def get_qratio_preview(job_id: str, max_rows: int = 10) -> dict:
     """First N rows of stage5/qratio.csv for Stage5 UI."""
@@ -393,7 +520,11 @@ async def get_qratio_preview(job_id: str, max_rows: int = 10) -> dict:
     if not path:
         raise HTTPException(404, "qratio.csv not ready")
     rows = max(1, min(int(max_rows or 10), 50))
-    preview = read_csv_preview(path, max_rows=rows)
+    preview = read_csv_preview(
+        path,
+        max_rows=rows,
+        drop_empty_columns=list(_QRATIO_OPTIONAL_COLS),
+    )
     return {"pmid": (job_state_to_response(job_id) or {}).get("pmid"), **preview}
 
 
@@ -473,6 +604,7 @@ async def post_table_hints(job_id: str, body: CollectionTableHintsRequest) -> di
     summary["userTableHints"] = hints
     summary["needsTableHints"] = False
     summary["allowTableHints"] = True
+    summary["allowSkipToMsUrls"] = False
     raw["summary"] = summary
     raw["status"] = "running" if body.resume else raw.get("status") or "awaiting_continue"
     raw["currentStage"] = "stage5"
@@ -602,6 +734,18 @@ _UTF8_BOM = b"\xef\xbb\xbf"
 _CSV_CHUNK = 1024 * 1024
 
 
+def _download_pmid_tag(job_id: str) -> str:
+    """Filename tag for Stage3/5/6 downloads: real PMID (or accession), not job UUID."""
+    state = read_job_json(job_id) or {}
+    raw = str(state.get("pmid") or "").strip()
+    if not raw:
+        accessions = (state.get("summary") or {}).get("accessions") or []
+        if isinstance(accessions, list) and accessions:
+            raw = str(accessions[0] or "").strip()
+    safe = "".join(c if c.isalnum() or c in "._-" else "_" for c in raw)
+    return safe or job_id[:8]
+
+
 def _iter_csv_with_bom(path: Path):
     """Stream a UTF-8 CSV, prepending a BOM so Excel decodes β/µ/etc. correctly.
 
@@ -631,13 +775,56 @@ def _csv_response(path: Path, filename: str) -> StreamingResponse:
     )
 
 
+def _csv_response_drop_columns(
+    path: Path,
+    filename: str,
+    drop: set[str],
+) -> StreamingResponse:
+    """Stream CSV with selected columns removed (e.g. hide Condition-Sample map)."""
+
+    def _gen():
+        text = path.read_text(encoding="utf-8", errors="replace")
+        reader = csv.reader(text.splitlines())
+        rows = list(reader)
+        if not rows:
+            yield _UTF8_BOM
+            return
+        header = [(h or "").lstrip("\ufeff") for h in rows[0]]
+        keep = [i for i, h in enumerate(header) if h not in drop]
+        out_lines: list[str] = []
+        for row in rows:
+            cells = [row[i] if i < len(row) else "" for i in keep]
+            out_lines.append(",".join(_csv_escape_cell(c) for c in cells))
+        body = ("\n".join(out_lines) + "\n").encode("utf-8")
+        if not body.startswith(_UTF8_BOM):
+            yield _UTF8_BOM
+        yield body
+
+    return StreamingResponse(
+        _gen(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def _csv_escape_cell(value: str) -> str:
+    s = str(value)
+    if any(c in s for c in (',', '"', "\n", "\r")):
+        return '"' + s.replace('"', '""') + '"'
+    return s
+
+
 @router.get("/jobs/{job_id}/download/literature_info")
 async def download_literature_info(job_id: str):
     path = stage3_artifact(job_id)
     if not path:
         raise HTTPException(404, "Experimental_info.csv not ready")
-    return _csv_response(path, f"Experimental_info_{job_id[:8]}.csv")
-
+    tag = _download_pmid_tag(job_id)
+    return _csv_response_drop_columns(
+        path,
+        f"Experimental_info_{tag}.csv",
+        {"Condition-Sample map"},
+    )
 
 @router.get("/jobs/{job_id}/download/fulltext")
 async def download_fulltext(job_id: str) -> FileResponse:
@@ -647,7 +834,8 @@ async def download_fulltext(job_id: str) -> FileResponse:
     if not path:
         raise HTTPException(404, "Full text not available")
     media = "application/pdf" if path.suffix.lower() == ".pdf" else "application/xml"
-    return FileResponse(path, filename=f"{path.stem}_{job_id[:8]}{path.suffix}", media_type=media)
+    tag = _download_pmid_tag(job_id)
+    return FileResponse(path, filename=f"{path.stem}_{tag}{path.suffix}", media_type=media)
 
 
 @router.get("/jobs/{job_id}/download/supplementary")
@@ -657,9 +845,10 @@ async def download_supplementary(job_id: str) -> FileResponse:
     path = supplementary_zip_artifact(job_id)
     if not path:
         raise HTTPException(404, "Supplementary ZIP not available")
+    tag = _download_pmid_tag(job_id)
     return FileResponse(
         path,
-        filename=f"supplementary_{job_id[:8]}.zip",
+        filename=f"supplementary_{tag}.zip",
         media_type="application/zip",
     )
 
@@ -669,7 +858,15 @@ async def download_qratio(job_id: str):
     path = stage5_artifact(job_id)
     if not path:
         raise HTTPException(404, "Quantitative_data.csv not ready")
-    return _csv_response(path, f"Quantitative_data_{job_id[:8]}.csv")
+    tag = _download_pmid_tag(job_id)
+    drop = empty_optional_csv_columns(path, list(_QRATIO_OPTIONAL_COLS))
+    if drop:
+        return _csv_response_drop_columns(
+            path,
+            f"Quantitative_data_{tag}.csv",
+            drop,
+        )
+    return _csv_response(path, f"Quantitative_data_{tag}.csv")
 
 
 @router.get("/jobs/{job_id}/download/ms-urls")
@@ -677,4 +874,5 @@ async def download_ms_urls(job_id: str):
     path = stage6_urls_artifact(job_id)
     if not path:
         raise HTTPException(404, "MS_URLs.csv not ready")
-    return _csv_response(path, f"MS_URLs_{job_id[:8]}.csv")
+    tag = _download_pmid_tag(job_id)
+    return _csv_response(path, f"MS_URLs_{tag}.csv")

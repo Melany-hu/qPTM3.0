@@ -193,6 +193,54 @@ async def _run_cli(
             log_path.write_text("".join(chunks), encoding="utf-8")
 
 
+async def run_resolve_urls_job(
+    job_id: str,
+    accessions: list[str],
+    *,
+    pmid: str | None = None,
+    title: str | None = None,
+    organism: str | None = None,
+    modification: str | None = None,
+    ms_data_source: str | None = None,
+    message: str | None = None,
+) -> dict[str, Any] | None:
+    """Standalone Stage-6 URL resolution for MS accessions (no PMID pipeline)."""
+    args = [
+        "resolve-urls",
+        "--out-dir",
+        str(job_dir(job_id).resolve()),
+        "--job-id",
+        job_id,
+    ]
+    for acc in accessions:
+        args.extend(["--accession", str(acc).strip().upper()])
+    if pmid:
+        args.extend(["--pmid", str(pmid)])
+    if title:
+        args.extend(["--title", str(title)])
+    if organism:
+        args.extend(["--organism", str(organism)])
+    if modification:
+        args.extend(["--modification", str(modification)])
+    if ms_data_source:
+        args.extend(["--ms-data-source", str(ms_data_source)])
+    if message:
+        args.extend(["--message", str(message)])
+
+    code, output = await _run_cli(
+        job_id,
+        args,
+        log_name="resolve-urls.log",
+        timeout_seconds=settings.collection_stage_timeout_seconds,
+    )
+    state = read_job_json(job_id)
+    if state is None:
+        raise RuntimeError(f"resolve-urls finished without job.json (exit {code}): {output[-2000:]}")
+    if code != 0 and state.get("status") not in ("completed", "error"):
+        raise RuntimeError(state.get("error") or output[-2000:] or f"exit code {code}")
+    return state
+
+
 async def run_collection_job(
     job_id: str,
     pmid: str,
@@ -385,6 +433,74 @@ async def schedule_job(
     _running[job_id] = asyncio.create_task(_worker())
 
 
+async def schedule_resolve_urls_job(
+    job_id: str,
+    accessions: list[str],
+    *,
+    pmid: str | None = None,
+    title: str | None = None,
+    organism: str | None = None,
+    modification: str | None = None,
+    ms_data_source: str | None = None,
+    message: str | None = None,
+) -> None:
+    if job_id in _running and not _running[job_id].done():
+        return
+
+    async def _worker() -> None:
+        try:
+            await run_resolve_urls_job(
+                job_id,
+                accessions,
+                pmid=pmid,
+                title=title,
+                organism=organism,
+                modification=modification,
+                ms_data_source=ms_data_source,
+                message=message,
+            )
+        except CliTimeoutError as exc:
+            logger.warning("resolve-urls job %s timed out: %s", job_id, exc)
+            job_path = job_dir(job_id) / "job.json"
+            payload = read_job_json(job_id) or {
+                "jobId": job_id,
+                "pmid": pmid or (accessions[0] if accessions else ""),
+                "stages": {},
+                "summary": {"resolveUrls": True, "accessions": accessions},
+            }
+            payload.update(
+                {
+                    "status": "error",
+                    "error": str(exc),
+                    "message": "URL resolution timed out. Please retry.",
+                    "currentStage": "stage6",
+                }
+            )
+            job_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        except Exception as exc:
+            logger.exception("resolve-urls job %s failed", job_id)
+            job_path = job_dir(job_id) / "job.json"
+            payload = read_job_json(job_id) or {
+                "jobId": job_id,
+                "pmid": pmid or (accessions[0] if accessions else ""),
+                "stages": {},
+                "summary": {"resolveUrls": True, "accessions": accessions},
+            }
+            payload.update(
+                {
+                    "status": "error",
+                    "error": str(exc),
+                    "message": f"URL resolution failed: {exc}",
+                    "currentStage": "stage6",
+                }
+            )
+            job_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        finally:
+            _running.pop(job_id, None)
+
+    _running[job_id] = asyncio.create_task(_worker())
+
+
 async def resume_job(
     job_id: str,
     pmid: str,
@@ -473,6 +589,7 @@ def job_state_to_response(job_id: str, pmid: str | None = None) -> dict[str, Any
         "contribution": state.get("contribution"),
         "error": state.get("error"),
         "needs_pmid": False,
+        "resolve_urls": bool(summary.get("resolveUrls")),
     }
 
 

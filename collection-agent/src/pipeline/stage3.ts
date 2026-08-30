@@ -172,7 +172,7 @@ async function mapPool<T, R>(
 
 /**
  * Stage 3 orchestrator: eligible fulltexts → MetaChain → literature_info.csv
- * Already-extracted PMIDs in stage3_results.jsonl are skipped (resume).
+ * Successful (ok/partial) PMIDs in stage3_results.jsonl are skipped; errors are retriable.
  */
 export async function runStage3Meta(options: Stage3Options = {}): Promise<Stage3RunSummary> {
   const concurrency = Math.max(1, options.concurrency ?? 2)
@@ -295,7 +295,7 @@ export async function runStage3Meta(options: Stage3Options = {}): Promise<Stage3
         identifier: knownErr.map((r) => r.id).join("; "),
         status: "error",
         confidence: 0,
-        textSource: item.hasXml ? "xml" : item.hasPdf ? "abstract" : "none",
+        textSource: item.hasXml ? "xml" : item.hasPdf ? "pdf" : "none",
         notes: `MetaChain error: ${err instanceof Error ? err.message : String(err)}`,
         extractedAt: new Date().toISOString(),
         error: err instanceof Error ? err.message : String(err),

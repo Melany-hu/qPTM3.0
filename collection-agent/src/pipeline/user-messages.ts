@@ -102,6 +102,21 @@ export function messageSuppMissing(): string {
   ].join("\n")
 }
 
+export function messageMetaFailed(opts?: { error?: string }): string {
+  const lines = [
+    "Experimental metadata extraction failed, so Sample / Organism / PTMs could not be filled.",
+  ]
+  const err = (opts?.error || "").trim()
+  if (err) lines.push(`Note: ${err}`)
+  lines.push(
+    "",
+    UI_SEG.AFTER_META,
+    "Click Continue to retry metadata extraction from the full text.",
+    "Without this step, quantitative rows would be missing Sample / Organism / PTMs.",
+  )
+  return lines.join("\n")
+}
+
 export function messageSuppOk(): string {
   return [
     "Supplementary quantitative tables located.",
@@ -111,14 +126,29 @@ export function messageSuppOk(): string {
   ].join("\n")
 }
 
-export function messageParseEmpty(): string {
-  return [
+export function messageParseEmpty(opts?: {
+  /** Stage-3 has a MS accession — user may skip to Stage 6. */
+  canSkipToMsUrls?: boolean
+  identifier?: string
+}): string {
+  const lines = [
     "The supplementary tables were read, but no site-level quantitative PTM ratios were parsed (0 qratio rows).",
     "Review the parse log below, then either:",
     "• Select which file/sheet contains the site-level quant table and click “Use selected tables”, or",
     "• Upload a clearer ZIP / Excel / CSV and try again.",
     "Ideal columns: UniProt (or gene), PTM site, and ratio / Log2Ratio.",
-  ].join("\n")
+  ]
+  if (opts?.canSkipToMsUrls) {
+    const id = (opts.identifier || "").trim()
+    lines.push(
+      "",
+      id
+        ? `A MS repository accession was already found (${id}).`
+        : "A MS repository accession was already found in the literature metadata.",
+      "You can also click Continue to resolve MS repository download URLs (PRIDE / iProX / jPOST / CPTAC) without quantitative rows.",
+    )
+  }
+  return lines.join("\n")
 }
 
 export function messageUserSuppReady(): string {
@@ -167,9 +197,15 @@ export function messageParseOk(rowCount: number, opts?: { proteinFilled?: number
 export function messageMsUrlsComplete(opts: {
   totalUrls?: number
   statusNote?: string
+  /** Stage-3 Identifier was empty — Stage 6 had nothing to resolve. */
+  missingIdentifier?: boolean
 }): string {
   const lines = ["MS repository download links have been resolved."]
-  if (opts.totalUrls != null && Number.isFinite(opts.totalUrls)) {
+  if (opts.missingIdentifier) {
+    lines.push(
+      "No MS repository accession (PXD / IPX / MSV / JPST / PDC) was found in the literature metadata, so no download URLs could be resolved.",
+    )
+  } else if (opts.totalUrls != null && Number.isFinite(opts.totalUrls)) {
     lines.push(`Found ${opts.totalUrls} download URL(s).`)
   }
   if (opts.statusNote) lines.push(opts.statusNote)

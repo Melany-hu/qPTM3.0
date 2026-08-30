@@ -28,7 +28,7 @@ export const META_RULES = `Schema fields (all strings; use "" if unknown — nev
 - detailCondition: 1–3 sentences describing the PTM quantitative design / treatments / time points (and which sample was quantified if multiple materials appear in the paper). Should support rewriting Condition into clear Treatment/Baseline labels.
 - enrichmentMethod: PTM enrichment (TiO2, IMAC, Fe-NTA, anti-K-ε-GG, anti-acetyl-lysine, HILIC, …)
 - massSpectrometer: instrument model (+ vendor if known)
-- msDataSource: repository name — PRIDE | iProX | MassIVE | jPOST | ProteomeXchange | CPTAC | "" 
+- msDataSource: repository name — PRIDE | iProX | MassIVE | jPOST | ProteomeXchange | CPTAC | ""
 - identifier: repository accession(s) like PXD… / IPX… / MSV… / JPST… / PDC…; multiple → "; "
 - confidence: 0–1 how complete/reliable the extraction is
 - notes: short caveat (e.g. "abstract-only; enrichment unclear; sample ambiguous which line used for PTM quant")
@@ -40,6 +40,7 @@ Rules:
 4) If KnownIdentifiers are provided, use them for identifier / msDataSource unless the text clearly lists additional accessions — then merge uniquely.
 5) Do NOT invent PXD/IPX/MSV IDs. If unknown, leave identifier "".
 6) If text is abstract-only, still fill what you can; lower confidence.
+7) iProX partner / ProteomeXchange: many Chinese deposits say "via the iProX partner repository" with PXD… identifiers. In that case msDataSource MUST be "iProX" (not PRIDE). Prefer KnownIdentifiers that are IPX… over PXD mirrors when both exist. Never rewrite IPX… into PXD… or replace iProX with PRIDE.
 
 JSON schema:
 {

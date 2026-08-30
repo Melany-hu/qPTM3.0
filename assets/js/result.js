@@ -4,8 +4,8 @@
   var RESULT_ROOT = '#main';
 
   var FILTER_CONFIG = {
+    pos: { label: 'Position' },
     mods: { label: 'Modification' },
-    org: { label: 'Organism' },
     sample: { label: 'Sample' },
     samplecondition: { label: 'Condition' },
     qptmscore: { label: 'Reliability', formatLabel: function(value) { return value + ' Stars'; } }
@@ -381,7 +381,7 @@
     }
 
     var rawdata = $toggle.attr('value');
-    $cell.html('<div class="detail-loading"><span class="spinner"></span>Loading detail...</div>');
+    $cell.html('<div class="detail-loading"><div class="typing-dots" aria-hidden="true"><span></span><span></span><span></span></div>Loading detail...</div>');
 
     $.post('./resource/functions.php', { type: 'detail', rawdata: rawdata }, function(html, status) {
       if (status !== 'success') {
@@ -478,7 +478,7 @@
     $('#download_button').on('click', function() {
       var $btn = $(this);
       var originalHtml = $btn.html();
-      $btn.prop('disabled', true).html("<span class='spinner-border spinner-border-sm' role='status'></span> waiting...");
+      $btn.prop('disabled', true).html("<span class='typing-dots' aria-hidden='true'><span></span><span></span><span></span></span> waiting...");
       downloadResultTable();
       $btn.prop('disabled', false).html(originalHtml);
     });
@@ -581,7 +581,7 @@
     }
 
     $('#pageInfo').text('Searching...');
-    $('#tableChange').html('<tr><td colspan="11"><div class="status-msg"><span class="spinner"></span>Loading results...</div></td></tr>');
+    $('#tableChange').html('<tr><td colspan="11"><div class="status-msg"><div class="typing-dots" aria-hidden="true"><span></span><span></span><span></span></div>Loading results...</div></td></tr>');
 
     $.ajax({
       url: './resource/functions.php',

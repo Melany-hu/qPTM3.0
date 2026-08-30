@@ -18,7 +18,7 @@ import json
 import logging
 import re
 import uuid
-from typing import Any, AsyncGenerator, Optional
+from typing import Any, AsyncGenerator, Optional, Union
 
 import uvicorn
 from fastapi import FastAPI, Request
@@ -775,13 +775,24 @@ async def _agent_loop(
     yield _sse_done()
 
 
-def _get_client_ip(request: Request) -> str:
-    forwarded = request.headers.get("X-Forwarded-For") or request.headers.get("X-Real-IP")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    if request.client:
-        return request.client.host
-    return "unknown"
+def _get_device_id(request: Request) -> Optional[str]:
+    """Browser-persisted device key from X-Device-Id (not IP)."""
+    raw = (request.headers.get("X-Device-Id") or "").strip()
+    if not raw or len(raw) > 64:
+        return None
+    if not re.fullmatch(r"[0-9a-fA-F-]{8,64}", raw):
+        return None
+    return raw
+
+
+def _require_device_id(request: Request) -> Union[str, JSONResponse]:
+    device_id = _get_device_id(request)
+    if not device_id:
+        return JSONResponse(
+            {"error": "X-Device-Id header required"},
+            status_code=400,
+        )
+    return device_id
 
 
 def _title_from_message(message: str) -> str:
@@ -969,16 +980,20 @@ async def health() -> dict[str, Any]:
 
 @app.get("/conversations")
 async def list_conversations(request: Request) -> JSONResponse:
-    """List conversations for the current client IP."""
-    client_ip = _get_client_ip(request)
-    items = conv_store.list_conversations(client_ip)
+    """List conversations for the current browser device."""
+    device_id = _require_device_id(request)
+    if isinstance(device_id, JSONResponse):
+        return device_id
+    items = conv_store.list_conversations(device_id)
     return JSONResponse({"conversations": items})
 
 
 @app.post("/conversations")
 async def create_conversation(request: Request) -> JSONResponse:
-    """Create a new empty conversation for the current client IP."""
-    client_ip = _get_client_ip(request)
+    """Create a new empty conversation for the current browser device."""
+    device_id = _require_device_id(request)
+    if isinstance(device_id, JSONResponse):
+        return device_id
     title = "New conversation"
     try:
         body = await request.json()
@@ -986,15 +1001,17 @@ async def create_conversation(request: Request) -> JSONResponse:
             title = str(body["title"])
     except Exception:
         pass
-    conv = conv_store.create_conversation(client_ip, title)
+    conv = conv_store.create_conversation(device_id, title)
     return JSONResponse(conv, status_code=201)
 
 
 @app.get("/conversations/{conversation_id}")
 async def get_conversation(conversation_id: str, request: Request) -> JSONResponse:
     """Get a conversation with all messages."""
-    client_ip = _get_client_ip(request)
-    conv = conv_store.get_conversation(conversation_id, client_ip)
+    device_id = _require_device_id(request)
+    if isinstance(device_id, JSONResponse):
+        return device_id
+    conv = conv_store.get_conversation(conversation_id, device_id)
     if not conv:
         return JSONResponse({"error": "Conversation not found"}, status_code=404)
     return JSONResponse(conv)
@@ -1003,8 +1020,10 @@ async def get_conversation(conversation_id: str, request: Request) -> JSONRespon
 @app.delete("/conversations/{conversation_id}")
 async def delete_conversation(conversation_id: str, request: Request) -> JSONResponse:
     """Delete a conversation."""
-    client_ip = _get_client_ip(request)
-    if not conv_store.delete_conversation(conversation_id, client_ip):
+    device_id = _require_device_id(request)
+    if isinstance(device_id, JSONResponse):
+        return device_id
+    if not conv_store.delete_conversation(conversation_id, device_id):
         return JSONResponse({"error": "Conversation not found"}, status_code=404)
     return JSONResponse({"status": "deleted"})
 
@@ -1012,8 +1031,10 @@ async def delete_conversation(conversation_id: str, request: Request) -> JSONRes
 @app.post("/conversations/{conversation_id}/messages")
 async def append_conversation_messages(conversation_id: str, request: Request) -> JSONResponse:
     """Append one or more messages to an existing conversation (used by collection agent)."""
-    client_ip = _get_client_ip(request)
-    if not conv_store.belongs_to_ip(conversation_id, client_ip):
+    device_id = _require_device_id(request)
+    if isinstance(device_id, JSONResponse):
+        return device_id
+    if not conv_store.belongs_to_device(conversation_id, device_id):
         return JSONResponse({"error": "Conversation not found"}, status_code=404)
     try:
         body = await request.json()
@@ -1033,7 +1054,7 @@ async def append_conversation_messages(conversation_id: str, request: Request) -
         conv_store.add_message(conversation_id, role, content, meta=meta)
     if isinstance(body, dict) and body.get("title"):
         conv_store.update_title(conversation_id, str(body["title"]))
-    conv = conv_store.get_conversation(conversation_id, client_ip)
+    conv = conv_store.get_conversation(conversation_id, device_id)
     return JSONResponse(conv or {"id": conversation_id})
 
 
@@ -1086,15 +1107,17 @@ async def chat(request: Request) -> StreamingResponse:
     """
     body = await request.json()
     chat_req = ChatRequest(**body)
-    client_ip = _get_client_ip(request)
+    device_id = _require_device_id(request)
+    if isinstance(device_id, JSONResponse):
+        return device_id
 
     conversation_id = chat_req.conversation_id
-    if conversation_id and not conv_store.belongs_to_ip(conversation_id, client_ip):
+    if conversation_id and not conv_store.belongs_to_device(conversation_id, device_id):
         return JSONResponse({"error": "Conversation not found"}, status_code=403)
 
     is_new = False
     if not conversation_id:
-        conv = conv_store.create_conversation(client_ip, _title_from_message(chat_req.message))
+        conv = conv_store.create_conversation(device_id, _title_from_message(chat_req.message))
         conversation_id = conv["id"]
         is_new = True
 

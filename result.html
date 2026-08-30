@@ -9,7 +9,7 @@
 <body>
   <div id="preloader">
     <div class="preloader-inner">
-      <div class="preloader-spinner"></div>
+      <div class="typing-dots typing-dots-lg" aria-hidden="true"><span></span><span></span><span></span></div>
       <span class="preloader-text">Loading...</span>
     </div>
   </div>
@@ -53,7 +53,7 @@
                   <span class="th-label">Position</span>
                   <button type="button" class="th-sort-indicator" aria-label="Sort by position" title="Sort"></button>
                 </th>
-                <th class="th-sortable" data-sort="mods">
+                <th class="th-sortable col-mod" data-sort="mods">
                   <span class="th-label">Modification</span>
                   <button type="button" class="th-sort-indicator" aria-label="Sort by modification" title="Sort"></button>
                 </th>
@@ -84,7 +84,7 @@
               </tr>
             </thead>
             <tbody id="tableChange">
-              <tr><td colspan="11"><div class="status-msg"><span class="spinner"></span>Loading results...</div></td></tr>
+              <tr><td colspan="11"><div class="status-msg"><div class="typing-dots" aria-hidden="true"><span></span><span></span><span></span></div>Loading results...</div></td></tr>
             </tbody>
           </table>
         </div>

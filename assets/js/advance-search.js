@@ -6,6 +6,7 @@
     { value: 'uniprotaccs', label: 'UniProt ID' },
     { value: 'genename', label: 'Gene name' },
     { value: 'proteinname', label: 'Protein name' },
+    { value: 'pos', label: 'Position' },
     { value: 'func', label: 'Function' },
     { value: 'samdetail', label: 'Sample' },
     { value: 'con condetail', label: 'Condition' }

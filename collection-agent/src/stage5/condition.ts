@@ -84,7 +84,9 @@ export function enrichTimeVsControlLabel(base: string, sheetName = ""): string {
 
 /** Condition label from a ratio column header (shared by heuristic + proteome). */
 export function conditionLabelFromRatioHeader(h: string, sheetName = ""): string {
-  const n = (h || "").trim()
+  let n = (h || "").trim()
+  // R / limma dotted headers: "Ratio...MCF7/MCF10A." / "P.Value...MCF7/MCF10A."
+  n = stripRStyleMetricPrefix(n)
   const silacSuffix = silacBiologySuffixFromHeader(n)
   if (silacSuffix && !isSilacRatioMetadataSuffix(silacSuffix)) {
     return formatSilacBiologyLabel(silacSuffix)
@@ -97,26 +99,58 @@ export function conditionLabelFromRatioHeader(h: string, sheetName = ""): string
   if (m) return `${m[1]}/${m[2]}`
 
   // Parenthesized contrasts: log2 Kac(ATN/Ctrl), Kac(ATN/Ctrl), Lac(H/L)
-  m = n.match(/\(([^/]+)\/([^)]+)\)\s*$/)
+  // Also: "Log2FC_siCTRL (FT671/DMSO)" — keep siCTRL / siUSP7_* so distinct
+  // knockdown/control contrasts are not deduped to the same FT671/DMSO.
+  m = n.match(/^(.*?)\s*\(([^/]+)\/([^)]+)\)\s*$/)
   if (m) {
-    const left = m[1].trim()
-    const right = m[2].trim()
+    const left = m[2].trim()
+    const right = m[3].trim()
     if (left && right && left.length < 60 && right.length < 60) {
-      return enrichTimeVsControlLabel(`${left}/${right}`, sheetName)
+      const contrast = enrichTimeVsControlLabel(`${left}/${right}`, sheetName)
+      const metricRe =
+        /^(?:log\s*2?\s*fc|log2fc|logfc|fc|fold(?:\s*change)?|ratio)\s*[.:_\-]*/i
+      const hadMetric = metricRe.test(m[1])
+      const prefix = m[1].replace(metricRe, "").replace(/[_\s.\-]+$/g, "").trim()
+      // Only attach prefix when a LogFC/FC/ratio metric was stripped (siCTRL, siUSP7_1, …).
+      // Bare "Kac(ATN/Ctrl)" keeps the old ATN/Ctrl label.
+      if (
+        hadMetric &&
+        prefix &&
+        prefix.length < 40 &&
+        !/^(log2?fc|logfc|log2?|fc|ratio|fold(?:\s*change)?)$/i.test(prefix)
+      ) {
+        return `${prefix} (${contrast})`
+      }
+      return contrast
     }
   }
 
-  m = n.match(/ratio\s+([^/\s]+)\s*\/\s*([^/\s]+)/i)
+  // "Ratio MCF7/MCF10A" or residual "Ratio...MCF7/MCF10A" after strip
+  m =
+    n.match(/^(?:ratio|fc|fold(?:\s*change)?|log2?(?:\s*fc|\s*ratio)?)\s*[.:_\-]*\s*([^/\s]+)\s*\/\s*([^/\s.]+)/i) ||
+    n.match(/^([^/\s]+)\s*\/\s*([^/\s.]+)\.?$/)
   let base = ""
-  if (m) base = `${m[1]}/${m[2]}`
-  else {
-    m = n.match(
-      /^(.+?)\s*\/\s*(.+?)(?:\s+(?:adj\.?\s*)?(?:p[- ]?value|pvalue|q[- ]?value|fdr|ratio|fc|fold(?:\s*change)?))?$/i,
-    )
-    if (m) {
-      const left = m[1].replace(/\b(normalized|peptide|protein|site|log2?)\b/gi, "").trim()
-      const right = m[2].replace(/\b(normalized|peptide|protein|site|log2?)\b/gi, "").trim()
-      if (left && right && left.length < 60 && right.length < 60) base = `${left}/${right}`
+  if (m) {
+    base = `${m[1].replace(/^\.+/, "").trim()}/${m[2].replace(/\.+$/, "").trim()}`
+  } else {
+    m = n.match(/ratio\s+([^/\s]+)\s*\/\s*([^/\s]+)/i)
+    if (m) base = `${m[1]}/${m[2]}`
+    else {
+      m = n.match(
+        /^(.+?)\s*\/\s*(.+?)(?:\s+(?:adj\.?\s*)?(?:p[- ]?value|pvalue|q[- ]?value|fdr|ratio|fc|fold(?:\s*change)?))?$/i,
+      )
+      if (m) {
+        const left = m[1]
+          .replace(/^(?:ratio|fc|fold(?:\s*change)?|log2?(?:\s*fc|\s*ratio)?)\s*[.:_\-]*/i, "")
+          .replace(/\b(normalized|peptide|protein|site|log2?)\b/gi, "")
+          .replace(/^\.+/, "")
+          .trim()
+        const right = m[2]
+          .replace(/\b(normalized|peptide|protein|site|log2?)\b/gi, "")
+          .replace(/\.+$/, "")
+          .trim()
+        if (left && right && left.length < 60 && right.length < 60) base = `${left}/${right}`
+      }
     }
   }
   if (!base) {
@@ -129,8 +163,11 @@ export function conditionLabelFromRatioHeader(h: string, sheetName = ""): string
     }
   }
   if (!base) {
-    // Leading "Fold change …" / "FC …" / "log2 …" (anchored — avoid matching inside LogFC)
-    m = n.match(/^(?:log2?(?:\s*ratio)?|fc|fold(?:\s*change)?)\s*[:_\-]?\s*(.+)$/i)
+    // Leading metric + contrast. Prefer Log2FC/LogFC as ONE token —
+    // otherwise "Log2FC FT671…" becomes "FC FT671…" (log2? matches "Log2", rest keeps FC).
+    m = n.match(
+      /^(?:log\s*2?\s*fc|log2fc|logfc|fold(?:\s*change)?|fc|log2?(?:\s*ratio)?|ratio)\s*[:_\-]?\s*(.+)$/i,
+    )
     if (m) {
       const rest = m[1].replace(/\b(normalized|peptide|protein|site)\b/gi, "").trim()
       if (rest.length > 1 && rest.length < 80) base = rest
@@ -143,13 +180,54 @@ export function conditionLabelFromRatioHeader(h: string, sheetName = ""): string
     base = base.slice(1, -1).trim()
   }
   base = base.replace(/^[:\-\s]+/, "").trim()
-  // Strip residual trailing Log/FC crumbs left by cleanMappedCondition
-  base = base.replace(/[_\s-]+(?:log2?fc|logfc|log2?|fc)$/i, "").trim()
+  // Strip residual leading/trailing Log/FC crumbs (Condition must not keep "FC …")
+  base = base
+    .replace(/^(?:log\s*2?\s*fc|log2fc|logfc|fold(?:\s*change)?|fc)\s*[:_\-]*/i, "")
+    .replace(/[_\s-]+(?:log2?fc|logfc|log2?|fc)$/i, "")
+    .trim()
+  base = base.replace(/\.+$/, "").trim()
   base = enrichTimeVsControlLabel(base, sheetName)
+  base = normalizeDashContrast(base)
   if (/^B\d+\s*\/\s*B\d+$/i.test(base) && sheetName && /vs\.?/i.test(sheetName)) {
     return sheetName.replace(/\s+/g, " ").trim()
   }
+  // Generic ratio headers (log2fc, FC) — contrast lives in the sheet tab name.
+  if (isGenericRatioLabel(base) && sheetName && isSheetContrastLabel(sheetName)) {
+    return sheetName.replace(/\s+/g, " ").trim()
+  }
   return base
+}
+
+/**
+ * "FT671_15min - DMSO_15min" / en-dash / em-dash → "FT671_15min/DMSO_15min".
+ * Leave labels that already use "/" (or look like prose) unchanged.
+ */
+export function normalizeDashContrast(cond: string): string {
+  const s = (cond || "").trim()
+  if (!s || /\//.test(s)) return s
+  const m = s.match(/^(.+?)\s+[-–—]\s+(.+)$/)
+  if (!m) return s
+  const left = m[1].trim()
+  const right = m[2].trim()
+  if (!left || !right || left.length > 60 || right.length > 60) return s
+  // Avoid long prose titles: keep short sample/treatment arms only.
+  if (left.split(/\s+/).length > 4 || right.split(/\s+/).length > 4) return s
+  return `${left}/${right}`
+}
+
+/**
+ * Strip limma/R export prefixes: "Ratio...MCF7/MCF10A." → "MCF7/MCF10A".
+ * Spaces in R become "."; metric name is glued with "..." before the contrast.
+ */
+export function stripRStyleMetricPrefix(h: string): string {
+  let s = (h || "").trim()
+  if (!s) return ""
+  s = s.replace(
+    /^(?:adj\.?\s*)?(?:p\.?\s*values?|p\.?value|pvalue|q\.?\s*values?|q\.?value|fdr|ratio|log2?(?:\.?fc)?|log\.?fc|fc)\.+/i,
+    "",
+  )
+  s = s.replace(/^\.+/, "").replace(/\.+$/, "").trim()
+  return s
 }
 
 export function isChannelLabel(cond: string): boolean {
@@ -233,10 +311,49 @@ export function isPlaceholderGroupLabel(cond: string): boolean {
   return false
 }
 
+/**
+ * UniProt FASTA headers / protein-description blobs mistaken for contrast labels.
+ * These must fall back to Stage3 Condition (global study contrast), not become qratio.Condition.
+ */
+export function isAnnotationMasqueradingAsCondition(cond: string): boolean {
+  const s = (cond || "").trim()
+  if (!s) return false
+  if (/^(sp|tr)\|/i.test(s)) return true
+  if ((s.match(/\b(?:sp|tr)\|/gi) || []).length >= 2) return true
+  if (/\bOS\s*=.+?\bOX\s*=\s*\d+/i.test(s)) return true
+  if (/\bGN\s*=\w+/i.test(s) && (/\bPE\s*=\d/i.test(s) || /\bSV\s*=\d/i.test(s))) return true
+  // Long semicolon-joined accession lists / multi-header dumps
+  if (s.length > 160 && (s.includes(";") || (s.match(/\|/g) || []).length >= 2)) {
+    if (!/\b(?:vs\.?|versus)\b/i.test(s) && !/[A-Za-z0-9)]\s*\/\s*[A-Za-z(]/.test(s)) return true
+  }
+  return false
+}
+
+/**
+ * Excel sheet titles that encode a real contrast (e.g. "HOM-VEH vs WT-VEH").
+ * Distinct from placeholder "A vs B" labels — these should become qratio.Condition.
+ */
+export function isSheetContrastLabel(cond: string): boolean {
+  const s = cleanMappedCondition(cond).trim()
+  if (!/\bvs\.?\b/i.test(s)) return false
+  if (isPlaceholderGroupLabel(s)) return false
+  const m = s.match(/^(.+?)\s+vs\.?\s+(.+)$/i)
+  if (!m) return false
+  const left = m[1].trim()
+  const right = m[2].trim()
+  if (!left || !right) return false
+  // Single-letter arms like "A vs B" are placeholders, not biology.
+  if (/^[A-Za-z]$/.test(left) && /^[A-Za-z]$/.test(right)) return false
+  return left.length >= 2 && right.length >= 2
+}
+
 /** Sheet / batch style labels that should be expanded via Detail condition. */
 export function isCrypticCondition(cond: string): boolean {
   const s = cleanMappedCondition(cond)
   if (!s) return true
+  if (isAnnotationMasqueradingAsCondition(cond) || isAnnotationMasqueradingAsCondition(s)) {
+    return true
+  }
   if (
     isChannelLabel(s) ||
     isGenericRatioLabel(s) ||
@@ -245,6 +362,8 @@ export function isCrypticCondition(cond: string): boolean {
   ) {
     return true
   }
+  // Meaningful sheet contrast titles are not cryptic — keep one condition per sheet.
+  if (isSheetContrastLabel(s)) return false
   if (/\bvs\.?\b/i.test(s)) return true
   if (/^(is|rep|exp|group|batch|condition)\b/i.test(s)) return true
   // short title without A/B slash biology
@@ -254,13 +373,19 @@ export function isCrypticCondition(cond: string): boolean {
 
 /** Strip trailing Ratio / P value noise from column-derived labels. */
 export function cleanMappedCondition(mapped: string): string {
-  return mapped
-    .replace(/\s*(?:adj\.?\s*)?(?:p[- ]?value|pvalue|q[- ]?value|fdr)\s*$/i, "")
-    .replace(/[_\s-]*(?:log2?fc|logfc)$/i, "")
-    .replace(/\s*(?:log2?\s*)?(?:ratio|fold\s*change)\s*$/i, "")
-    .replace(/(?:^|[\s_-])fc\s*$/i, "")
-    .replace(/\s+/g, " ")
-    .trim()
+  return normalizeDashContrast(
+    mapped
+      .replace(/^(?:adj\.?\s*)?(?:p\.?\s*values?|p\.?value|pvalue|q\.?\s*values?|fdr|ratio|log2?(?:\.?fc)?|fc)\.+/i, "")
+      .replace(/^(?:log\s*2?\s*fc|log2fc|logfc|fold(?:\s*change)?|fc)\s*[:_\-]*/i, "")
+      .replace(/\s*(?:adj\.?\s*)?(?:p[- ]?value|pvalue|q[- ]?value|fdr)\s*$/i, "")
+      .replace(/[_\s-]*(?:log2?fc|logfc)$/i, "")
+      .replace(/\s*(?:log2?\s*)?(?:ratio|fold\s*change)\s*$/i, "")
+      .replace(/(?:^|[\s_-])fc\s*$/i, "")
+      .replace(/\.+$/g, "")
+      .replace(/^\.+/g, "")
+      .replace(/\s+/g, " ")
+      .trim(),
+  )
 }
 
 /**
@@ -275,7 +400,7 @@ export function canonicalizeConditionKey(cond: string): string {
     .replace(/(\d+(?:\.\d+)?)\s*(minutes?|mins?)/g, "$1min")
     .replace(/(\d+(?:\.\d+)?)\s*(hours?|hrs?)/g, "$1h")
     .replace(/(\d+(?:\.\d+)?)\s*(days?)/g, "$1d")
-    .replace(/[()\[\]\s]+/g, "")
+    .replace(/[()\[\]\s.\-]+/g, "")
     .trim()
 }
 
@@ -598,6 +723,13 @@ export function resolveRowCondition(
 
   if (parts.length === 0) return mapped || (mappedCondition || "").trim()
 
+  // One sheet tab = one contrast when the tab name encodes "A vs B".
+  if (isSheetContrastLabel(mapped)) {
+    const matched = matchStage3Condition(mapped, stage3Condition, detailCondition)
+    if (matched && scoreConditionMatch(mapped, matched) >= 4) return matched
+    return mapped
+  }
+
   const placeholderOrCryptic =
     isChannelLabel(mapped) ||
     isGenericRatioLabel(mapped) ||
@@ -616,11 +748,9 @@ export function resolveRowCondition(
   }
 
   if (placeholderOrCryptic) {
-    return (
-      matchStage3Condition(mapped, stage3Condition, detailCondition) ||
-      parts[0] ||
-      parts.join("; ")
-    )
+    const matched = matchStage3Condition(mapped, stage3Condition, detailCondition)
+    if (matched) return matched
+    return parts[0] || parts.join("; ")
   }
 
   const matched = matchStage3Condition(mapped, stage3Condition, detailCondition)

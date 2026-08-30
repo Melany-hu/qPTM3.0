@@ -23,6 +23,28 @@ const PATTERNS: Array<{ re: RegExp; source: RepoSource }> = [
   { re: /\bPDC\d{6}\b/gi, source: "PDC" },
 ]
 
+/** True when the paper text says data live in iProX (often with PXD partner IDs). */
+export function textMentionsIprox(text: string): boolean {
+  return /\biprox\b/i.test(text || "")
+}
+
+/**
+ * PXD IDs deposited via the iProX ProteomeXchange partner are not PRIDE FTP datasets.
+ * Keep the PXD string but retag source so Stage-3/6 do not treat them as EBI PRIDE.
+ */
+export function retagPxdForIproxPartner(hits: AccessionHit[], excerpt: string): AccessionHit[] {
+  if (!textMentionsIprox(excerpt)) return hits
+  return hits.map((h) => {
+    if (!/^PXD\d+$/i.test(h.id)) return h
+    if (h.source === "iProX" || h.source === "ProteomeXchange") return h
+    return {
+      ...h,
+      source: "ProteomeXchange" as RepoSource,
+      via: h.via.includes("iprox-partner") ? h.via : `${h.via};iprox-partner`,
+    }
+  })
+}
+
 export function extractAccessions(text: string, via: string): AccessionHit[] {
   if (!text) return []
   const seen = new Set<string>()
@@ -36,7 +58,7 @@ export function extractAccessions(text: string, via: string): AccessionHit[] {
       out.push({ id, source, via })
     }
   }
-  return out
+  return retagPxdForIproxPartner(out, text)
 }
 
 export function mergeAccessions(...lists: AccessionHit[][]): AccessionHit[] {
@@ -45,8 +67,23 @@ export function mergeAccessions(...lists: AccessionHit[][]): AccessionHit[] {
     for (const hit of list) {
       const prev = byId.get(hit.id)
       if (!prev) byId.set(hit.id, hit)
-      else if (!prev.via.includes(hit.via)) {
-        byId.set(hit.id, { ...prev, via: `${prev.via};${hit.via}` })
+      else {
+        // Prefer a more specific / non-PRIDE source when merging mirrors
+        let source = prev.source
+        if (prev.source === "PRIDE" && hit.source !== "PRIDE" && hit.source !== "unknown") {
+          source = hit.source
+        } else if (hit.source === "PRIDE" && prev.source !== "PRIDE" && prev.source !== "unknown") {
+          source = prev.source
+        } else if (hit.source && hit.source !== "unknown") {
+          source = prev.source || hit.source
+        }
+        const via =
+          prev.via.includes(hit.via) || !hit.via
+            ? prev.via
+            : prev.via
+              ? `${prev.via};${hit.via}`
+              : hit.via
+        byId.set(hit.id, { ...prev, source, via })
       }
     }
   }
@@ -63,6 +100,30 @@ export function sourceFromId(id: string): RepoSource {
   return "unknown"
 }
 
+const SOURCE_PRIORITY: Record<string, number> = {
+  iProX: 0,
+  jPOST: 1,
+  PDC: 2,
+  MassIVE: 3,
+  ProteomeXchange: 4,
+  PRIDE: 5,
+  unknown: 6,
+}
+
+/** Stable order for KnownIdentifiers: native repo IDs (IPX…) before PXD mirrors. */
+export function sortAccessionsForMeta(hits: AccessionHit[]): AccessionHit[] {
+  return [...hits].sort((a, b) => {
+    const sa = SOURCE_PRIORITY[a.source] ?? 9
+    const sb = SOURCE_PRIORITY[b.source] ?? 9
+    if (sa !== sb) return sa - sb
+    // Prefer native prefixes over PXD when source ties
+    const nativeA = /^IPX|^JPST|^MSV|^PDC/i.test(a.id) ? 0 : 1
+    const nativeB = /^IPX|^JPST|^MSV|^PDC/i.test(b.id) ? 0 : 1
+    if (nativeA !== nativeB) return nativeA - nativeB
+    return a.id.localeCompare(b.id)
+  })
+}
+
 /**
  * Pick identifiers to feed Stage-3 meta extraction.
  *
@@ -70,6 +131,10 @@ export function sourceFromId(id: string): RepoSource {
  * Stage-2 manifests. Prefer accessions that actually appear in the paper
  * excerpt; if the Stage-2 list looks like that pollution and the text has no
  * IDs, drop the MassIVE bulk rather than poisoning Identifier.
+ *
+ * Critical: iProX deposits often list ProteomeXchange PXD partner IDs in the
+ * Data Availability statement while Stage-2 already resolved the native IPX.
+ * Never replace Stage-2 IPX/jPOST/… with excerpt-only PXD labeled as PRIDE.
  */
 export function selectKnownIdentifiersForMeta(
   repos: Array<{ id: string; source: string; via?: string }>,
@@ -83,21 +148,71 @@ export function selectKnownIdentifiersForMeta(
     }))
     .filter((r) => r.id)
 
-  const inExcerpt = extractAccessions(excerpt || "", "excerpt")
-  if (inExcerpt.length > 0) {
-    const repoById = new Map(normalized.map((r) => [r.id, r]))
-    const overlap = inExcerpt
-      .map((h) => repoById.get(h.id))
-      .filter((h): h is AccessionHit => Boolean(h))
-    // Prefer Stage-2 metadata for IDs confirmed in text; else trust text regex
-    return overlap.length > 0 ? mergeAccessions(overlap) : inExcerpt
-  }
-
   const massive = normalized.filter((r) => r.source === "MassIVE")
   const other = normalized.filter((r) => r.source !== "MassIVE")
   // Heuristic: PROXI keyword dumps are large and almost entirely MassIVE
-  if (massive.length > 5 && massive.length >= normalized.length - 1) {
-    return other
+  const stage2Trusted =
+    massive.length > 5 && massive.length >= normalized.length - 1 ? other : normalized
+
+  const inExcerpt = extractAccessions(excerpt || "", "excerpt")
+  if (inExcerpt.length === 0) {
+    return sortAccessionsForMeta(mergeAccessions(stage2Trusted))
   }
-  return mergeAccessions(normalized)
+
+  const repoById = new Map(stage2Trusted.map((r) => [r.id, r]))
+  const overlap = inExcerpt
+    .map((h) => repoById.get(h.id))
+    .filter((h): h is AccessionHit => Boolean(h))
+
+  const stage2Native = stage2Trusted.filter((r) =>
+    /^(iProX|jPOST|PDC|MassIVE)$/i.test(r.source) || /^IPX|^JPST|^MSV|^PDC/i.test(r.id),
+  )
+  const excerptOnlyPxd = inExcerpt.every((h) => /^PXD/i.test(h.id))
+
+  // Stage-2 already has native iProX/IPX (etc.): keep them and merge any text IDs.
+  // Do not let "PXD… via iProX partner" wipe out IPX and become PRIDE-only.
+  if (stage2Native.length > 0) {
+    return sortAccessionsForMeta(mergeAccessions(stage2Native, inExcerpt, overlap))
+  }
+
+  if (overlap.length > 0) {
+    return sortAccessionsForMeta(mergeAccessions(overlap, inExcerpt))
+  }
+
+  // Text-only PXD while paper names iProX → retag already applied in extractAccessions
+  if (excerptOnlyPxd && textMentionsIprox(excerpt)) {
+    return sortAccessionsForMeta(inExcerpt)
+  }
+
+  return sortAccessionsForMeta(mergeAccessions(stage2Trusted, inExcerpt))
+}
+
+/** Prefer native repository name when KnownIdentifiers / text disagree with LLM. */
+export function preferMsDataSource(
+  llmSource: string,
+  known: AccessionHit[],
+  excerpt = "",
+): string {
+  const llm = (llmSource || "").trim()
+  const sources = [...new Set(known.map((h) => h.source).filter(Boolean))]
+  const hasIprox =
+    sources.includes("iProX") ||
+    known.some((h) => /^IPX/i.test(h.id)) ||
+    textMentionsIprox(excerpt)
+  const hasPrideOnly =
+    sources.length > 0 && sources.every((s) => s === "PRIDE" || s === "ProteomeXchange")
+
+  if (hasIprox) {
+    // Native IPX accessions → iProX; partner PXD + iProX mention → iProX
+    if (known.some((h) => /^IPX/i.test(h.id) || h.source === "iProX")) return "iProX"
+    if (textMentionsIprox(excerpt)) return "iProX"
+  }
+  if (sources.length === 1 && sources[0] !== "ProteomeXchange") return sources[0]
+  if (sources.length === 1 && sources[0] === "ProteomeXchange" && textMentionsIprox(excerpt)) {
+    return "iProX"
+  }
+  if (llm && !/^pride$/i.test(llm)) return llm
+  if (hasPrideOnly && !textMentionsIprox(excerpt)) return "PRIDE"
+  if (llm) return llm
+  return sources.filter((s) => s !== "ProteomeXchange").join("; ") || sources.join("; ") || ""
 }

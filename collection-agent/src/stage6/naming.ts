@@ -77,12 +77,32 @@ function shortOneModification(ptm: string): string {
   return word.slice(0, 4) || "unk"
 }
 
-/** `{pmid}#{accession}#{organism}#{modification}.txt` */
+/** `{pmid}#{accession}#{organism}#{modification}.txt` — pmid is "-" when unknown. */
 export function stage6UrlsBasename(
   pmid: string,
   accession: string,
   organism: string,
   modification: string,
 ): string {
-  return `${pmid}#${accession}#${organism}#${modification}.txt`
+  const p = pmidForFilename(pmid)
+  return `${p}#${accession}#${organism}#${modification}.txt`
+}
+
+/**
+ * PubMed IDs are numeric (typically 5–9 digits).
+ * Accessions (PXD… / IPX… / …) must never be written into a PMID column.
+ */
+export function isRealPmid(value: string | undefined | null): boolean {
+  return /^\d{5,9}$/.test(String(value || "").trim())
+}
+
+/** CSV / display PMID: real PubMed ID, or empty when unknown / accession-only. */
+export function pmidForOutput(value: string | undefined | null): string {
+  const v = String(value || "").trim()
+  return isRealPmid(v) ? v : ""
+}
+
+/** Filename segment: real PMID, or "-" when resolving by accession only. */
+export function pmidForFilename(value: string | undefined | null): string {
+  return pmidForOutput(value) || "-"
 }

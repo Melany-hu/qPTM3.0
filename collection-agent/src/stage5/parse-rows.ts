@@ -13,7 +13,7 @@ import {
 import { derivedIntensityLog2Fc } from "./derived-ratio.js"
 import { isValidUniprotAccession, parsePhosphositeCombinedId } from "./phosphosite-id.js"
 import { resolveRowSample, resolveSheetAsSample } from "./sample-map.js"
-import { loadSheetData } from "./tables.js"
+import { loadSheetData, resolveColumnIndex } from "./tables.js"
 
 export { resolveRowSample, resolveSheetAsSample } from "./sample-map.js"
 export {
@@ -33,13 +33,18 @@ export interface QratioRow {
   uniprotId: string
   position: string
   aminoAcid: string
+  /** Site localization probability / score from search engine (optional). */
+  localization: string
+  /** Posterior error probability PEP (optional). */
+  pep: string
   log2RatioPeptide: string
   pValuePeptide: string
   log2RatioProtein: string
   pValueProtein: string
 }
 
-export const QRATIO_CSV_HEADER = [
+/** Core Quantitative_data columns (always present). */
+export const QRATIO_CSV_CORE_HEADER = [
   "PMID",
   "Sample",
   "Sample type",
@@ -54,6 +59,75 @@ export const QRATIO_CSV_HEADER = [
   "Log2Ratio (protein)",
   "P value (protein)",
 ] as const
+
+export const QRATIO_COL_LOCALIZATION = "Localization probability"
+export const QRATIO_COL_PEP = "PEP"
+
+/** Full header including optional search-engine columns (for reference / tests). */
+export const QRATIO_CSV_HEADER = [
+  "PMID",
+  "Sample",
+  "Sample type",
+  "Organism",
+  "PTMs",
+  "Condition",
+  "UniProt ID",
+  "Position",
+  "Amino acid",
+  QRATIO_COL_LOCALIZATION,
+  QRATIO_COL_PEP,
+  "Log2Ratio (site)",
+  "P value (site)",
+  "Log2Ratio (protein)",
+  "P value (protein)",
+] as const
+
+export interface QratioCsvOptions {
+  includeLocalization?: boolean
+  includePep?: boolean
+}
+
+/** Which optional columns have at least one non-empty value. */
+export function qratioOptionalColumnFlags(
+  rows: Iterable<QratioRow>,
+): Required<QratioCsvOptions> {
+  let includeLocalization = false
+  let includePep = false
+  for (const r of rows) {
+    if (!includeLocalization && String(r.localization || "").trim()) {
+      includeLocalization = true
+    }
+    if (!includePep && String(r.pep || "").trim()) {
+      includePep = true
+    }
+    if (includeLocalization && includePep) break
+  }
+  return { includeLocalization, includePep }
+}
+
+/** Build CSV header; Localization probability / PEP only when present in data. */
+export function qratioCsvHeader(opts: QratioCsvOptions = {}): string[] {
+  const header: string[] = [
+    "PMID",
+    "Sample",
+    "Sample type",
+    "Organism",
+    "PTMs",
+    "Condition",
+    "UniProt ID",
+    "Position",
+    "Amino acid",
+  ]
+  if (opts.includeLocalization) header.push(QRATIO_COL_LOCALIZATION)
+  if (opts.includePep) header.push(QRATIO_COL_PEP)
+  header.push(
+    "Log2Ratio (site)",
+    "P value (site)",
+    "Log2Ratio (protein)",
+    "P value (protein)",
+  )
+  return header
+}
 
 /**
  * Parse a site token like S15 / K374 / Y132*.
@@ -201,11 +275,7 @@ function lookupGene(geneMap: Map<string, string> | undefined, symbol: string): s
 }
 
 function colIndex(headers: string[], name: string | null): number {
-  if (!name) return -1
-  const i = headers.findIndex((h) => h === name)
-  if (i >= 0) return i
-  const n = name.toLowerCase()
-  return headers.findIndex((h) => h.toLowerCase() === n)
+  return resolveColumnIndex(headers, name)
 }
 
 function findUniprotKbIndex(headers: string[]): number {
@@ -316,6 +386,8 @@ async function parseMappedSheetAsync(opts: {
   const siteIdx = colIndex(headers, m.siteCombinedCol)
   const modSeqIdx = colIndex(headers, m.modSeqCol ?? null)
   const condIdx = colIndex(headers, m.conditionCol ?? null)
+  const locIdx = colIndex(headers, m.localizationCol ?? null)
+  const pepIdx = colIndex(headers, m.pepCol ?? null)
   const uniprotKbIdx = findUniprotKbIndex(headers)
   if (uIdx < 0 && gIdx < 0 && siteIdx < 0 && uniprotKbIdx < 0) return []
 
@@ -323,7 +395,13 @@ async function parseMappedSheetAsync(opts: {
   const genesForLookup: string[] = []
   if (gIdx >= 0) {
     for (const row of rows) {
-      const g = normalizeGeneSymbol(row[gIdx] ?? "")
+      const raw = row[gIdx] ?? ""
+      const combined = parsePhosphositeCombinedId(raw)
+      if (combined && !combined.isUniprotAcc) {
+        genesForLookup.push(combined.geneOrAcc)
+        continue
+      }
+      const g = normalizeGeneSymbol(raw)
       if (g) genesForLookup.push(g)
     }
   } else {
@@ -390,6 +468,8 @@ async function parseMappedSheetAsync(opts: {
     let uid = ""
     let position = posIdx >= 0 ? (row[posIdx] ?? "").trim() : ""
     let aminoAcid = aaIdx >= 0 ? (row[aaIdx] ?? "").trim() : ""
+    const localization = locIdx >= 0 ? (row[locIdx] ?? "").trim() : ""
+    const pep = pepIdx >= 0 ? (row[pepIdx] ?? "").trim() : ""
 
     // Position column that is actually a UniProt accession → ignore
     if (position && (isValidUniprotAccession(position) || /^[OPQ][0-9]/i.test(position))) {
@@ -401,6 +481,9 @@ async function parseMappedSheetAsync(opts: {
     const combinedSources = [
       uIdx >= 0 ? row[uIdx] : "",
       siteIdx >= 0 && siteIdx !== uIdx ? row[siteIdx] : "",
+      // Gene column may actually hold combined IDs (GENE-S330) when hints/LLM
+      // label a site-combined column as both gene + site.
+      gIdx >= 0 && gIdx !== uIdx && gIdx !== siteIdx ? row[gIdx] : "",
     ]
     let geneFromCombined = ""
     for (const raw of combinedSources) {
@@ -549,6 +632,8 @@ async function parseMappedSheetAsync(opts: {
           uniprotId: uid,
           position,
           aminoAcid,
+          localization,
+          pep,
           log2RatioPeptide: fmtNum(log2),
           pValuePeptide: "",
           log2RatioProtein: "",
@@ -589,6 +674,8 @@ async function parseMappedSheetAsync(opts: {
           uniprotId: uid,
           position,
           aminoAcid,
+          localization,
+          pep,
           log2RatioPeptide: fmtNum(log2),
           pValuePeptide: "",
           log2RatioProtein: "",
@@ -604,7 +691,7 @@ async function parseMappedSheetAsync(opts: {
       if (rIdx < 0) continue
       const rawN = parseNumber(row[rIdx] ?? "")
       if (rawN == null) continue
-      const log2 = toLog2(rawN, ratio.isLog2)
+      const log2 = toLog2(rawN, Boolean(ratio.isLog2) || ratio.valueType === "log2_ratio")
       if (log2 == null) continue
 
       let log2Pep = ""
@@ -625,7 +712,11 @@ async function parseMappedSheetAsync(opts: {
           const pIdx = colIndex(headers, prot.column)
           if (pIdx >= 0) {
             const pn = parseNumber(row[pIdx] ?? "")
-            if (pn != null) log2Prot = fmtNum(toLog2(pn, prot.isLog2))
+            if (pn != null) {
+              log2Prot = fmtNum(
+                toLog2(pn, Boolean(prot.isLog2) || prot.valueType === "log2_ratio"),
+              )
+            }
           }
           pProt = pickPValue(m, headers, row, ratio.condition, "protein")
         }
@@ -655,6 +746,8 @@ async function parseMappedSheetAsync(opts: {
         uniprotId: uid,
         position,
         aminoAcid,
+        localization,
+        pep,
         log2RatioPeptide: log2Pep,
         pValuePeptide: pPep,
         log2RatioProtein: log2Prot,
@@ -665,8 +758,8 @@ async function parseMappedSheetAsync(opts: {
   return out
 }
 
-export function qratioToCsvLine(r: QratioRow): string {
-  const cells = [
+export function qratioToCsvLine(r: QratioRow, opts: QratioCsvOptions = {}): string {
+  const cells: string[] = [
     r.pmid,
     r.sample,
     r.sampleType,
@@ -676,11 +769,15 @@ export function qratioToCsvLine(r: QratioRow): string {
     r.uniprotId,
     r.position,
     r.aminoAcid,
+  ]
+  if (opts.includeLocalization) cells.push(r.localization || "")
+  if (opts.includePep) cells.push(r.pep || "")
+  cells.push(
     r.log2RatioPeptide,
     r.pValuePeptide,
     r.log2RatioProtein,
     r.pValueProtein,
-  ]
+  )
   return cells.map(csvEscape).join(",")
 }
 
@@ -723,7 +820,7 @@ function isNormalizedCondition(cond: string): boolean {
  */
 export function dedupeQratioRows(rows: QratioRow[]): QratioRow[] {
   const kept: QratioRow[] = []
-  const seen = new Set<string>()
+  const indexByKey = new Map<string, number>()
   const keyOf = (r: QratioRow) =>
     `${(r.sample || "").trim().toLowerCase()}\u0000${normalizeDedupeCondition(r.condition)}\u0000${(r.ptms || "").trim().toLowerCase()}\u0000${r.uniprotId}\u0000${r.aminoAcid}\u0000${r.position}`
   const merge = (a: QratioRow, b: QratioRow): QratioRow => {
@@ -735,6 +832,8 @@ export function dedupeQratioRows(rows: QratioRow[]): QratioRow[] {
     return {
       ...a,
       condition: bMain && !aMain ? b.condition : a.condition,
+      localization: pick(a.localization || "", b.localization || ""),
+      pep: pick(a.pep || "", b.pep || ""),
       log2RatioPeptide: pick(a.log2RatioPeptide, b.log2RatioPeptide),
       pValuePeptide: pick(a.pValuePeptide, b.pValuePeptide),
       log2RatioProtein: a.log2RatioProtein || b.log2RatioProtein,
@@ -743,12 +842,12 @@ export function dedupeQratioRows(rows: QratioRow[]): QratioRow[] {
   }
   for (const r of rows) {
     const key = keyOf(r)
-    if (seen.has(key)) {
-      const i = kept.findIndex((k) => keyOf(k) === key)
-      if (i >= 0) kept[i] = merge(kept[i], r)
+    const i = indexByKey.get(key)
+    if (i !== undefined) {
+      kept[i] = merge(kept[i], r)
       continue
     }
-    seen.add(key)
+    indexByKey.set(key, kept.length)
     kept.push(r)
   }
   return kept

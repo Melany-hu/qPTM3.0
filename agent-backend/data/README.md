@@ -507,7 +507,7 @@ Complements **UbiBrowser** (protein-level ESI/DSI) with **lysine-site** E3 links
 .venv/bin/python -m app.sources.build_index gpsuber
 ```
 
-## GPS 6.0 (local — predicted kinase-specific p-sites)
+## GPS 6.0 (local — kinase-specific p-sites)
 
 [GPS 6.0](https://gps.biocuckoo.cn) predicts kinase-specific phosphorylation
 sites (Chen et al. *NAR* 2023 — PMID **37158278** / DOI `10.1093/nar/gkad383`).
@@ -531,7 +531,7 @@ enzymes/GPS6.0/
 
 ### Agent tool
 
-- `gps6_kinases` — query by substrate (± site) or kinase (± min_score); Stage 1 WHO (**predicted**)
+- `gps6_kinases` — query by substrate (± site) or kinase (± min_score); Stage 1 WHO (**experimental**)
 
 Complement curated kinase sources (PSP / qPTM / iPTMnet) with GPS predictions.
 
@@ -865,7 +865,7 @@ Catalog introspection:
 
 | Aspect | Stage | Sources | Access |
 |--------|-------|---------|--------|
-| enzymes / drug | WHO (kinase) | qPTM, **iPTMnet** (API), **PSP kinases**, **GPS 6.0** (predicted), **eKPI** (quantitative KPS correlations), **WERAM**, **UbiBrowser**, **GPS-Uber**, **GPS-SUMO 2.0** (curated SUMO/SIM), **KAKA** (mutation→kinase activity), ActiveDriverDB, **PMADS**, **DrugBank**, decryptM | API / local |
+| enzymes / drug | WHO (kinase) | qPTM, **iPTMnet** (API), **PSP kinases**, **GPS 6.0** (experimental), **eKPI** (quantitative KPS correlations), **WERAM**, **UbiBrowser**, **GPS-Uber**, **GPS-SUMO 2.0** (curated SUMO/SIM), **KAKA** (mutation→kinase activity), ActiveDriverDB, **PMADS**, **DrugBank**, decryptM | API / local |
 | quantification (no local dir) | WHEN (conditions) | qPTM (API); **CancerProteome** under `disease/` | API / local |
 | localization | WHERE | **COMPARTMENTS**, **SubCELL**, NLSdb, **iNuLoC**, UniProt | local / API |
 | domains | WHERE (architecture) | **InterPro**, **Pfam** | API |
@@ -886,7 +886,7 @@ Each citation carries an **evidence level**:
 | `experimental` | 实验验证（MS / assay / literature-backed experiment） |
 | `curated` | 文献策展 / 人工整理（非计算预测） |
 | `curated` | 数据库/文献精炼（如 PSP、iPTMnet、**GPS-SUMO 2.0 训练/测试集**） |
-| `predicted` | 计算预测（如 GPS 6.0、PhosLLPS、部分 UbiBrowser/NLSdb） |
+| `predicted` | 计算预测（如 PhosLLPS、部分 UbiBrowser/NLSdb） |
 | `unknown` | 工具未标注 |
 
 Synthesis must:

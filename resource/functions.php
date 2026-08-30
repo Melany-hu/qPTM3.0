@@ -67,6 +67,13 @@ function createMainQueryInfo($tag, $keyword){
 	$contableRes = array();
 	$samtableRes = array();
 	$protableRes = array();
+	if($tag == 'pos'){
+		$pos = preg_replace('/\D+/', '', trim($keyword));
+		if($pos === ''){
+			return '(1 = 0)';
+		}
+		return "(pos = '".$pos."')";
+	}
 	if($tag == 'Context'){
 		$contableRes = subQuery('con condetail', $keyword, 'contable', 'con', 'samplecondition');
 		$samtableRes = subQuery('samdetail', $keyword, 'samtable', 'sam', 'sample');
@@ -118,15 +125,16 @@ function showSelect($allSelects){
 function getResultFilterOptions($mainQueryInfo){
 	$db = connectDB();
 	$filterFields = array(
+		'pos' => 'pos',
 		'mods' => 'mods',
-		'org' => 'org',
-		'qptmscore' => 'qptmscore',
 		'sample' => 'sample',
-		'samplecondition' => 'samplecondition'
+		'samplecondition' => 'samplecondition',
+		'qptmscore' => 'qptmscore'
 	);
 	$filterOptions = array();
 	foreach($filterFields as $key => $column){
-		$queryRes = $db->query("select ".$column." from qevent where (".$mainQueryInfo.") group by ".$column." order by ".$column." desc");
+		$orderBy = ($column === 'pos') ? 'CAST(pos AS UNSIGNED) asc' : $column.' desc';
+		$queryRes = $db->query("select ".$column." from qevent where (".$mainQueryInfo.") group by ".$column." order by ".$orderBy);
 		$values = array();
 		if($queryRes){
 			while($row = $queryRes->fetch_assoc()){
@@ -223,7 +231,7 @@ function showResTable($displayQyeryRes){
             <td class='col-score'><span class='result-score'>".showPTMscore($row['qptmscore'], $row['fdr'])."</span></td>
 		</tr>
 		<tr class='Detail-line'>
-			<td colspan='11'><div class='detail-loading'><span class='spinner'></span>Loading detail...</div></td>
+			<td colspan='11'><div class='detail-loading'><div class='typing-dots' aria-hidden='true'><span></span><span></span><span></span></div>Loading detail...</div></td>
 		</tr>";
 	}
 	return $returnLine;
@@ -309,7 +317,7 @@ function showPageInfo($queryResNum, $nowPage, $rowNumber){
 /*------ Build qevent query from search parameters ------*/
 function buildSearchQueryInfo($links, $tags, $keywords, $mods, $orgs){
 	$mainQueryInfos = array();
-	$tag2item = array("Context"=>"Any Field","uniprotaccs"=>"UniProt Accession","genename"=>"Gene Name","proteinname"=>"Protein Name","func"=>"Function","con condetail"=>"Condition","samdetail"=>"Sample");
+	$tag2item = array("Context"=>"Any Field","uniprotaccs"=>"UniProt Accession","genename"=>"Gene Name","proteinname"=>"Protein Name","pos"=>"Position","func"=>"Function","con condetail"=>"Condition","samdetail"=>"Sample");
 	$queryContents = array();
 	for($i=0;$i<count($tags);$i++){
 		array_push($queryContents, ' '.$links[$i].' ');
@@ -721,6 +729,151 @@ function loadProteinInfo($uniprot){
 	return $upi;
 }
 
+/*------ Map qevent organism labels to properties species keys ------*/
+function organismToSpecies($organism){
+	$organism = trim((string)$organism);
+	if($organism === ''){
+		return '';
+	}
+	$map = array(
+		'human' => 'human',
+		'mouse' => 'mouse',
+		'rat' => 'rat',
+		'yeast' => 'yeast',
+		'homo sapiens' => 'human',
+		'mus musculus' => 'mouse',
+		'rattus norvegicus' => 'rat',
+		'saccharomyces cerevisiae' => 'yeast'
+	);
+	$key = strtolower($organism);
+	if(isset($map[$key])){
+		return $map[$key];
+	}
+	if(stripos($organism, 'human') !== false || stripos($organism, 'sapiens') !== false){
+		return 'human';
+	}
+	if(stripos($organism, 'mouse') !== false || stripos($organism, 'musculus') !== false){
+		return 'mouse';
+	}
+	if(stripos($organism, 'rat') !== false || stripos($organism, 'norvegicus') !== false){
+		return 'rat';
+	}
+	if(stripos($organism, 'yeast') !== false || stripos($organism, 'cerevisiae') !== false){
+		return 'yeast';
+	}
+	return $key;
+}
+
+/*------ Load sequence/structure properties from resource/properties ------*/
+function loadProteinProperties($uniprot, $organism = ''){
+	$props = array();
+	$uniprot = trim((string)$uniprot);
+	if($uniprot === ''){
+		return $props;
+	}
+
+	$dbPath = __DIR__.'/properties/properties.sqlite';
+	if(!is_file($dbPath) || !class_exists('SQLite3')){
+		return $props;
+	}
+
+	try{
+		$db = new SQLite3($dbPath, SQLITE3_OPEN_READONLY);
+	}catch(Exception $e){
+		return $props;
+	}
+
+	$species = organismToSpecies($organism);
+	$row = null;
+	if($species !== ''){
+		$stmt = $db->prepare('SELECT * FROM protein_properties WHERE uniprot_id = :id AND species = :species LIMIT 1');
+		if($stmt){
+			$stmt->bindValue(':id', $uniprot, SQLITE3_TEXT);
+			$stmt->bindValue(':species', $species, SQLITE3_TEXT);
+			$result = $stmt->execute();
+			if($result){
+				$row = $result->fetchArray(SQLITE3_ASSOC);
+			}
+		}
+	}
+	if(!$row){
+		$stmt = $db->prepare('SELECT * FROM protein_properties WHERE uniprot_id = :id LIMIT 1');
+		if($stmt){
+			$stmt->bindValue(':id', $uniprot, SQLITE3_TEXT);
+			$result = $stmt->execute();
+			if($result){
+				$row = $result->fetchArray(SQLITE3_ASSOC);
+			}
+		}
+	}
+	$db->close();
+
+	if(!$row){
+		return $props;
+	}
+
+	$props['Sequence'] = isset($row['sequence']) ? $row['sequence'] : '';
+	$props['Disorder'] = isset($row['Disorder']) ? $row['Disorder'] : '';
+	$props['ExposeBuried'] = isset($row['ExposeBuried']) ? $row['ExposeBuried'] : '';
+	$props['SurfaceAccessbility'] = isset($row['SurfaceAccessbility']) ? $row['SurfaceAccessbility'] : '';
+	$props['Surface'] = $props['SurfaceAccessbility'];
+	$props['Second'] = isset($row['Second']) ? $row['Second'] : '';
+	$props['SecondStructure'] = $props['Second'];
+	$props['Hydropathy'] = isset($row['Hydropathy']) ? $row['Hydropathy'] : '';
+	$props['Polar'] = isset($row['Polar']) ? $row['Polar'] : '';
+	$props['Charge'] = isset($row['Charge']) ? $row['Charge'] : '';
+	return $props;
+}
+
+/*------ Merge properties into protein annotation for structure views ------*/
+function mergeProteinStructureProperties($upi, $props){
+	if(!is_array($upi)){
+		$upi = array();
+	}
+	if(!is_array($props) || !$props){
+		return $upi;
+	}
+	foreach(array('Sequence', 'Disorder', 'ExposeBuried', 'SurfaceAccessbility', 'Surface', 'Second', 'SecondStructure', 'Hydropathy', 'Polar', 'Charge') as $key){
+		if(isset($props[$key]) && $props[$key] !== ''){
+			$upi[$key] = $props[$key];
+		}
+	}
+	return $upi;
+}
+
+/*------ Build PTM track string for structure charts from qevent ------*/
+function buildQptmPtminfo($uniprot){
+	$uniprot = trim((string)$uniprot);
+	if($uniprot === ''){
+		return '';
+	}
+	$db = connectDB();
+	$queryRes = $db->query("select mods, pos from qevent where up = '".$db->real_escape_string($uniprot)."' group by mods, pos order by mods, CAST(pos AS UNSIGNED)");
+	$grouped = array();
+	if($queryRes){
+		while($row = $queryRes->fetch_assoc()){
+			$mod = $row['mods'];
+			$pos = $row['pos'];
+			if($mod === '' || $pos === ''){
+				continue;
+			}
+			if(!isset($grouped[$mod])){
+				$grouped[$mod] = array();
+			}
+			$grouped[$mod][] = $pos;
+		}
+	}
+	$db->close();
+	if(!$grouped){
+		return '';
+	}
+	$parts = array();
+	foreach($grouped as $mod => $positions){
+		$parts[] = $mod.':'.implode(',', $positions);
+	}
+	return implode(';', $parts);
+}
+
 function htmlAttr($value){
 	return htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
 }
@@ -809,6 +962,11 @@ function addDetailDivInfo($rawdata){
 	}
 
 	$upi = loadProteinInfo($uniprot);
+	$props = loadProteinProperties($uniprot, $organism);
+	$upi = mergeProteinStructureProperties($upi, $props);
+	if(!isset($upi['PTM_qPTM']) || $upi['PTM_qPTM'] === ''){
+		$upi['PTM_qPTM'] = buildQptmPtminfo($uniprot);
+	}
 	$hasStructureData = isset($upi['Sequence']) && $upi['Sequence'] !== '';
 
 //Detail information about experiment

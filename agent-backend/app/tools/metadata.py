@@ -51,12 +51,6 @@ TOOL_DATABASES: dict[str, str] = {
     "subcell_scsi": "SubCELL",
     "signalp_prediction": "SignalP",
     "pubtator_literature_search": "PubTator3",
-    "alphafold_structure": "AlphaFold",
-    "ensembl_gene": "Ensembl",
-    "gnomad_variants": "gnomAD",
-    "opentargets_disease": "OpenTargets",
-    "gwas_catalog_assoc": "GWAS Catalog",
-    "jaspar_tf_motifs": "JASPAR",
 }
 
 

@@ -45,9 +45,6 @@ data/stage5/stage5_results.jsonl
 data/stage6/cache/
 data/stage6/urls/
 
-# Stage 7 — merged qratio export (~100MB+)
-data/stage7/qratio.csv
-
 # ---------------------------------------------------------------------------
 # validation/ — same rules (isolated dev runs)
 # ---------------------------------------------------------------------------
@@ -67,4 +64,3 @@ validation/stage5/cache/
 validation/stage5/stage5_results.jsonl
 validation/stage6/cache/
 validation/stage6/urls/
-validation/stage7/qratio.csv

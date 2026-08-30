@@ -14,9 +14,14 @@ import {
 import { join } from "node:path"
 import {
   pickPxdForIprox,
+  repoFromAccession,
   resolveRepo,
   splitIdentifiers,
 } from "../stage6/accessions.js"
+import {
+  expandAccessionsForResolve,
+  inferMsDataSourceFromText,
+} from "../stage6/expand-accessions.js"
 import {
   resolveGetUrlScripts,
   runIproxExtract,
@@ -25,6 +30,7 @@ import {
 } from "../stage6/extract.js"
 import { jpostFetchAllFiles } from "../stage6/jpost-api.js"
 import {
+  pmidForOutput,
   shortModification,
   shortOrganism,
   stage6UrlsBasename,
@@ -285,10 +291,11 @@ function rebuildStage6Outputs(results: Stage6Result[]): void {
   const urlLines = [urlHeader.join(",")]
 
   for (const r of results.slice().sort((a, b) => a.pmid.localeCompare(b.pmid))) {
+    const pmidOut = pmidForOutput(r.pmid)
     for (const a of r.accessionResults) {
       jobLines.push(
         [
-          csvEscape(r.pmid),
+          csvEscape(pmidOut),
           csvEscape(r.title),
           csvEscape(r.msDataSource),
           csvEscape(r.identifier),
@@ -308,7 +315,7 @@ function rebuildStage6Outputs(results: Stage6Result[]): void {
         for (const url of readUrlFile(a.urlsFile)) {
           urlLines.push(
             [
-              csvEscape(r.pmid),
+              csvEscape(pmidOut),
               csvEscape(a.accession),
               csvEscape(a.repo),
               csvEscape(url),
@@ -331,7 +338,7 @@ function readUrlFile(path: string): string[] {
     .filter(Boolean)
 }
 
-async function processPaper(
+export async function processPaper(
   pmid: string,
   title: string,
   organismRaw: string,
@@ -343,11 +350,34 @@ async function processPaper(
   const organism = shortOrganism(organismRaw)
   // Download URL basename uses one Modification tag (same rule as qratio PTMs column)
   const modification = shortModification(resolveSingleModification({ litPtms: ptmsRaw }))
-  const ids = splitIdentifiers(identifier)
+  const splitIds = splitIdentifiers(identifier)
+  // Expand PXD partner IDs → native IPX (etc.) via ProteomeXchange before resolve.
+  const expanded = await expandAccessionsForResolve(splitIds, msDataSource)
+  const ids = expanded.accessions
+  const resolvedSource = expanded.msDataSource || msDataSource
+  const resolvedIdentifier = ids.join("; ") || identifier
   const accessionResults: Stage6AccessionResult[] = []
 
   for (const accession of ids) {
-    const repo = resolveRepo(accession, msDataSource)
+    const repo = resolveRepo(accession, resolvedSource)
+    // PXD partner mirrors of an iProX deposit are not PRIDE FTP projects.
+    // Only skip PXD→PRIDE when a native IPX is already in the identifier list.
+    const hasIproxNative = ids.some((id) => /^IPX\d+$/i.test(id))
+    if (repo === "PRIDE" && /^PXD\d+$/i.test(accession) && hasIproxNative) {
+      accessionResults.push({
+        accession,
+        repo: "PRIDE",
+        status: "skipped",
+        urlCount: 0,
+        rawUrlCount: 0,
+        sourceFile: "",
+        urlsFile: "",
+        organism,
+        modification,
+        notes: "Skipped PXD partner ID; resolving native IPX accession(s) instead",
+      })
+      continue
+    }
     const result = await extractAccession(
       pmid,
       accession,
@@ -366,8 +396,8 @@ async function processPaper(
   return {
     pmid,
     title,
-    msDataSource,
-    identifier,
+    msDataSource: resolvedSource,
+    identifier: resolvedIdentifier,
     status: aggregateStatus(accessionResults),
     accessionResults,
     totalUrls,
@@ -545,5 +575,109 @@ export function stage6OutputPaths() {
     urlsAll: stage6UrlsAllPath(),
     urlsDir: stage6UrlsDir(),
     cache: stage6CacheDir(),
+  }
+}
+
+export interface ResolveUrlsOptions {
+  accessions: string[]
+  /** Real PubMed ID when known. Never pass an accession here. */
+  pmid?: string
+  title?: string
+  organism?: string
+  modification?: string
+  /** Explicit MS repository (iProX / PRIDE / …). */
+  msDataSource?: string
+  /** Free-text request (e.g. “从iProX获取PXD…”) used to infer msDataSource. */
+  message?: string
+  getUrlDir?: string
+  onLog?: (msg: string) => void
+}
+
+export interface ResolveUrlsSummary extends Stage6RunSummary {
+  accessions: string[]
+  results: Stage6Result[]
+  urlsPath: string
+}
+
+/**
+ * Standalone Stage-6 URL resolution for one or more MS accessions
+ * (PXD / IPX / JPST / MSV / PDC) without a full PMID pipeline.
+ */
+export async function runResolveUrlsByAccession(
+  options: ResolveUrlsOptions,
+): Promise<ResolveUrlsSummary> {
+  const log = options.onLog ?? (() => {})
+  const accessions = [
+    ...new Set(
+      (options.accessions || [])
+        .map((a) => String(a || "").trim().toUpperCase())
+        .filter(Boolean),
+    ),
+  ]
+  if (accessions.length === 0) {
+    throw new Error("resolve-urls requires at least one --accession (e.g. PXD012345)")
+  }
+
+  const unknown = accessions.filter((id) => repoFromAccession(id) === "unknown")
+  if (unknown.length > 0) {
+    throw new Error(
+      `Unrecognized accession(s): ${unknown.join(", ")}. ` +
+        `Expected PXD… / IPX… / JPST… / MSV… / PDC…`,
+    )
+  }
+
+  resolveGetUrlScripts(options.getUrlDir)
+
+  // PMID must be a real PubMed ID — never fall back to the accession (PXD/IPX/…).
+  const pmid = pmidForOutput(options.pmid)
+  const organism = options.organism?.trim() || ""
+  const ptms = options.modification?.trim() || ""
+  const identifier = accessions.join("; ")
+  const title = options.title?.trim() || `Direct resolve: ${identifier}`
+  const msDataSource =
+    options.msDataSource?.trim() ||
+    inferMsDataSourceFromText(options.message) ||
+    [...new Set(accessions.map((id) => repoFromAccession(id)))].join("; ")
+
+  log(`Resolving download URLs for ${identifier} (source hint=${msDataSource})…`)
+  // processPaper expands PXD → IPX via ProteomeXchange when mirrors exist.
+  const result = await processPaper(
+    pmid,
+    title,
+    organism,
+    ptms,
+    msDataSource,
+    identifier,
+    options.getUrlDir,
+  )
+
+  writeFileSync(stage6ResultsJsonlPath(), JSON.stringify(result) + "\n", "utf8")
+  rebuildStage6Outputs([result])
+
+  const urlsPath = stage6UrlsAllPath()
+  log(`Wrote ${result.totalUrls} URL(s) → ${urlsPath}`)
+
+  const byStatus: Record<Stage6Status, number> = {
+    ok: 0,
+    partial: 0,
+    skipped: 0,
+    error: 0,
+  }
+  byStatus[result.status] = 1
+
+  const resolvedAccessions = splitIdentifiers(result.identifier)
+
+  return {
+    eligible: 1,
+    attempted: 1,
+    saved: 1,
+    skippedDone: 0,
+    byStatus,
+    totalUrls: result.totalUrls,
+    totalRawUrls: result.totalRawUrls,
+    uniqueAccessions: resolvedAccessions.length || accessions.length,
+    accessions: resolvedAccessions.length ? resolvedAccessions : accessions,
+    results: [result],
+    urlsPath,
   }
 }

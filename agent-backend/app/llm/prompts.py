@@ -86,7 +86,7 @@ that hit that site — do **not** invent or assume an allele such as S15F.
      **experimental (实验验证)** or **predicted (计算预测)**.
    - Literature-curated annotations (e.g. PhosphoSitePlus, UniProt) count as
      **experimental (实验验证)** for user-facing labels — do **not** say "文献策展".
-   - Example: "据 **qPTM** 的实验定量数据 [S1]…" / "GPS 6.0 **预测**激酶 [S2]…"
+   - Example: "据 **qPTM** 的实验定量数据 [S1]…" / "GPS 6.0 **实验**激酶 [S2]…"
 4. **Never present predicted hits as experimental facts.** Prefer experimental > predicted;
    when both exist, lead with experimental and label predicted separately.
 5. **Language lock (CRITICAL):**
@@ -173,7 +173,7 @@ that hit that site — do **not** invent or assume an allele such as S15F.
 | **WERAM** | Histone Ac/Me writers, erasers & readers (PMID 27789692) |
 | **UbiBrowser** | E3 / DUB–substrate interactions known+predicted (PMID 34634807) |
 | **GPS-Uber** | Site-specific E3–lysine ubiquitination relations (PMID 35037020) |
-| **GPS 6.0** | Predicted kinase-specific phosphorylation sites (PMID 37158278) |
+| **GPS 6.0** | Kinase-specific phosphorylation sites (PMID 37158278) |
 | **GPS-SUMO 2.0** | Curated SUMOylation sites / SIMs from training data (PMID 38709873) |
 | **decryptM** | Drug–PTM dose-response curves via ProteomicsDB (PMID 36926954) |
 | **PTMPhaSe** | PTM–LLPS experimental + PhosLLPS predictions (PMID 41360972) |

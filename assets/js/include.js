@@ -11,9 +11,14 @@
       '#preloader{position:fixed;inset:0;z-index:999999;display:flex;align-items:center;justify-content:center;background:#f5f7fa}' +
       '#preloader.preloader-hidden{opacity:0;visibility:hidden;pointer-events:none;transition:opacity .45s ease,visibility .45s ease}' +
       '.preloader-inner{display:flex;flex-direction:column;align-items:center;gap:16px}' +
-      '.preloader-spinner{width:44px;height:44px;border:3px solid #e0edff;border-top-color:#0e74d3;border-radius:50%;animation:qptm-preloader-spin .75s linear infinite}' +
+      '.typing-dots{display:inline-flex;align-items:center;gap:4px;padding:4px 0;line-height:1}' +
+      '.typing-dots span{width:8px;height:8px;border-radius:50%;background:#8e97a0;animation:qptmBounce 1.4s ease-in-out infinite}' +
+      '.typing-dots span:nth-child(2){animation-delay:.2s}' +
+      '.typing-dots span:nth-child(3){animation-delay:.4s}' +
+      '.typing-dots-lg{gap:6px}' +
+      '.typing-dots-lg span{width:12px;height:12px;background:#0e74d3}' +
       '.preloader-text{font:14px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#8e97a0}' +
-      '@keyframes qptm-preloader-spin{to{transform:rotate(360deg)}}';
+      '@keyframes qptmBounce{0%,60%,100%{transform:translateY(0);opacity:.4}30%{transform:translateY(-6px);opacity:1}}';
     (document.head || document.documentElement).appendChild(critical);
   }
 

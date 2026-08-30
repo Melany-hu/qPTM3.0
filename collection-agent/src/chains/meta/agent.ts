@@ -1,6 +1,11 @@
 import type { LiteratureInfoRow, MetaTextSource } from "../../types.js"
 import type { LlmRuntime } from "../../runtime.js"
 import { assistantText, completeSimpleWithFallback } from "../../runtime.js"
+import {
+  preferMsDataSource,
+  sortAccessionsForMeta,
+  type AccessionHit,
+} from "../../stage2/accessions.js"
 import { META_SYSTEM, buildMetaUserPrompt } from "./prompt.js"
 import { MetaParseError, parseMetaOutput } from "./parse.js"
 
@@ -14,7 +19,42 @@ export interface MetaChainInput {
 
 export interface MetaChainOptions {
   retryOnParseError?: boolean
+  /** Extra attempts for stream/timeouts (default 2 → up to 3 total tries). */
+  maxTransientRetries?: number
   temperature?: number
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/** Transient provider/stream failures that often succeed on retry. */
+export function isTransientMetaLlmError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err)
+  return new RegExp(
+    [
+      "stream ended",
+      "without finish_reason",
+      "finish_reason",
+      "llm_call_timeout",
+      "timeout",
+      "empty text content",
+      "ECONNRESET",
+      "ETIMEDOUT",
+      "EAI_AGAIN",
+      "socket",
+      "429",
+      "503",
+      "502",
+      "504",
+      "overloaded",
+      "rate.?limit",
+      "temporar",
+      "unavailable",
+      "fetch failed",
+    ].join("|"),
+    "i",
+  ).test(msg)
 }
 
 /**
@@ -28,24 +68,46 @@ export class MetaChain {
   ) {}
 
   async run(input: MetaChainInput): Promise<LiteratureInfoRow> {
-    const retry = this.options.retryOnParseError !== false
-    try {
-      return await this.runOnce(input, false)
-    } catch (err) {
-      if (retry && err instanceof MetaParseError) {
-        return await this.runOnce(input, true)
+    const retryParse = this.options.retryOnParseError !== false
+    const maxTransient = Math.max(0, this.options.maxTransientRetries ?? 2)
+    const maxAttempts = 1 + maxTransient
+    let lastErr: unknown
+    let usedParseRetryHint = false
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const isRetry = attempt > 0
+      try {
+        return await this.runOnce(input, usedParseRetryHint || (isRetry && lastErr instanceof MetaParseError))
+      } catch (err) {
+        lastErr = err
+        const canRetryParse = retryParse && err instanceof MetaParseError && !usedParseRetryHint
+        const canRetryTransient = isTransientMetaLlmError(err)
+        if (attempt >= maxAttempts - 1) break
+        if (canRetryParse) {
+          usedParseRetryHint = true
+          continue
+        }
+        if (canRetryTransient) {
+          await sleep(400 * (attempt + 1))
+          continue
+        }
+        break
       }
-      throw err
     }
+    throw lastErr
   }
 
   private async runOnce(input: MetaChainInput, isRetry: boolean): Promise<LiteratureInfoRow> {
-    const known = input.knownIdentifiers
-      .map((h) => `${h.id} (${h.source})`)
-      .join("; ")
-    const fallbackIdentifier = input.knownIdentifiers.map((h) => h.id).join("; ")
-    const sources = [...new Set(input.knownIdentifiers.map((h) => h.source).filter(Boolean))]
-    const fallbackMsDataSource = sources.length === 1 ? sources[0] : sources.join("; ")
+    const knownHits: AccessionHit[] = sortAccessionsForMeta(
+      (input.knownIdentifiers || []).map((h) => ({
+        id: (h.id || "").toUpperCase().trim(),
+        source: (h.source as AccessionHit["source"]) || "unknown",
+        via: "known",
+      })).filter((h) => h.id),
+    )
+    const known = knownHits.map((h) => `${h.id} (${h.source})`).join("; ")
+    const fallbackIdentifier = knownHits.map((h) => h.id).join("; ")
+    const fallbackMsDataSource = preferMsDataSource("", knownHits, input.excerpt)
 
     const user = buildMetaUserPrompt({
       pmid: input.pmid,
@@ -83,19 +145,43 @@ export class MetaChain {
       fallbackMsDataSource,
     })
 
-    // Prefer Stage-2 known IDs when LLM left identifier empty or partial
-    if (fallbackIdentifier) {
-      if (!row.identifier) row.identifier = fallbackIdentifier
-      else {
-        const have = new Set(row.identifier.split(/[;,\s]+/).filter(Boolean).map((x) => x.toUpperCase()))
-        for (const id of fallbackIdentifier.split(";").map((x) => x.trim()).filter(Boolean)) {
-          if (!have.has(id.toUpperCase())) {
+    // Prefer Stage-2 / KnownIdentifiers — especially native IPX over PXD partner IDs.
+    if (knownHits.length > 0) {
+      const knownIds = knownHits.map((h) => h.id)
+      const knownSet = new Set(knownIds)
+      const llmIds = (row.identifier || "")
+        .split(/[;,\s]+/)
+        .map((x) => x.trim().toUpperCase())
+        .filter(Boolean)
+      const nativeKnown = knownHits.filter((h) =>
+        /^(IPX|JPST|MSV|PDC)/i.test(h.id),
+      )
+      const llmOnlyPxd =
+        llmIds.length > 0 && llmIds.every((id) => /^PXD/i.test(id))
+      // LLM invented/kept only PXD while we already know IPX… → native IDs win.
+      if (nativeKnown.length > 0 && (llmOnlyPxd || !row.identifier)) {
+        const merged = [...nativeKnown.map((h) => h.id)]
+        for (const id of llmIds) {
+          if (!knownSet.has(id) && !merged.includes(id)) merged.push(id)
+        }
+        for (const id of knownIds) {
+          if (!merged.includes(id)) merged.push(id)
+        }
+        row.identifier = merged.join("; ")
+      } else if (!row.identifier) {
+        row.identifier = fallbackIdentifier
+      } else {
+        const have = new Set(llmIds)
+        for (const id of knownIds) {
+          if (!have.has(id)) {
             row.identifier = `${row.identifier}; ${id}`
-            have.add(id.toUpperCase())
+            have.add(id)
           }
         }
       }
-      if (!row.msDataSource && fallbackMsDataSource) row.msDataSource = fallbackMsDataSource
+      row.msDataSource = preferMsDataSource(row.msDataSource, knownHits, input.excerpt)
+    } else if (!row.msDataSource && fallbackMsDataSource) {
+      row.msDataSource = fallbackMsDataSource
     }
 
     return row

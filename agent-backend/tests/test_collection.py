@@ -20,6 +20,31 @@ def test_extract_pmid():
     assert extract_pmid("no id here") is None
 
 
+def test_extract_accessions_and_resolve_urls_intent():
+    from app.collection.store import extract_accessions, looks_like_resolve_urls_request
+
+    assert extract_accessions("请获取 PXD037009 的下载链接") == ["PXD037009"]
+    # CJK immediately before accession (no space) must still match.
+    assert extract_accessions("帮我获取 PRIDE 中PXD005871 的质谱下载链接") == ["PXD005871"]
+    assert extract_accessions("PXD1; IPX0004109000, JPST000123") == [
+        "PXD1",
+        "IPX0004109000",
+        "JPST000123",
+    ]
+    assert looks_like_resolve_urls_request("获取 PRIDE 中 PXD037009 的质谱下载链接")
+    assert looks_like_resolve_urls_request("帮我获取 PRIDE 中PXD005871 的质谱下载链接")
+    assert looks_like_resolve_urls_request("PXD037009")
+    assert not looks_like_resolve_urls_request("Collect from PMID 38101750")
+    assert extract_accessions("fooPXD005871") == []
+
+
+def test_classify_resolve_urls_intent():
+    from app.agent.gate import classify_query_mode, QUERY_MODE_COLLECTION
+
+    mode = classify_query_mode("帮我获取 PRIDE 数据库中 ID=PXD037009 的质谱下载链接")
+    assert mode == QUERY_MODE_COLLECTION
+
+
 def test_extract_pmid_from_filename():
     assert extract_pmid_from_filename("39732660.pdf") == "39732660"
     assert extract_pmid_from_filename("pmid_39732660_fulltext.pdf") == "39732660"

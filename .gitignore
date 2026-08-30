@@ -129,3 +129,4 @@ resource/properties/yeast.parquet
 resource/properties/rat.parquet
 resource/properties/mouse.parquet
 resource/properties/human.parquet
+resource/properties/properties.sqlite

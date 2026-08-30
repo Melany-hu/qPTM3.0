@@ -20,7 +20,7 @@ import {
 } from "./heuristic.js"
 import { resolveRowSample, resolveSheetAsSample, type QratioRow } from "./parse-rows.js"
 import { resolveSingleModification } from "./ptm.js"
-import { loadSheetData } from "./tables.js"
+import { loadSheetData, resolveColumnIndex } from "./tables.js"
 
 export type SheetKind = "site_ptm" | "proteome" | "ptm_no_site" | "intensity" | "other"
 
@@ -75,7 +75,7 @@ export function hasPtmCues(sheetName: string, headers: string[]): boolean {
   const name = sheetName.toLowerCase()
   // Sheet titles that are clearly PTM / site tables
   if (
-    /site[_\s-]?quant|modification\s*sites?|lactyl|phospho|phos\b|kla\b|acetylome|ubiquit/.test(
+    /site[_\s-]?quant|modification\s*sites?|lactyl|phospho|phos\b|kla\b|acetylome|ubiquit|glcnac|glysite|glyco|o\s*[- ]?glcnac/.test(
       name,
     )
   ) {
@@ -94,7 +94,7 @@ export function hasPtmCues(sheetName: string, headers: string[]): boolean {
   // Strong PTM vocabulary in headers (not sheet-name alone — avoid false hits on GO tables)
   if (
     hasAny(headers, (n) =>
-      /\b(lactyl|phospho|phosphosite|ubiquit|succinyl|malonyl|crotonyl|glygly|kac|kla|acetyl)\b/.test(
+      /\b(lactyl|phospho|phosphosite|ubiquit|succinyl|malonyl|crotonyl|glygly|kac|kla|acetyl|glcnac|o\s*glcnac|glycosyl|glyco)\b/.test(
         n,
       ),
     )
@@ -127,7 +127,12 @@ export function hasSiteColumns(headers: string[]): boolean {
       // Acetylome / lactylome etc. — align with heuristic scorePosition()
       /modified\s*lysine|modfied\s*lysine|mod(?:ified)?\s*lys/.test(n) ||
       /modified\s*(serine|threonine|tyrosine|residue)/.test(n) ||
-      /phospho_?location/.test(n),
+      /phospho_?location/.test(n) ||
+      // Glycosylation / generic PTM site columns (e.g. "O-GlcNAc site")
+      /\b(?:o\s*[- ]?)?glcnac\s*site\b/.test(n) ||
+      /\b(?:glyco(?:syl)?|ubiquit|acetyl|methyl|succinyl|malonyl|crotonyl|lactyl|phospho|kla|kac)\w*\s+site\b/.test(
+        n,
+      ),
   )
 }
 
@@ -342,11 +347,7 @@ export function heuristicMapProteomeSheet(
 }
 
 function colIndex(headers: string[], name: string | null): number {
-  if (!name) return -1
-  const i = headers.findIndex((h) => h === name)
-  if (i >= 0) return i
-  const n = name.toLowerCase()
-  return headers.findIndex((h) => h.toLowerCase() === n)
+  return resolveColumnIndex(headers, name)
 }
 
 function firstUniprot(raw: string): string {
@@ -453,7 +454,7 @@ export async function parseProteomeSheet(opts: {
       if (rIdx < 0) continue
       const rawN = parseNumber(row[rIdx] ?? "")
       if (rawN == null) continue
-      const log2 = toLog2(rawN, ratio.isLog2)
+      const log2 = toLog2(rawN, Boolean(ratio.isLog2) || ratio.valueType === "log2_ratio")
       if (log2 == null) continue
 
       let pVal = ""

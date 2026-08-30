@@ -9,7 +9,7 @@
 <body>
   <div id="preloader">
     <div class="preloader-inner">
-      <div class="preloader-spinner"></div>
+      <div class="typing-dots typing-dots-lg" aria-hidden="true"><span></span><span></span><span></span></div>
       <span class="preloader-text">Loading...</span>
     </div>
   </div>
@@ -30,9 +30,10 @@
           <div class="hero-search-box">
             <select name="simple_search_tag0" id="simple_search_tag0" aria-label="Search in">
               <option value="Context">Any Field</option>
-              <option value="uniprotaccs">UniProt AC</option>
+              <option value="uniprotaccs">UniProt ID</option>
               <option value="genename">Gene Name</option>
               <option value="proteinname">Protein Name</option>
+              <option value="pos">Position</option>
               <option value="func">Function</option>
               <option value="samdetail">Sample</option>
               <option value="con condetail">Condition</option>
@@ -85,23 +86,23 @@
     <!-- Stats Cards -->
     <div class="stats-grid">
       <div class="stat-card">
-        <div class="stat-number">14,183,172</div>
+        <div class="stat-number">15,896,674</div>
         <div class="stat-label">PTM events</div>
       </div>
       <div class="stat-card">
-        <div class="stat-number">796,337</div>
+        <div class="stat-number">959,686</div>
         <div class="stat-label">PTM Sites</div>
       </div>
       <div class="stat-card">
-        <div class="stat-number">73,783</div>
+        <div class="stat-number">48,666</div>
         <div class="stat-label">Proteins</div>
       </div>
       <div class="stat-card">
-        <div class="stat-number">3,391</div>
+        <div class="stat-number">3,730</div>
         <div class="stat-label">Conditions</div>
       </div>
       <div class="stat-card">
-        <div class="stat-number">6</div>
+        <div class="stat-number">12</div>
         <div class="stat-label">Modifications</div>
       </div>
     </div>
@@ -109,80 +110,122 @@
 
     <!-- PTM Types Grid -->
     <div class="section-title">Post-Translational Modifications</div>
-    <div class="ptm-grid">
+    <div class="ptm-grid ptm-grid-mods">
       <div class="ptm-card">
-        <div class="ptm-icon" style="background:#339af0"><span class="ptm-icon-letter">P</span></div>
+        <div class="ptm-icon ptm-icon-img"><img src="assets/img/phos.png" alt="Phosphorylation"></div>
         <div class="ptm-info">
           <div class="ptm-name">Phosphorylation</div>
           <div class="ptm-count">12,706,789 events &middot; 524,041 sites</div>
         </div>
       </div>
       <div class="ptm-card">
-        <div class="ptm-icon" style="background:#339af0"><span class="ptm-icon-letter">A</span></div>
+        <div class="ptm-icon ptm-icon-img"><img src="assets/img/ace.png" alt="Acetylation"></div>
         <div class="ptm-info">
           <div class="ptm-name">Acetylation</div>
           <div class="ptm-count">423,015 events &middot; 78,324 sites</div>
         </div>
       </div>
       <div class="ptm-card">
-        <div class="ptm-icon" style="background:#339af0"><span class="ptm-icon-letter">U</span></div>
+        <div class="ptm-icon ptm-icon-img"><img src="assets/img/ubi.png" alt="Ubiquitylation"></div>
         <div class="ptm-info">
           <div class="ptm-name">Ubiquitylation</div>
           <div class="ptm-count">561,048 events &middot; 91,720 sites</div>
         </div>
       </div>
       <div class="ptm-card">
-        <div class="ptm-icon" style="background:#339af0"><span class="ptm-icon-letter">M</span></div>
+        <div class="ptm-icon ptm-icon-img"><img src="assets/img/meth.png" alt="Methylation"></div>
         <div class="ptm-info">
           <div class="ptm-name">Methylation</div>
           <div class="ptm-count">160,426 events &middot; 122,601 sites</div>
         </div>
       </div>
       <div class="ptm-card">
-        <div class="ptm-icon" style="background:#339af0"><span class="ptm-icon-letter">G</span></div>
+        <div class="ptm-icon ptm-icon-img"><img src="assets/img/gly.png" alt="Glycosylation"></div>
         <div class="ptm-info">
           <div class="ptm-name">Glycosylation</div>
           <div class="ptm-count">102,510 events &middot; 20,884 sites</div>
         </div>
       </div>
       <div class="ptm-card">
-        <div class="ptm-icon" style="background:#3498db"><span class="ptm-icon-letter">S</span></div>
+        <div class="ptm-icon ptm-icon-img"><img src="assets/img/sumo.png" alt="SUMOylation"></div>
         <div class="ptm-info">
           <div class="ptm-name">SUMOylation</div>
           <div class="ptm-count">229,384 events &middot; 49,004 sites</div>
+        </div>
+      </div>
+      <div class="ptm-card">
+        <div class="ptm-icon ptm-icon-img"><img src="assets/img/crot.png" alt="Crotonylation"></div>
+        <div class="ptm-info">
+          <div class="ptm-name">Crotonylation</div>
+          <div class="ptm-count">95,886 events &middot; 24,889 sites</div>
+        </div>
+      </div>
+      <div class="ptm-card">
+        <div class="ptm-icon ptm-icon-img"><img src="assets/img/la.png" alt="Lactylation"></div>
+        <div class="ptm-info">
+          <div class="ptm-name">Lactylation</div>
+          <div class="ptm-count">28,610 events &middot; 13,160 sites</div>
+        </div>
+      </div>
+      <div class="ptm-card">
+        <div class="ptm-icon ptm-icon-img"><img src="assets/img/succ.png" alt="Succinylation"></div>
+        <div class="ptm-info">
+          <div class="ptm-name">Succinylation</div>
+          <div class="ptm-count">28,013 events &middot; 10,052 sites</div>
+        </div>
+      </div>
+      <div class="ptm-card">
+        <div class="ptm-icon ptm-icon-img"><img src="assets/img/bhb.png" alt="β-hydroxybutyrylation"></div>
+        <div class="ptm-info">
+          <div class="ptm-name">&beta;-hydroxybutyrylation</div>
+          <div class="ptm-count">6,168 events &middot; 5,685 sites</div>
+        </div>
+      </div>
+      <div class="ptm-card">
+        <div class="ptm-icon ptm-icon-img"><img src="assets/img/sglu.png" alt="S-glutathionylation"></div>
+        <div class="ptm-info">
+          <div class="ptm-name">S-glutathionylation</div>
+          <div class="ptm-count">2,204 events &middot; 551 sites</div>
+        </div>
+      </div>
+      <div class="ptm-card">
+        <div class="ptm-icon ptm-icon-img"><img src="assets/img/mal.png" alt="Malonylation"></div>
+        <div class="ptm-info">
+          <div class="ptm-name">Malonylation</div>
+          <div class="ptm-count">1,051 events &middot; 1,051 sites</div>
         </div>
       </div>
     </div>
 
     <!-- Organisms Section -->
     <div class="section-title">Organisms</div>
-    <div class="ptm-grid" style="grid-template-columns:repeat(4,1fr)">
+    <div class="ptm-grid ptm-grid-org">
       <div class="ptm-card">
-        <div class="ptm-icon" style="background:#339af0"><span class="ptm-icon-letter">H</span></div>
+        <div class="ptm-icon ptm-icon-img"><img src="assets/img/human.png" alt="Human"></div>
         <div class="ptm-info">
           <div class="ptm-name">Human</div>
-          <div class="ptm-count">8,126,447 events &middot; 526,195 sites</div>
+          <div class="ptm-count">9,327,894 events &middot; 638,965 sites</div>
         </div>
       </div>
       <div class="ptm-card">
-        <div class="ptm-icon" style="background:#339af0"><span class="ptm-icon-letter">M</span></div>
+        <div class="ptm-icon ptm-icon-img"><img src="assets/img/mouse.png" alt="Mouse"></div>
         <div class="ptm-info">
           <div class="ptm-name">Mouse</div>
-          <div class="ptm-count">3,122,492 events &middot; 184,831 sites</div>
+          <div class="ptm-count">3,421,098 events &middot; 225,825 sites</div>
         </div>
       </div>
       <div class="ptm-card">
-        <div class="ptm-icon" style="background:#339af0"><span class="ptm-icon-letter">R</span></div>
+        <div class="ptm-icon ptm-icon-img"><img src="assets/img/rat.png" alt="Rat"></div>
         <div class="ptm-info">
           <div class="ptm-name">Rat</div>
-          <div class="ptm-count">177,497 events &middot; 25,718 sites</div>
+          <div class="ptm-count">181,849 events &middot; 28,371 sites</div>
         </div>
       </div>
       <div class="ptm-card">
-        <div class="ptm-icon" style="background:#339af0"><span class="ptm-icon-letter">Y</span></div>
+        <div class="ptm-icon ptm-icon-img"><img src="assets/img/yeast.png" alt="Yeast"></div>
         <div class="ptm-info">
           <div class="ptm-name">Yeast</div>
-          <div class="ptm-count">2,756,736 events &middot; 71,232 sites</div>
+          <div class="ptm-count">2,935,078 events &middot; 66,525 sites</div>
         </div>
       </div>
     </div>

@@ -6,9 +6,10 @@ import { ingestManualFulltext } from "./ingest/manual-fulltext.js"
 import { ingestManualSupplementary } from "./ingest/manual-supp.js"
 import { readJobState } from "./pipeline/job-state.js"
 import { runCollectionJob } from "./pipeline/run-job.js"
+import { runResolveUrlsJob } from "./pipeline/resolve-urls.js"
 import { setDataRoot } from "./utils/io.js"
 
-type Cmd = "help" | "run-job" | "ingest-fulltext" | "ingest-supp"
+type Cmd = "help" | "run-job" | "ingest-fulltext" | "ingest-supp" | "resolve-urls"
 
 interface CliArgs {
   cmd: Cmd
@@ -18,10 +19,17 @@ interface CliArgs {
   filePath?: string
   /** One or more --supp-file values. */
   suppFilePaths?: string[]
+  /** One or more --accession values (resolve-urls). */
+  accessions?: string[]
   resumeFrom?: string
   forceInclude?: boolean
   concurrency?: number
   model?: string
+  organism?: string
+  modification?: string
+  title?: string
+  msDataSource?: string
+  message?: string
 }
 
 function printHelp(): void {
@@ -31,6 +39,7 @@ Usage:
   npx tsx src/index.ts run-job --pmid <id> --out-dir <dir> [options]
   npx tsx src/index.ts ingest-fulltext --pmid <id> --file <path> [--out-dir <dir>]
   npx tsx src/index.ts ingest-supp --pmid <id> --file <path> [--out-dir <dir>]
+  npx tsx src/index.ts resolve-urls --accession <PXD…|IPX…|JPST…|MSV…|PDC…> --out-dir <dir> [options]
   npx tsx src/index.ts help
 
 run-job options:
@@ -42,9 +51,28 @@ run-job options:
   --concurrency <n>       Parallel LLM calls (default 1)
   --model <id>            e.g. opencode-go/deepseek-v4-flash
 
+resolve-urls options:
+  --accession <id>        MS accession (repeatable; also accepts comma-separated)
+  --job-id <id>           Job id (default: urls-<accession>)
+  --organism <text>       Optional organism label for output filenames
+  --modification <text>   Optional PTM / modification label
+  --title <text>          Optional title for the job record
+  --pmid <id>             Optional real PubMed ID (never an accession; default: empty)
+  --ms-data-source <name> Optional repository hint (iProX / PRIDE / jPOST / …)
+  --message <text>        Original user text (used to infer repository, e.g. iProX)
+
 Global:
-  --out-dir <path>        Per-job data root (required for run-job)
+  --out-dir <path>        Per-job data root (required for run-job / resolve-urls)
 `)
+}
+
+function pushAccessions(args: CliArgs, raw: string): void {
+  const parts = raw
+    .split(/[;,\s]+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+  if (!parts.length) return
+  args.accessions = [...(args.accessions ?? []), ...parts]
 }
 
 function parseArgs(argv: string[]): CliArgs {
@@ -53,7 +81,13 @@ function parseArgs(argv: string[]): CliArgs {
 
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
-    if (a === "run-job" || a === "ingest-fulltext" || a === "ingest-supp" || a === "help") {
+    if (
+      a === "run-job" ||
+      a === "ingest-fulltext" ||
+      a === "ingest-supp" ||
+      a === "resolve-urls" ||
+      a === "help"
+    ) {
       args.cmd = a
       continue
     }
@@ -77,6 +111,30 @@ function parseArgs(argv: string[]): CliArgs {
       ;(args.suppFilePaths ??= []).push(argv[++i])
       continue
     }
+    if ((a === "--accession" || a === "--accessions") && argv[i + 1]) {
+      pushAccessions(args, argv[++i])
+      continue
+    }
+    if (a === "--organism" && argv[i + 1]) {
+      args.organism = argv[++i]
+      continue
+    }
+    if (a === "--modification" && argv[i + 1]) {
+      args.modification = argv[++i]
+      continue
+    }
+    if (a === "--title" && argv[i + 1]) {
+      args.title = argv[++i]
+      continue
+    }
+    if ((a === "--ms-data-source" || a === "--msDataSource") && argv[i + 1]) {
+      args.msDataSource = argv[++i]
+      continue
+    }
+    if (a === "--message" && argv[i + 1]) {
+      args.message = argv[++i]
+      continue
+    }
     if (a === "--resume-from" && argv[i + 1]) {
       args.resumeFrom = argv[++i]
       continue
@@ -98,8 +156,21 @@ function parseArgs(argv: string[]): CliArgs {
 
   if (args.cmd === "help" && positional.length > 0) {
     const cmd = positional[0]
-    if (cmd === "run-job" || cmd === "ingest-fulltext" || cmd === "ingest-supp" || cmd === "help") {
+    if (
+      cmd === "run-job" ||
+      cmd === "ingest-fulltext" ||
+      cmd === "ingest-supp" ||
+      cmd === "resolve-urls" ||
+      cmd === "help"
+    ) {
       args.cmd = cmd
+    }
+  }
+
+  // Bare accessions after resolve-urls: `resolve-urls PXD012345`
+  if (args.cmd === "resolve-urls") {
+    for (const p of positional.slice(1)) {
+      if (/^(PXD|IPX|JPST|MSV|PDC)\d+$/i.test(p)) pushAccessions(args, p)
     }
   }
 
@@ -152,6 +223,28 @@ async function runJob(opts: CliArgs): Promise<void> {
   process.exit(prior?.status === "error" ? 1 : 0)
 }
 
+async function runResolveUrls(opts: CliArgs): Promise<void> {
+  const accessions = opts.accessions ?? []
+  if (!opts.outDir || accessions.length === 0) {
+    throw new Error("resolve-urls requires --accession and --out-dir")
+  }
+  const jobId = opts.jobId ?? `urls-${accessions[0].toLowerCase()}`
+  const state = await runResolveUrlsJob({
+    jobId,
+    outDir: opts.outDir,
+    accessions,
+    pmid: opts.pmid,
+    title: opts.title,
+    organism: opts.organism,
+    modification: opts.modification,
+    msDataSource: opts.msDataSource,
+    message: opts.message,
+    onLog: (msg) => console.error(msg),
+  })
+  console.log(JSON.stringify(state, null, 2))
+  process.exit(state.status === "error" ? 1 : 0)
+}
+
 async function main(): Promise<void> {
   const opts = parseArgs(process.argv.slice(2))
   if (opts.outDir) {
@@ -168,6 +261,10 @@ async function main(): Promise<void> {
   }
   if (opts.cmd === "ingest-supp") {
     await runIngestSupp(opts)
+    return
+  }
+  if (opts.cmd === "resolve-urls") {
+    await runResolveUrls(opts)
     return
   }
   if (opts.cmd === "run-job") {

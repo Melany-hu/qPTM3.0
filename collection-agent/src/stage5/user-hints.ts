@@ -198,107 +198,232 @@ export interface ColumnRoleHints {
   conditionCol?: string
 }
 
+const COLUMN_NAME_STOP = new Set(
+  [
+    "use",
+    "the",
+    "this",
+    "that",
+    "sheet",
+    "file",
+    "table",
+    "column",
+    "columns",
+    "example",
+    "for",
+    "means",
+    "please",
+    "should",
+    "into",
+    "with",
+    "from",
+    "into",
+    "split",
+    "parse",
+    "phos",
+    "proteome",
+    "by",
+    "and",
+    "or",
+    "as",
+    "is",
+    "are",
+    "a",
+    "an",
+  ].map((s) => s.toLowerCase()),
+)
+
+function isPlausibleColumnName(col: string): boolean {
+  const c = (col || "").trim()
+  if (!c || c.length < 2 || c.length > 80) return false
+  if (COLUMN_NAME_STOP.has(c.toLowerCase())) return false
+  if (/^(use|the|this|that|sheet|file|table)$/i.test(c)) return false
+  // Example site tokens mistaken as column names: 1433S_S74 / P04637_S15 / CIC-S739
+  if (/[_-]([STYKR])\d{1,5}$/i.test(c) || /^\d/.test(c)) return false
+  return true
+}
+
+/** True when a role phrase describes a bundled UniProt/gene + AA + position column. */
+function looksLikeCombinedSiteRole(role: string): boolean {
+  const r = (role || "").toLowerCase().replace(/[_\-+/|]+/g, " ").replace(/\s+/g, " ").trim()
+  if (!r) return false
+  if (/phosphosite|combined\s*site|site\s*id|mod(?:ification)?\s*sites?/.test(r)) return true
+  if (/split/.test(r)) return true
+  const hasId = /uniprot|accession|protein\s*id|gene/.test(r)
+  const hasAa = /amino|acide|acid|residue|aa\b/.test(r)
+  const hasPos = /position|pos\b|site|位点|位置/.test(r)
+  // "UniProt Amino acid Position" / "UniProt_Amino acide Position"
+  if (hasId && (hasAa || hasPos)) return true
+  if (hasAa && hasPos) return true
+  return false
+}
+
 function roleKeyFromText(role: string): keyof ColumnRoleHints | null {
-  const r = role.toLowerCase().replace(/\s+/g, " ").trim()
-  if (/氨基酸|残基类型/.test(role) || (/amino/.test(r) && !/position/.test(r))) return "aminoAcidCol"
+  const raw = role || ""
+  const r = raw.toLowerCase().replace(/\s+/g, " ").trim()
+  if (!r) return null
+  // Combined / split descriptions must win before bare "uniprot" / "position"
+  if (looksLikeCombinedSiteRole(raw)) return "siteCombinedCol"
+  if (/氨基酸|残基类型/.test(raw) || (/amino/.test(r) && !/position/.test(r))) return "aminoAcidCol"
   if (/^aa$/.test(r) || /^residue(\s*types?)?$/.test(r)) return "aminoAcidCol"
-  if (/位点|位置/.test(role) || /position|^pos$|site\s*number/.test(r)) return "positionCol"
+  if (/位点|位置/.test(raw) || /position|^pos$|site\s*number/.test(r)) return "positionCol"
   if (/uniprot|protein\s*ids?|accession/.test(r)) return "uniprotCol"
-  if (/^conditions?$|^contrasts?$|^comparisons?$/.test(r) || (/condition/.test(r) && !/gene|amino|site/.test(r)))
-    return "conditionCol"
-  if (/^gene(\s*names?)?$/.test(r) || (/gene/.test(r) && !/amino|position|site/.test(r)))
-    return "geneCol"
-  // gene + amino acid + position bundled → combined site column
   if (
-    /phosphosite|combined\s*site|site\s*id|split/.test(r) ||
-    (/gene/.test(r) && /amino|acide|acid|position|site/.test(r)) ||
-    (/amino/.test(r) && /position/.test(r))
+    /^conditions?$|^contrasts?$|^comparisons?$/.test(r) ||
+    (/condition/.test(r) && !/gene|amino|site/.test(r))
   ) {
-    return "siteCombinedCol"
+    return "conditionCol"
+  }
+  if (/^gene(\s*names?)?$/.test(r) || (/gene/.test(r) && !/amino|position|site/.test(r))) {
+    return "geneCol"
   }
   return null
+}
+
+function assignRole(out: ColumnRoleHints, role: keyof ColumnRoleHints, col: string): void {
+  if (!isPlausibleColumnName(col)) return
+  // Prefer first explicit assignment; siteCombined may overwrite weaker singles later.
+  if (role === "siteCombinedCol") {
+    out.siteCombinedCol = col
+    return
+  }
+  if (!out[role]) out[role] = col
 }
 
 /**
  * Parse free-text column role hints, e.g.
  * "column AA is Amino acid", "STY is the position", "ProteinID = UniProt",
- * "Protein + Phosphosite contains amino acid and position — split this column".
+ * "mod_sites column is UniProt_Amino acid Position, should split this column".
  */
 export function extractColumnRoleHints(text: string): ColumnRoleHints {
   const out: ColumnRoleHints = {}
   if (!text) return out
-  // Require "column" prefix OR a short identifier-like header (avoid "1433S_S74 means amino acid=S")
-  const re =
-    /(?:\bcolumn\s+)["']?([A-Za-z][\w.\-+ ]{0,60}?)["']?\s*(?:is|are|=|means?|等于|是)\s*(?:the\s+|an?\s+)?["']?(amino\s*acids?|residue(?:\s*types?)?|positions?|sites?|uniprot(?:\s*ids?)?|protein\s*ids?|accessions?|gene(?:\s*names?)?|氨基酸|位点|残基(?:类型)?|位置)["']?/gi
   let m: RegExpExecArray | null
-  while ((m = re.exec(text))) {
-    const col = (m[1] || "").trim()
-    const role = roleKeyFromText(m[2] || "")
-    if (!col || !role) continue
-    if (/^(use|the|this|that|sheet|file|table)$/i.test(col)) continue
-    out[role] = col
-  }
 
-  // Short headers without the word "column": "STY is the position", "AA = amino acid"
-  const shortRe =
-    /\b([A-Za-z][\w.\-]{0,24})\s*(?:is|are|=|means?|等于|是)\s*(?:the\s+|an?\s+)?["']?(amino\s*acids?|residue(?:\s*types?)?|positions?|sites?|uniprot(?:\s*ids?)?|protein\s*ids?|accessions?|gene(?:\s*names?)?|氨基酸|位点|残基(?:类型)?|位置)["']?/gi
-  while ((m = shortRe.exec(text))) {
-    const col = (m[1] || "").trim()
-    const role = roleKeyFromText(m[2] || "")
-    if (!col || !role) continue
-    if (/^(use|the|this|that|sheet|file|table|example|for|means)$/i.test(col)) continue
-    // Skip example tokens like 1433S_S74 / P04637_S15 / CIC-S739
-    if (/[_-]([STYK])\d{1,5}$/i.test(col) || /^\d/.test(col)) continue
-    if (out[role]) continue
-    out[role] = col
-  }
-
-  // "use feature_names as gene name_amino acid position" / "use X as gene+AA+pos"
-  const useAsRe =
-    /\buse\s+["']?([A-Za-z][\w.\-]{1,60})["']?\s+as\s+([^.!?\n,]{3,100}?)(?=,|\.|$|for\s+example|e\.g\.|should)/gi
-  while ((m = useAsRe.exec(text))) {
-    const col = (m[1] || "").trim()
-    const rolePhrase = (m[2] || "").trim()
-    if (!col || /^(the|this|that|sheet|file|table)$/i.test(col)) continue
-    const role = roleKeyFromText(rolePhrase)
-    if (role === "siteCombinedCol" || (/gene/i.test(rolePhrase) && /amino|position|site|acide|acid/i.test(rolePhrase))) {
-      out.siteCombinedCol = col
-    } else if (role && !out[role]) {
-      out[role] = col
-    }
-  }
-
-  // Combined site columns — prefer explicit "column …" phrasing
+  // 1) Combined / split columns first (most common Teach failure mode).
   const combinedRes = [
-    /\bcolumn\s+["']([^"']{2,80})["']\s*(?:contains?|holds?|stores?|has|includes?)\s*(?:the\s+)?(?:amino\s*acids?|position|phosphosite|site)/gi,
-    /\bcolumn\s+["']([^"']{2,80})["'][^.!?\n]{0,120}?\b(?:split|parse)\b/gi,
-    /\bsplit\b[^.!?\n]{0,60}?\bcolumn\s+["']([^"']{2,80})["']/gi,
+    // "mod_sites column is UniProt_Amino acid Position" / "X column contains gene+AA+pos"
+    /\b([A-Za-z][\w.\-]{1,60})\s+columns?\s*(?:is|are|=|means?|contains?|holds?|stores?|has|includes?)\s+([^.!?\n,]{3,120}?)(?=,|\.|$|should|please|and\s+then)/gi,
+    // "column mod_sites is UniProt + Amino acid + Position"
+    /\bcolumns?\s+["']?([A-Za-z][\w.\-+ ]{1,60}?)["']?\s*(?:is|are|=|means?|contains?|holds?|stores?|has)\s+([^.!?\n,]{3,120}?)(?=,|\.|$|should)/gi,
+    // "split column mod_sites" / "split this column mod_sites"
+    /\bsplit\s+(?:this\s+)?columns?\s+["']?([A-Za-z][\w.\-]{1,60})["']?/gi,
+    // "column 'mod_sites' should be split" / "column mod_sites should split"
+    /\bcolumns?\s+["']?([A-Za-z][\w.\-]{1,60})["']?[^.!?\n]{0,40}?\b(?:should\s+(?:be\s+)?)?split\b/gi,
+    // "mod_sites should be split into UniProt, amino acid and position"
+    /\b([A-Za-z][\w.\-]{1,60})\s+columns?\s+(?:should\s+(?:be\s+)?)?split\b/gi,
+    /\b([A-Za-z][\w.\-]{1,60})\b[^.!?\n]{0,40}?\bshould\s+(?:be\s+)?split\s+into\b/gi,
+    // quoted column near split
+    /\bcolumns?\s+["']([^"']{2,80})["'][^.!?\n]{0,120}?\b(?:split|parse)\b/gi,
+    /\bsplit\b[^.!?\n]{0,60}?\bcolumns?\s+["']([^"']{2,80})["']/gi,
     /\bsplit\b[^.!?\n]{0,40}?["']([^"']{2,80})["']/gi,
-    /\bcolumn\s+["']([^"']{2,80})["']\s*(?:is|=|means?)\s*(?:a\s+)?(?:combined|gene\s*\+?\s*site|protein\s*\+?\s*(?:phospho)?site)/gi,
-    // unquoted: use feature_names … split / feature_names should be split
+    // unquoted: use feature_names … split
     /\b(?:use\s+)?([A-Za-z][\w.\-]{1,40})\b[^.!?\n]{0,80}?\b(?:should\s+be\s+)?split\b/gi,
   ]
   for (const cre of combinedRes) {
     cre.lastIndex = 0
     while ((m = cre.exec(text))) {
       const col = (m[1] || "").trim()
-      if (!col || /^(use|the|this|that|sheet|file|table|phos|proteome|example|for|by)$/i.test(col))
+      const rolePhrase = (m[2] || "").trim()
+      if (!isPlausibleColumnName(col)) continue
+      // If a role phrase is present, only treat as combined when it looks like one
+      // (or when the pattern had no role group — pure split instructions).
+      if (rolePhrase && !looksLikeCombinedSiteRole(rolePhrase) && !/\bsplit\b/i.test(text)) {
         continue
-      // Skip example site tokens mistaken as column names
-      if (/[_-]([A-Za-z])\d{1,5}$/i.test(col)) continue
+      }
       out.siteCombinedCol = col
       break
     }
     if (out.siteCombinedCol) break
   }
 
-  // Quoted header that looks like a combined site column, near split/site-level wording
-  if (!out.siteCombinedCol && /split|site[- ]level|amino\s*acids?.*position|position.*amino/i.test(text)) {
-    const named = text.match(
-      /["']([^"']*(?:phosphosite|protein\s*\+\s*phosphosite|gene\s*\+\s*site|modification\s*sites?|feature[_\s-]?names?)[^"']*)["']/i,
+  if (
+    !out.siteCombinedCol &&
+    /split|site[- ]level|amino\s*acids?.*position|position.*amino|uniprot.*(?:amino|position)/i.test(
+      text,
     )
-    if (named?.[1]) out.siteCombinedCol = named[1].trim()
+  ) {
+    const named = text.match(
+      /["']([^"']*(?:phosphosite|protein\s*\+\s*phosphosite|gene\s*\+\s*site|modification\s*sites?|mod[_\s-]?sites?|feature[_\s-]?names?)[^"']*)["']/i,
+    )
+    if (named?.[1] && isPlausibleColumnName(named[1])) {
+      out.siteCombinedCol = named[1].trim()
+    }
   }
+
+  // 2) Explicit single-role mappings: "column AA is Amino acid"
+  const re =
+    /(?:\bcolumns?\s+)["']?([A-Za-z][\w.\-+ ]{0,60}?)["']?\s*(?:is|are|=|means?|等于|是)\s*(?:the\s+|an?\s+)?["']?(amino\s*acids?|residue(?:\s*types?)?|positions?|sites?|uniprot(?:\s*ids?)?|protein\s*ids?|accessions?|gene(?:\s*names?)?|氨基酸|位点|残基(?:类型)?|位置)["']?/gi
+  while ((m = re.exec(text))) {
+    const col = (m[1] || "").trim()
+    const role = roleKeyFromText(m[2] || "")
+    if (!role) continue
+    // Don't let "column mod_sites is UniProt…" become uniprotCol — combined already handled.
+    if (role === "siteCombinedCol" || (out.siteCombinedCol && col === out.siteCombinedCol)) {
+      if (role === "siteCombinedCol") assignRole(out, "siteCombinedCol", col)
+      continue
+    }
+    if (out.siteCombinedCol && looksLikeCombinedSiteRole(m[2] || "")) continue
+    assignRole(out, role, col)
+  }
+
+  // "<name> column is <role>" (column name before the word "column")
+  const nameBeforeColRe =
+    /\b([A-Za-z][\w.\-]{1,60})\s+columns?\s*(?:is|are|=|means?|等于|是)\s*(?:the\s+|an?\s+)?["']?(amino\s*acids?|residue(?:\s*types?)?|positions?|sites?|uniprot(?:\s*ids?)?|protein\s*ids?|accessions?|gene(?:\s*names?)?|氨基酸|位点|残基(?:类型)?|位置)["']?/gi
+  while ((m = nameBeforeColRe.exec(text))) {
+    const col = (m[1] || "").trim()
+    const rolePhrase = m[2] || ""
+    const role = roleKeyFromText(rolePhrase)
+    if (!role) continue
+    if (looksLikeCombinedSiteRole(rolePhrase)) {
+      assignRole(out, "siteCombinedCol", col)
+      continue
+    }
+    if (out.siteCombinedCol && col === out.siteCombinedCol) continue
+    assignRole(out, role, col)
+  }
+
+  // Short headers without "column": "STY is the position", "AA = amino acid"
+  const shortRe =
+    /\b([A-Za-z][\w.\-]{0,24})\s*(?:is|are|=|means?|等于|是)\s*(?:the\s+|an?\s+)?["']?(amino\s*acids?|residue(?:\s*types?)?|positions?|sites?|uniprot(?:\s*ids?)?|protein\s*ids?|accessions?|gene(?:\s*names?)?|氨基酸|位点|残基(?:类型)?|位置)["']?/gi
+  while ((m = shortRe.exec(text))) {
+    const col = (m[1] || "").trim()
+    const role = roleKeyFromText(m[2] || "")
+    if (!role || !isPlausibleColumnName(col)) continue
+    if (out.siteCombinedCol && (col === out.siteCombinedCol || looksLikeCombinedSiteRole(m[2] || "")))
+      continue
+    assignRole(out, role, col)
+  }
+
+  // "use feature_names as gene name_amino acid position"
+  const useAsRe =
+    /\buse\s+["']?([A-Za-z][\w.\-]{1,60})["']?\s+as\s+([^.!?\n,]{3,100}?)(?=,|\.|$|for\s+example|e\.g\.|should)/gi
+  while ((m = useAsRe.exec(text))) {
+    const col = (m[1] || "").trim()
+    const rolePhrase = (m[2] || "").trim()
+    if (!isPlausibleColumnName(col)) continue
+    const role = roleKeyFromText(rolePhrase)
+    if (role === "siteCombinedCol" || looksLikeCombinedSiteRole(rolePhrase)) {
+      out.siteCombinedCol = col
+    } else if (role) {
+      assignRole(out, role, col)
+    }
+  }
+
+  // If we identified a combined site column, drop conflicting singles that often
+  // come from misreading "UniProt_Amino acid Position" as uniprot-only.
+  if (out.siteCombinedCol) {
+    for (const key of ["uniprotCol", "geneCol", "positionCol", "aminoAcidCol"] as const) {
+      if (out[key] && (out[key] === out.siteCombinedCol || !isPlausibleColumnName(out[key]!))) {
+        delete out[key]
+      }
+      // Drop accidental captures like uniprotCol="column"
+      if (out[key] && COLUMN_NAME_STOP.has(String(out[key]).toLowerCase())) {
+        delete out[key]
+      }
+    }
+  }
+
   return out
 }
 
@@ -306,20 +431,26 @@ export function extractColumnRoleHints(text: string): ColumnRoleHints {
 export function noteWantsSiteLevelSheet(note: string | undefined | null): boolean {
   const t = (note || "").toLowerCase()
   if (!t) return false
+  if (/\bptm\s+table\b/.test(t)) return true
+  if (/not\s+proteome/.test(t)) return true
   if (/site[- ]level/.test(t)) return true
   if (/stores?\s+site/.test(t)) return true
-  if (/split\s+(?:this\s+)?column/.test(t) && /(?:amino|position|phosphosite|site)/i.test(t)) {
+  if (/split\s+(?:this\s+)?column/.test(t) && /(?:amino|acide|acid|position|phosphosite|site|uniprot)/i.test(t)) {
     return true
   }
-  if (/\bsplit\b/.test(t) && /(?:amino|position|feature[_\s-]?names?|cic-|gene)/i.test(t)) {
+  if (/\bsplit\b/.test(t) && /(?:amino|acide|acid|position|feature[_\s-]?names?|mod[_\s-]?sites?|cic-|gene|uniprot)/i.test(t)) {
     return true
   }
   if (/contains?\s+amino\s*acids?\s+and\s+position/.test(t)) return true
-  if (/phosphosite/.test(t) && /split|amino|position/.test(t)) return true
+  if (/phosphosite|mod[_\s-]?sites?/.test(t) && /split|amino|acide|acid|position|uniprot/i.test(t)) {
+    return true
+  }
   if (/use\s+\w+.+\bas\b.+(?:gene|amino|position)/i.test(t) && /split|amino|position/i.test(t)) {
     return true
   }
   if (/feature[_\s-]?names?/.test(t) && /(?:gene|amino|position|split)/i.test(t)) return true
+  if (/columns?\s+\w+.+(?:uniprot|gene).+(?:amino|position)/i.test(t)) return true
+  if (/\w+\s+columns?\s+is\s+uniprot/i.test(t) && /(?:amino|acide|acid|position)/i.test(t)) return true
   return false
 }
 

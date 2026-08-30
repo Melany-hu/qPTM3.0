@@ -20,6 +20,11 @@ function normKey(s: string): string {
     .trim()
 }
 
+/** Compact form so MCF-7 ≡ MCF7, MDA-MB-231 ≡ MDAMB231. */
+function compactKey(s: string): string {
+  return normKey(s).replace(/[^a-z0-9]+/gi, "").toLowerCase()
+}
+
 /** Parse "Cond=>Sample; Cond2=>Sample2" (also accepts "Cond=Sample").
  * If the same condition is mapped to multiple different samples (common when
  * Stage3 lists N cell lines that share one contrast), drop that key — Sample
@@ -84,16 +89,22 @@ function scoreSampleArm(sample: string, arm: string): number {
   const s = normKey(sample)
   if (!a || !s) return 0
   if (s === a) return 100
+  const ca = compactKey(arm)
+  const cs = compactKey(sample)
+  if (ca && cs && ca === cs) return 100
+  // Prefer exact compact equality over substring (MCF7 must not lose to MCF10A)
+  if (ca && cs && (cs.includes(ca) || ca.includes(cs))) {
+    // Penalize weak substring when lengths differ a lot (mcf ⊂ mcf10a)
+    const ratio = Math.min(ca.length, cs.length) / Math.max(ca.length, cs.length)
+    if (ratio >= 0.75) return 90
+    if (ratio >= 0.5) return 40
+  }
   if (s.includes(a) || a.includes(s)) return 80
   const at = new Set(tokenize(a))
   const st = tokenize(s)
   let hit = 0
   for (const t of st) {
     if (at.has(t)) hit += t.length >= 4 ? 3 : 1
-  }
-  // Prefer distinctive tokens (HCC, metastasis) over stop-ish words
-  if (/\b(tissue|cell|cells|sample|samples|normal|control|ctr|wt)\b/i.test(a)) {
-    // still ok
   }
   return hit
 }
@@ -118,12 +129,11 @@ export function inferSampleFromCondition(stage3Sample: string, condition: string
   let best = ""
   let bestScore = 0
   for (const sample of samples) {
+    // Only match the numerator arm — do NOT score against the full "A/B"
+    // string, or the denominator sample (often the shared control) wins.
     const score = scoreSampleArm(sample, focusArm)
-    // Slight boost if sample tokens appear anywhere in the full condition
-    const anywhere = scoreSampleArm(sample, cond) * 0.25
-    const total = score + anywhere
-    if (total > bestScore) {
-      bestScore = total
+    if (score > bestScore) {
+      bestScore = score
       best = sample
     }
   }
@@ -258,6 +268,32 @@ export function resolveRowSample(
 }
 
 /**
+ * True when a sheet tab is a descriptive table title, not a biological sample name.
+ * e.g. "Detected Kme sites with trigger", "Phospho (STY)Sites", "Table S2".
+ */
+export function looksLikeDescriptiveSheetTitle(sheetName: string): boolean {
+  const s = (sheetName || "").trim()
+  if (!s) return true
+  if (
+    /^(sheet\s*\d*|quant(?:ified)?|data|table\s*s?\d*|proteome|phospho|protein|results?)$/i.test(
+      s,
+    )
+  ) {
+    return true
+  }
+  if (
+    /\b(detected|sites?|peptides?|proteins?|with\s+trigger|results?|supplementary|enriched|identified|quantified)\b/i.test(
+      s,
+    )
+  ) {
+    return true
+  }
+  // Long multi-word titles are almost never sample names
+  if (/\s/.test(s) && s.length >= 18) return true
+  return false
+}
+
+/**
  * Map an Excel sheet name to a Stage3 Sample when sheets are per-sample
  * (e.g. sheets MCF7 / MDA-MB-231 / MDA-MB-436).
  */
@@ -284,16 +320,12 @@ export function resolveSheetAsSample(
   }
   if (bestScore >= 50) return best
 
-  // Generic sheet titles are not samples
-  if (/^(sheet\s*\d*|quant(?:ified)?|data|table\d*|proteome|phospho|protein)$/i.test(sheet)) {
-    return preferSheetAsSample ? sheet : ""
-  }
+  // Descriptive titles ("Detected Kme sites…") are never samples.
+  if (looksLikeDescriptiveSheetTitle(sheet)) return ""
 
+  // Only when Stage3 sheets are explicitly per-sample (preferSheetAsSample)
+  // may we keep a short sheet label that did not fuzzy-match.
   if (preferSheetAsSample) return sheet
 
-  // Multi-sample Stage3 + distinctive sheet name → treat sheet as sample
-  if (samples.length > 1 && /[A-Za-z]/.test(sheet) && sheet.length >= 2) {
-    return sheet
-  }
   return ""
 }

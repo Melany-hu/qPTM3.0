@@ -10,6 +10,7 @@
     "run-job": "tsx src/index.ts run-job",
     "ingest-fulltext": "tsx src/index.ts ingest-fulltext",
     "ingest-supp": "tsx src/index.ts ingest-supp",
+    "resolve-urls": "tsx src/index.ts resolve-urls",
     "start": "tsx src/index.ts help"
   },
   "engines": {

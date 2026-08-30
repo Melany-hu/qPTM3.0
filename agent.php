@@ -18,13 +18,13 @@ if ($envUrl) {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>qPTM | Agent</title>
 <script src="assets/js/include.js"></script>
-<link rel="stylesheet" href="assets/css/agent.css?v=20260812-stage1-include">
+<link rel="stylesheet" href="assets/css/agent.css?v=20260824-preview-fetch">
 
 </head>
 <body class="agent-page">
 <div id="preloader">
   <div class="preloader-inner">
-    <div class="preloader-spinner"></div>
+    <div class="typing-dots typing-dots-lg" aria-hidden="true"><span></span><span></span><span></span></div>
     <span class="preloader-text">Loading...</span>
   </div>
 </div>
@@ -96,6 +96,6 @@ window.QPTM_AGENT_CONFIG = {
   chatUrl: <?php echo json_encode($BACKEND_URL, JSON_UNESCAPED_SLASHES); ?>
 };
 </script>
-<script src="assets/js/agent.js?v=20260812-stage4-dl-below"></script>
+<script src="assets/js/agent.js?v=20260824-preview-fetch"></script>
 </body>
 </html>

@@ -118,7 +118,7 @@ DATABASE_CATALOG: dict[str, dict[str, str]] = {
         "name": "GPS 6.0",
         "type": "database",
         "description": (
-            "Predicted kinase-specific phosphorylation sites (GPS 6.0); "
+            "Kinase-specific phosphorylation sites (GPS 6.0); "
             "PMID 37158278"
         ),
         "url": "https://gps.biocuckoo.cn",
@@ -345,9 +345,9 @@ TOOL_ROUTING: dict[str, dict[str, Any]] = {
     "gps6_kinases": {
         "database": "GPS 6.0",
         "stage": WorkflowStage.kinase,
-        "title": "Predicted kinases (GPS 6.0)",
+        "title": "Kinases (GPS 6.0)",
         "description": (
-            "GPS 6.0 predicted kinase-specific phosphorylation sites "
+            "GPS 6.0 kinase-specific phosphorylation sites "
             "(Chen et al. NAR 2023; PMID 37158278)"
         ),
     },

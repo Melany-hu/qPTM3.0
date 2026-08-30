@@ -24,6 +24,18 @@ class CollectionJobCreate(BaseModel):
     pmid: str | None = None
 
 
+class ResolveUrlsRequest(BaseModel):
+    """Standalone MS accession → download URL resolution (Stage 6 only)."""
+
+    accession: str | None = None
+    accessions: list[str] = Field(default_factory=list)
+    message: str | None = None
+    pmid: str | None = None
+    title: str | None = None
+    organism: str | None = None
+    modification: str | None = None
+
+
 class CollectionJobResponse(BaseModel):
     job_id: str
     pmid: str | None = None
@@ -38,6 +50,8 @@ class CollectionJobResponse(BaseModel):
     contribution: dict[str, Any] | None = None
     error: str | None = None
     needs_pmid: bool = False
+    # True when this is a resolve-urls (accession-only) job.
+    resolve_urls: bool = False
 
 
 class CollectionContributeRequest(BaseModel):

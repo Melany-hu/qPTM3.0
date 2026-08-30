@@ -4,43 +4,65 @@ const CONVERSATIONS_URL = CHAT_URL.replace(/\/chat\/?$/, '/conversations');
 const CLASSIFY_URL = CHAT_URL.replace(/\/chat\/?$/, '/classify');
 const COLLECTION_URL = CHAT_URL.replace(/\/chat\/?$/, '/collection');
 const CONV_STORAGE_KEY = 'qptm_agent_conversation_id';
+const DEVICE_STORAGE_KEY = 'qptm_agent_device_id';
+
+function getDeviceId() {
+  let id = localStorage.getItem(DEVICE_STORAGE_KEY);
+  if (id && /^[0-9a-fA-F-]{8,64}$/.test(id)) return id;
+  if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+    id = window.crypto.randomUUID();
+  } else {
+    id = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+      const r = (Math.random() * 16) | 0;
+      const v = c === 'x' ? r : (r & 0x3) | 0x8;
+      return v.toString(16);
+    });
+  }
+  localStorage.setItem(DEVICE_STORAGE_KEY, id);
+  return id;
+}
+
+function apiHeaders(extra) {
+  const headers = Object.assign({ 'X-Device-Id': getDeviceId() }, extra || {});
+  return headers;
+}
 
 const COLLECTION_STAGE_DEFS = [
   {
     id: 'stage1',
     num: 1,
-    title: 'Screen abstract for PTM',
-    desc: 'Judge whether the abstract reports site-level quantitative PTM proteomics.',
+    title: 'Abstract screening',
+    desc: 'Judge whether the paper reports site-level quantitative PTM proteomics.',
   },
   {
     id: 'stage2',
     num: 2,
-    title: 'Fetch open-access full text',
+    title: 'Full-text retrieval',
     desc: 'Retrieve PDF/XML via Unpaywall or PMC; ask for upload if OA is unavailable.',
   },
   {
     id: 'stage3',
     num: 3,
-    title: 'Extract experimental metadata',
-    desc: 'Pull Sample, Condition, PTM types, and related exprimental information from the full text.',
+    title: 'Experimental metadata extraction',
+    desc: 'Pull Sample, Condition, PTM types, and related experimental information from the full text.',
   },
   {
     id: 'stage4',
     num: 4,
-    title: 'Scout supplementary tables',
+    title: 'Supplementary table identification',
     desc: 'Locate supplementary files that likely contain site-level quantitative tables.',
   },
   {
     id: 'stage5',
     num: 5,
-    title: 'Extract quantitative PTM data',
+    title: 'Site-level quantitative table parsing',
     desc: 'Resolve supplementary tables and write site-level ratios to Quantitative_data.csv.',
   },
   {
     id: 'stage6',
     num: 6,
-    title: 'Fetch MS data repository links',
-    desc: 'Look up PRIDE / iProX / jPOST / CPTAC download links for raw MS data.',
+    title: 'Raw MS file resolutions',
+    desc: 'Look up ProteomeXChange / CPTAC download links for raw MS data.',
   },
 ];
 
@@ -256,7 +278,7 @@ function createCollectionPanelEl(jobId, seedData) {
   panel.dataset.planMode = 'full';
   panel.innerHTML = `
     <div class="plan-panel-header">
-      <i class="ri-route-line"></i>
+      <i class="ri-list-check"></i>
       <span class="collection-plan-title">Data Collection Pipeline</span>
       <i class="ri-arrow-down-s-line toggle-arrow"></i>
     </div>
@@ -430,7 +452,7 @@ function formatCollectionAnswerHtml(raw) {
           /could not be (downloaded|retrieved) automatically/i.test(out) ||
           /^Please upload\b/i.test(out) ||
           /^Click Continue\b/i.test(out) ||
-          /^(This paper appears to contain|After screening, this paper|Screening is uncertain|Full text is ready|Full text is already available|Full text retrieved|User-uploaded supplementary tables detected|MS repository download links have been resolved|The supplementary tables were read|Literature metadata extracted|If something looks wrong|If you are willing|You can also click Continue)/i.test(
+          /^(This paper appears to contain|After screening, this paper|Screening is uncertain|Full text is ready|Full text is already available|Full text retrieved|User-uploaded supplementary tables detected|MS repository download links have been resolved|The supplementary tables were read|Literature metadata extracted|If something looks wrong|If you are willing|You can also click Continue|A MS repository accession was already found)/i.test(
             out,
           );
         if (isStrongLine) {
@@ -515,12 +537,17 @@ const LITERATURE_META_FIELDS = [
   'Label method',
   'Condition',
   'Detail condition',
-  'Condition-Sample map',
   'Enrichment method',
   'Mass spectrometer',
   'MS data source',
   'Identifier',
+  'status',
+  'notes',
+  'error',
 ];
+
+/** Kept in CSV / pipeline, but not shown in the Stage3 UI table. */
+const LITERATURE_META_HIDDEN = new Set(['Condition-Sample map', 'conditionSampleMap']);
 
 function getStage3RowFromData(data) {
   if (!data) return null;
@@ -528,23 +555,44 @@ function getStage3RowFromData(data) {
   return summary.stage3Row || summary.stage3_row || null;
 }
 
-function renderLiteratureMetaTable(row) {
+function renderLiteratureMetaTable(row, opts = {}) {
   if (!row || typeof row !== 'object') return '';
-  // These fields always render in the table; empty values show "-".
-  const alwaysShow = ['Mass spectrometer', 'MS data source', 'Identifier'];
+  const failed =
+    Boolean(opts.failed) ||
+    String(row.status || '').toLowerCase() === 'error' ||
+    Boolean(String(row.error || '').trim());
+  // Core experimental fields always render (empty → "-") so failures are visible.
+  const alwaysShow = [
+    'Sample',
+    'Sample type',
+    'Organism',
+    'PTMs',
+    'Condition',
+    'Mass spectrometer',
+    'MS data source',
+    'Identifier',
+  ];
+  if (failed) {
+    alwaysShow.push('status', 'notes', 'error');
+  }
   const keys = [
     ...LITERATURE_META_FIELDS.filter((k) => Object.prototype.hasOwnProperty.call(row, k)),
-    ...Object.keys(row).filter((k) => !LITERATURE_META_FIELDS.includes(k)),
+    ...Object.keys(row).filter(
+      (k) => !LITERATURE_META_FIELDS.includes(k) && !LITERATURE_META_HIDDEN.has(k),
+    ),
   ];
   alwaysShow.forEach((k) => {
     if (!keys.includes(k)) keys.push(k);
   });
   if (!keys.length) return '';
-  let html = '<div class="collection-meta-wrap"><table class="collection-meta-table"><tbody>';
+  let html = `<div class="collection-meta-wrap${failed ? ' is-failed' : ''}"><table class="collection-meta-table"><tbody>`;
   keys.forEach((key) => {
+    if (LITERATURE_META_HIDDEN.has(key)) return;
     const val = row[key];
     const isEmpty = val == null || String(val).trim() === '';
     if (isEmpty && !alwaysShow.includes(key)) return;
+    // Hide internal status/notes/error when extraction succeeded
+    if (!failed && (key === 'status' || key === 'notes' || key === 'error')) return;
     html += `<tr><th scope="row">${escapeHtml(key)}</th><td>${escapeHtml(isEmpty ? '-' : String(val))}</td></tr>`;
   });
   html += '</tbody></table></div>';
@@ -554,8 +602,7 @@ function renderLiteratureMetaTable(row) {
 async function resolveStage3Row(jobId, data) {
   const fromSummary = getStage3RowFromData(data);
   if (fromSummary) return fromSummary;
-  const stage = data && (data.current_stage || data.currentStage);
-  if (!jobId || stage !== 'stage3') return null;
+  if (!jobId) return null;
   try {
     const res = await fetch(`${COLLECTION_URL}/jobs/${jobId}/artifacts/metadata`);
     if (!res.ok) return null;
@@ -594,10 +641,13 @@ function renderStage4ScoutHtml(scout, previewFiles) {
               ? headers
               : (preview[0] ? preview[0].map((_, i) => `col_${i + 1}`) : []);
             let table = '';
-            if (cols.length && preview.length) {
+            if (cols.length) {
+              const bodyRows = preview.length
+                ? preview
+                : [cols.map(() => '')];
               table = `<div class="collection-preview-table-wrap"><table class="collection-preview-table"><thead><tr>${cols
                 .map((h) => `<th>${escapeHtml(String(h || ''))}</th>`)
-                .join('')}</tr></thead><tbody>${preview
+                .join('')}</tr></thead><tbody>${bodyRows
                 .map(
                   (row) =>
                     `<tr>${cols
@@ -605,6 +655,9 @@ function renderStage4ScoutHtml(scout, previewFiles) {
                       .join('')}</tr>`,
                 )
                 .join('')}</tbody></table></div>`;
+              if (!preview.length) {
+                table += `<div class="collection-preview-empty">Header row only (no data rows in preview).</div>`;
+              }
             }
             return `<div class="collection-preview-sheet">
               <div class="collection-preview-sheet-name">Sheet: ${escapeHtml(String(sh.name || 'Sheet1'))}</div>
@@ -883,7 +936,7 @@ function renderTableHintsFormHtml(candidates, jobId, { mode = 'teach' } = {}) {
       <div class="collection-teach-title"><i class="ri-lightbulb-line"></i> ${escapeHtml(title)}</div>
       ${bodyHtml}
       <div class="collection-teach-list">${rows}</div>
-      <textarea class="collection-teach-note" rows="2" placeholder="e.g. use mmc3.xlsx → Quantified; compute log2(P5/P1), log2(P7/P5), log2(P7/P1)"></textarea>
+      <textarea class="collection-teach-note" rows="2" placeholder="e.g. mod_sites column is UniProt+Amino acid+Position — split this column; or use mmc3.xlsx → Quantified; log2(P5/P1)"></textarea>
       <div class="collection-teach-actions">
         <button type="button" class="collection-btn collection-teach-apply"><i class="ri-check-line"></i> ${mode === 'adjust' ? 'Re-parse with selection' : 'Use selected tables'}</button>
       </div>
@@ -1075,9 +1128,13 @@ async function renderCollectionMessage(contentDiv, data, event, panel) {
   }
 
   let metaHtml = '';
-  if (stage === 'stage3' && awaitingContinue) {
+  const stage3Failed = Boolean(summary.stage3Failed) || data.stages?.stage3 === 'failed';
+  if (
+    (stage === 'stage3' && awaitingContinue) ||
+    (stage3Failed && (awaitingContinue || data.status === 'error'))
+  ) {
     const row = await resolveStage3Row(jobId, data);
-    metaHtml = renderLiteratureMetaTable(row);
+    metaHtml = renderLiteratureMetaTable(row, { failed: stage3Failed || !row });
   }
 
   let qratioPreviewHtml = '';
@@ -1126,6 +1183,7 @@ async function renderCollectionMessage(contentDiv, data, event, panel) {
   }
 
   // Teach / Adjust tables: after Stage5 failure, or after success when user may intervene.
+  // allowSkipToMsUrls: quant empty but Identifier present — still show teach form + Continue.
   const needsHints = Boolean(summary.needsTableHints) && (stage === 'stage5' || awaitingUpload);
   const allowHints =
     Boolean(summary.allowTableHints) &&
@@ -1298,10 +1356,21 @@ function resolveCollectionUploadKind(data, filename) {
 
 function renderCollectionActionsHtml(data, event) {
   const status = data?.status || event;
+  const summary = data?.summary || {};
+  const skipToMs = Boolean(summary.allowSkipToMsUrls);
   if (status === 'awaiting_continue') {
-    return `<div class="collection-actions">
-      <button type="button" class="collection-btn collection-continue-btn"><i class="ri-play-line"></i> Continue</button>
-    </div>`;
+    const continueLabel = skipToMs
+      ? 'Continue to MS URLs'
+      : 'Continue';
+    let html = `<div class="collection-actions">
+      <button type="button" class="collection-btn collection-continue-btn"><i class="ri-play-line"></i> ${escapeHtml(continueLabel)}</button>`;
+    // Stage5 quant-empty but Identifier present: still allow re-upload / teach tables.
+    if (skipToMs || Boolean(summary.needsTableHints)) {
+      html += `
+      <button type="button" class="collection-file-card collection-upload-btn" data-upload-kind="supplementary" data-accept=".zip,.xlsx,.xls,.csv,.tsv"><i class="ri-upload-2-line"></i><span>Upload supplementary tables</span></button>`;
+    }
+    html += `</div>`;
+    return html;
   }
   if (status === 'awaiting_upload') {
     const kind = resolveCollectionUploadKind(data);
@@ -1417,7 +1486,7 @@ function renderCollectionDownloadsHtml(jobId, data) {
     }
   }
 
-  if (stage === 'stage3' && summary.stage3Row) {
+  if (stage === 'stage3' && (summary.stage3Row || summary.stage3Failed)) {
     cards.push(`<a class="collection-file-card" href="${COLLECTION_URL}/jobs/${jobId}/download/literature_info" target="_blank" rel="noopener">
       <i class="ri-download-2-line"></i><span>Experimental_info.csv</span></a>`);
   }
@@ -1485,7 +1554,7 @@ async function ensureCollectionConversation(title) {
   if (conversationId) return conversationId;
   const res = await fetch(CONVERSATIONS_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: apiHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ title: title || 'Collection' }),
   });
   if (!res.ok) throw new Error(`Create conversation HTTP ${res.status}`);
@@ -1500,7 +1569,7 @@ async function persistCollectionUserTurn(text) {
   const id = await ensureCollectionConversation(text.slice(0, 60));
   await fetch(`${CONVERSATIONS_URL}/${encodeURIComponent(id)}/messages`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: apiHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ messages: [{ role: 'user', content: text }] }),
   });
   chatHistory.push({ role: 'user', content: text });
@@ -1529,7 +1598,7 @@ async function persistCollectionAssistantTurn(message, data) {
   };
   await fetch(`${CONVERSATIONS_URL}/${encodeURIComponent(id)}/messages`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: apiHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({
       title: data?.pmid ? `Collect PMID ${data.pmid}` : undefined,
       messages: [{ role: 'assistant', content: message, meta }],
@@ -1553,8 +1622,22 @@ function updateCollectionPanel(panel, data) {
   // Keep panel expanded while pipeline is running so live thinking is visible.
   if (status === 'running') panel.classList.remove('collapsed');
   const pmidEl = panel.querySelector('.collection-pmid');
-  if (pmidEl && data.pmid) {
-    pmidEl.textContent = stage === 'stage1' ? `PMID ${data.pmid}` : '';
+  if (pmidEl) {
+    const summary = data.summary || {};
+    const accessions = summary.accessions || summary.stage6?.accessions;
+    if ((data.resolve_urls || summary.resolveUrls) && Array.isArray(accessions) && accessions.length) {
+      pmidEl.textContent = accessions.join('; ');
+    } else if (data.pmid && stage === 'stage1') {
+      pmidEl.textContent = `PMID ${data.pmid}`;
+    } else if (data.pmid && (data.resolve_urls || summary.resolveUrls)) {
+      pmidEl.textContent = String(data.pmid);
+    } else {
+      pmidEl.textContent = '';
+    }
+  }
+  const titleEl = panel.querySelector('.collection-plan-title');
+  if (titleEl && (data.resolve_urls || (data.summary || {}).resolveUrls)) {
+    titleEl.textContent = 'MS Download URLs';
   }
   renderCollectionPlanSteps(panel, data);
 }
@@ -1783,8 +1866,6 @@ async function parseSseStream(response, onEvent) {
 
 async function streamCollectionJob(jobId, panel, contentDiv) {
   const signal = currentAbortController?.signal;
-  const response = await fetch(`${COLLECTION_URL}/jobs/${jobId}/stream`, { signal });
-  if (!response.ok) throw new Error(`Stream HTTP ${response.status}`);
   let terminal = false;
 
   const handleTerminal = async (event, data) => {
@@ -1800,12 +1881,24 @@ async function streamCollectionJob(jobId, panel, contentDiv) {
     if (!exp || eIdx < 0 || aIdx >= eIdx) {
       delete panel.dataset.expectedStage;
     }
-    await renderCollectionMessage(
-      contentDiv,
-      { ...data, job_id: data.job_id || jobId },
-      event,
-      panel,
-    );
+    try {
+      await renderCollectionMessage(
+        contentDiv,
+        { ...data, job_id: data.job_id || jobId },
+        event,
+        panel,
+      );
+    } catch (err) {
+      // Never surface raw "Failed to fetch" as the only Stage4/5 answer — keep prose + actions.
+      hideContentLoading(contentDiv);
+      const fallback = data?.message || 'Collection paused. Click Continue to retry, or refresh this conversation.';
+      contentDiv.innerHTML =
+        `<p style="color:#c0392b;font-size:13px;">${escapeHtml(err?.message || 'Failed to load stage widgets')}</p>` +
+        collectionAnswerBlock(fallback) +
+        renderCollectionDownloadsHtml(jobId, { ...data, job_id: jobId }) +
+        renderCollectionActionsHtml({ ...data, job_id: jobId }, event);
+      bindCollectionActions(contentDiv, panel, { ...data, job_id: jobId });
+    }
     chatArea.scrollTop = chatArea.scrollHeight;
   };
 
@@ -1834,7 +1927,7 @@ async function streamCollectionJob(jobId, panel, contentDiv) {
         }
       }
     } catch (_) {
-      /* ignore */
+      /* ignore transient poll errors */
     }
   };
 
@@ -1844,47 +1937,69 @@ async function streamCollectionJob(jobId, panel, contentDiv) {
   }, 4000);
 
   try {
-    await parseSseStream(response, async (event, data) => {
-      if (terminal) return;
-      updateCollectionPanel(panel, data);
-      const status = data?.status || '';
-      // Status payloads can already be terminal (proxy may drop the follow-up event).
-      if (
-        event === 'status' &&
-        ['awaiting_continue', 'awaiting_upload', 'completed', 'rejected', 'error'].includes(status)
-      ) {
-        const mapped =
-          status === 'completed' ? 'done' : status === 'error' ? 'error' : status;
-        await handleTerminal(mapped, data);
-        return 'stop';
+    let response = null;
+    try {
+      response = await fetch(`${COLLECTION_URL}/jobs/${jobId}/stream`, { signal });
+    } catch (err) {
+      if (err?.name === 'AbortError') return;
+      // SSE open failed — fall through to poll recovery (do not throw "Failed to fetch").
+      response = null;
+    }
+
+    if (response && response.ok) {
+      try {
+        await parseSseStream(response, async (event, data) => {
+          if (terminal) return;
+          updateCollectionPanel(panel, data);
+          const status = data?.status || '';
+          // Status payloads can already be terminal (proxy may drop the follow-up event).
+          if (
+            event === 'status' &&
+            ['awaiting_continue', 'awaiting_upload', 'completed', 'rejected', 'error'].includes(status)
+          ) {
+            const mapped =
+              status === 'completed' ? 'done' : status === 'error' ? 'error' : status;
+            await handleTerminal(mapped, data);
+            return 'stop';
+          }
+          if (event === 'status') {
+            const stage = data.current_stage || data.currentStage || '';
+            const meta = STAGE_THINKING_META[stage];
+            // Always expand panel while running so the user sees live progress.
+            if (panel) panel.classList.remove('collapsed');
+            if (meta && Array.isArray(data.summary?.[meta.key]) && data.summary[meta.key].length) {
+              renderGenericLiveThinking(contentDiv, { ...data, job_id: data.job_id || jobId }, panel);
+            } else {
+              showContentLoading(contentDiv, collectionRunningLabel(data));
+            }
+            return;
+          }
+          if (['awaiting_continue', 'awaiting_upload', 'done', 'rejected', 'error'].includes(event)) {
+            await handleTerminal(event, data);
+            return 'stop';
+          }
+        });
+      } catch (err) {
+        if (err?.name === 'AbortError') return;
+        // Proxy/network dropped the SSE mid-run — recover via job status polling.
       }
-      if (event === 'status') {
-        const stage = data.current_stage || data.currentStage || '';
-        const meta = STAGE_THINKING_META[stage];
-        // Always expand panel while running so the user sees live progress.
-        if (panel) panel.classList.remove('collapsed');
-        if (meta && Array.isArray(data.summary?.[meta.key]) && data.summary[meta.key].length) {
-          renderGenericLiveThinking(contentDiv, { ...data, job_id: data.job_id || jobId }, panel);
-        } else {
-          showContentLoading(contentDiv, collectionRunningLabel(data));
-        }
-        return;
-      }
-      if (['awaiting_continue', 'awaiting_upload', 'done', 'rejected', 'error'].includes(event)) {
-        await handleTerminal(event, data);
-        return 'stop';
-      }
-    });
+    }
   } finally {
     clearInterval(pollTimer);
   }
 
-  if (!terminal) {
+  if (signal?.aborted) return;
+
+  // Recover after SSE drop / open failure: poll until terminal or a few retries.
+  for (let i = 0; i < 8 && !terminal && !signal?.aborted; i++) {
     await pollOnce();
+    if (terminal) break;
+    await new Promise((r) => setTimeout(r, 1500));
   }
-  if (!terminal) {
+  if (!terminal && !signal?.aborted) {
     hideContentLoading(contentDiv);
-    contentDiv.innerHTML = '<p style="color:var(--text-muted);">Collection stream ended unexpectedly.</p>';
+    contentDiv.innerHTML =
+      '<p style="color:var(--text-muted);">Collection stream ended unexpectedly. Click Continue to retry, or refresh the conversation.</p>';
   }
 }
 
@@ -2112,9 +2227,27 @@ async function startCollectionFlow(message, files) {
   }
   persistCollectionUserTurn(userText).catch(() => {});
 
-  const { panel, contentDiv } = beginCollectionTurn('pending', null);
-  showContentLoading(contentDiv, files.length ? 'Reading upload and resolving PMID…' : 'Starting collection…');
-
+  const looksResolveUrls =
+    !files.length &&
+    /(?<![A-Za-z0-9_])(?:PXD|IPX|JPST|MSV|PDC)\d+(?![A-Za-z0-9_])/i.test(message || '') &&
+    /(download|url|link|pride|iprox|jpost|massive|cptac|下载|链接|质谱)/i.test(
+      message || '',
+    );
+  const { panel, contentDiv } = beginCollectionTurn(
+    'pending',
+    null,
+    looksResolveUrls
+      ? { current_stage: 'stage6', status: 'running', stages: {} }
+      : undefined,
+  );
+  showContentLoading(
+    contentDiv,
+    looksResolveUrls
+      ? 'Resolving MS repository download URLs…'
+      : files.length
+        ? 'Reading upload and resolving PMID…'
+        : 'Starting collection…',
+  );
   try {
     const fd = new FormData();
     if (message) fd.append('message', message);
@@ -2210,7 +2343,7 @@ function persistConversationId(id) {
 
 async function loadConversationList() {
   try {
-    const res = await fetch(CONVERSATIONS_URL);
+    const res = await fetch(CONVERSATIONS_URL, { headers: apiHeaders() });
     if (!res.ok) return;
     const data = await res.json();
     conversationList = data.conversations || [];
@@ -2231,10 +2364,52 @@ function renderSidebar() {
     const item = document.createElement('div');
     item.className = 'sidebar-item' + (conv.id === conversationId ? ' active' : '');
     item.title = conv.title || 'Untitled';
-    item.textContent = conv.title || 'Untitled';
+
+    const title = document.createElement('span');
+    title.className = 'sidebar-item-title';
+    title.textContent = conv.title || 'Untitled';
+
+    const delBtn = document.createElement('button');
+    delBtn.type = 'button';
+    delBtn.className = 'sidebar-item-delete';
+    delBtn.title = 'Delete';
+    delBtn.setAttribute('aria-label', 'Delete conversation');
+    delBtn.innerHTML = '<i class="ri-delete-bin-line"></i>';
+    delBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      deleteConversation(conv.id);
+    });
+
+    item.appendChild(title);
+    item.appendChild(delBtn);
     item.addEventListener('click', () => loadConversation(conv.id));
     sidebarHistory.appendChild(item);
   });
+}
+
+async function deleteConversation(id) {
+  if (!id || isStreaming) return;
+  if (!window.confirm('Delete this conversation from history?')) return;
+  try {
+    const res = await fetch(`${CONVERSATIONS_URL}/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: apiHeaders(),
+    });
+    if (!res.ok) {
+      console.warn('Failed to delete conversation:', res.status);
+      return;
+    }
+    conversationList = conversationList.filter((c) => c.id !== id);
+    if (conversationId === id) {
+      persistConversationId(null);
+      sessionId = null;
+      clearChatArea();
+    }
+    renderSidebar();
+  } catch (err) {
+    console.warn('Failed to delete conversation:', err);
+  }
 }
 
 function clearChatArea() {
@@ -2258,7 +2433,9 @@ async function loadConversation(id, { force = false } = {}) {
   if (isStreaming) return;
   if (!force && id === conversationId && chatArea.querySelector('.message')) return;
   try {
-    const res = await fetch(`${CONVERSATIONS_URL}/${encodeURIComponent(id)}`);
+    const res = await fetch(`${CONVERSATIONS_URL}/${encodeURIComponent(id)}`, {
+      headers: apiHeaders(),
+    });
     if (!res.ok) {
       if (res.status === 403 || res.status === 404) persistConversationId(null);
       return;
@@ -2300,6 +2477,7 @@ async function refreshStoredCollectionJobs(messages) {
     lastByJob.set(c.job_id, {
       lastStage: c.current_stage || c.currentStage || '',
       lastStatus: c.status || '',
+      msgMeta: c,
     });
   });
   for (const [jobId, info] of lastByJob) {
@@ -2308,9 +2486,26 @@ async function refreshStoredCollectionJobs(messages) {
       if (!res.ok) continue;
       const data = await res.json();
       const status = data.status || '';
-      const terminal = ['completed', 'rejected', 'error'].includes(status);
-      if (!terminal) continue;
+      const pauseOrDone = ['completed', 'rejected', 'error', 'awaiting_continue', 'awaiting_upload'].includes(
+        status,
+      );
+      if (!pauseOrDone) continue;
       // Already reflected by the last stored collection message.
+      if (info.lastStatus === status && ['completed', 'rejected', 'error'].includes(status)) continue;
+      // For pause states, re-render live widgets (supp-preview / teach form) in place when possible.
+      if (['awaiting_continue', 'awaiting_upload'].includes(status)) {
+        const panels = [...document.querySelectorAll(`.collection-panel[data-job-id="${jobId}"]`)];
+        const panel = panels[panels.length - 1];
+        const contentDiv = panel?.parentElement?.querySelector('.msg-content');
+        if (panel && contentDiv) {
+          contentDiv.dataset.skipPersist = '1';
+          const event =
+            status === 'awaiting_upload' ? 'awaiting_upload' : 'awaiting_continue';
+          await renderCollectionMessage(contentDiv, { ...data, job_id: jobId }, event, panel);
+          continue;
+        }
+      }
+      if (!['completed', 'rejected', 'error'].includes(status)) continue;
       if (info.lastStatus === status) continue;
       const msg = document.createElement('div');
       msg.className = 'message assistant';
@@ -2342,7 +2537,9 @@ async function refreshAssistantContentFromStore(contentDiv, { attempts = 4 } = {
   if (!conversationId || !contentDiv) return;
   for (let i = 0; i < attempts; i++) {
     try {
-      const res = await fetch(`${CONVERSATIONS_URL}/${encodeURIComponent(conversationId)}`);
+      const res = await fetch(`${CONVERSATIONS_URL}/${encodeURIComponent(conversationId)}`, {
+        headers: apiHeaders(),
+      });
       if (!res.ok) return;
       const data = await res.json();
       const msgs = data.messages || [];
@@ -2892,9 +3089,35 @@ function renderMarkdown(text) {
   let i = 0;
   let inList = false;
   let listType = 'ul';
+  /** First number of the current <ol> (for start= and continuity checks). */
+  let olStart = 1;
+  /** How many <li> already emitted in the current <ol>. */
+  let olItemCount = 0;
 
   function closeList() {
-    if (inList) { result.push(`</${listType}>`); inList = false; }
+    if (inList) {
+      result.push(`</${listType}>`);
+      inList = false;
+      olStart = 1;
+      olItemCount = 0;
+    }
+  }
+
+  function openOrderedList(startNum) {
+    const start = Number.isFinite(startNum) && startNum > 0 ? startNum : 1;
+    olStart = start;
+    olItemCount = 0;
+    result.push(start > 1 ? `<ol start="${start}">` : '<ol>');
+    inList = true;
+    listType = 'ol';
+  }
+
+  function openUnorderedList() {
+    olStart = 1;
+    olItemCount = 0;
+    result.push('<ul>');
+    inList = true;
+    listType = 'ul';
   }
 
   while (i < lines.length) {
@@ -3008,18 +3231,47 @@ function renderMarkdown(text) {
     }
 
     const ulMatch = trimmed.match(/^[\-\*] (.+)$/);
-    const olMatch = trimmed.match(/^\d+\. (.+)$/);
+    const olMatch = trimmed.match(/^(\d+)\. (.+)$/);
     if (ulMatch || olMatch) {
       const newType = ulMatch ? 'ul' : 'ol';
-      if (!inList) { result.push(`<${newType}>`); inList = true; listType = newType; }
-      else if (listType !== newType) { result.push(`</${listType}><${newType}>`); listType = newType; }
-      result.push(`<li>${applyInlineMarkdown(ulMatch ? ulMatch[1] : olMatch[1])}</li>`);
+      const mdNum = olMatch ? parseInt(olMatch[1], 10) : 1;
+      if (!inList) {
+        if (newType === 'ol') openOrderedList(mdNum);
+        else openUnorderedList();
+      } else if (listType !== newType) {
+        closeList();
+        if (newType === 'ol') openOrderedList(mdNum);
+        else openUnorderedList();
+      } else if (newType === 'ol' && Number.isFinite(mdNum) && mdNum !== olStart + olItemCount) {
+        // Number jumped (e.g. 1,2 then 5) — reopen so ::marker matches markdown.
+        closeList();
+        openOrderedList(mdNum);
+      }
+      result.push(`<li>${applyInlineMarkdown(ulMatch ? ulMatch[1] : olMatch[2])}</li>`);
+      if (listType === 'ol') olItemCount++;
+      i++;
+      continue;
+    }
+
+    // Blank lines: keep the same list open when the next non-empty line is still
+    // a list item of the same type (so ::marker does not restart at 1).
+    if (trimmed === '') {
+      let k = i + 1;
+      while (k < lines.length && lines[k].trim() === '') k++;
+      const next = k < lines.length ? lines[k].trim() : '';
+      const nextUl = /^[\-\*] /.test(next);
+      const nextOl = /^\d+\. /.test(next);
+      if (inList && ((listType === 'ul' && nextUl) || (listType === 'ol' && nextOl))) {
+        i++;
+        continue;
+      }
+      closeList();
       i++;
       continue;
     }
 
     closeList();
-    if (trimmed === '') { i++; continue; }
+    // trimmed is non-empty here
 
     // Bare "Next step" / "下一步" line (no ##) followed by questions
     if (isNextStepHeadingText(trimmed)) {
@@ -3107,7 +3359,7 @@ function createPlanPanelEl(data, collapsed = false) {
     </div>
   `).join('');
   panel.innerHTML = `
-    <div class="plan-panel-header"><i class="ri-route-line"></i> Research Plan<i class="ri-arrow-down-s-line toggle-arrow"></i></div>
+    <div class="plan-panel-header"><i class="ri-list-check"></i> Research Plan<i class="ri-arrow-down-s-line toggle-arrow"></i></div>
     <div class="plan-panel-details">
       <div class="plan-panel-summary">${escapeHtml(data.intent_summary || '')}</div>
       <div class="plan-steps">${stepsHtml}</div>
@@ -3422,8 +3674,15 @@ function looksLikeCollectionGuidance(text) {
   // Combined-site / split-column Teach notes
   if (/site[- ]level/i.test(t)) return true;
   if (/split\s+(?:this\s+)?column/i.test(t)) return true;
-  if (/phosphosite/i.test(t) && /split|amino|position|column/i.test(t)) return true;
+  if (/\bsplit\b/i.test(t) && /\b(column|uniprot|amino|acide|acid|position|mod[_\s-]?sites?)\b/i.test(t)) {
+    return true;
+  }
+  if (/phosphosite|mod[_\s-]?sites?/i.test(t) && /split|amino|acide|acid|position|column|uniprot/i.test(t)) {
+    return true;
+  }
   if (/protein\s*\+\s*phosphosite/i.test(t)) return true;
+  if (/\w+\s+columns?\s+is\s+uniprot/i.test(t)) return true;
+  if (/columns?\s+\w+.+(?:uniprot|gene).+(?:amino|position)/i.test(t)) return true;
   if (/missing\s+log2?\s*ratio\s*\(\s*protein\s*\)/i.test(t)) return true;
   if (/protein[- ]level/i.test(t)) return true;
   if (/do\s+not\s+skip/i.test(t)) return true;
@@ -3551,7 +3810,7 @@ async function sendMessage() {
   try {
     const response = await fetch(CHAT_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: apiHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({
         message: text,
         session_id: sessionId,

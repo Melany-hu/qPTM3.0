@@ -313,28 +313,6 @@ export function stage6UrlsAllPath(): string {
   return join(stage6Dir(), "urls_all.csv")
 }
 
-export function stage7Dir(): string {
-  const dir = join(dataRoot(), "stage7")
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
-  return dir
-}
-
-export function stage7LiteratureInfoPath(): string {
-  return join(stage7Dir(), "literature_info.csv")
-}
-
-export function stage7QratioCsvPath(): string {
-  return join(stage7Dir(), "qratio.csv")
-}
-
-export function stage7PmidsCsvPath(): string {
-  return join(stage7Dir(), "pmids.csv")
-}
-
-export function stage7ManifestJsonlPath(): string {
-  return join(stage7Dir(), "stage7_manifest.jsonl")
-}
-
 export interface QratioSuccessRow {
   pmid: string
   title: string
@@ -939,15 +917,63 @@ export function loadStage3Results(): LiteratureInfoRow[] {
   return out
 }
 
+/** PMIDs with a successful Stage3 extraction (errors remain retriable). */
 export function loadStage3DonePmids(): Set<string> {
-  return new Set(loadStage3Results().map((r) => r.pmid).filter(Boolean))
+  return new Set(
+    loadStage3Results()
+      .filter((r) => r.status === "ok" || r.status === "partial")
+      .map((r) => r.pmid)
+      .filter(Boolean),
+  )
+}
+
+/** Latest Stage3 result for one PMID (includes error shells). */
+export function loadStage3ResultForPmid(pmid: string): LiteratureInfoRow | null {
+  const want = (pmid || "").trim()
+  if (!want) return null
+  const all = loadStage3Results()
+  for (let i = all.length - 1; i >= 0; i--) {
+    if (all[i].pmid === want) return all[i]
+  }
+  return null
+}
+
+/** Map LiteratureInfoRow → UI / literature_info column names. */
+export function literatureInfoToDisplayRow(r: LiteratureInfoRow): Record<string, string> {
+  return {
+    PMID: r.pmid || "",
+    Title: r.title || "",
+    Sample: r.sample || "",
+    "Sample type": r.sampleType || "",
+    Organism: r.organism || "",
+    PTMs: r.ptms || "",
+    "Label method": r.labelMethod || "",
+    Condition: r.condition || "",
+    "Detail condition": r.detailCondition || "",
+    "Enrichment method": r.enrichmentMethod || "",
+    "Mass spectrometer": r.massSpectrometer || "",
+    "MS data source": r.msDataSource || "",
+    Identifier: r.identifier || "",
+    status: r.status || "",
+    notes: r.notes || "",
+    error: r.error || "",
+  }
 }
 
 export function appendStage3Results(rows: LiteratureInfoRow[]): void {
   if (rows.length === 0) return
-  appendFileSync(
+  // Upsert by PMID so Stage3 retries replace prior error shells instead of stacking.
+  const byPmid = new Map<string, LiteratureInfoRow>()
+  for (const r of loadStage3Results()) {
+    if (r.pmid) byPmid.set(r.pmid, r)
+  }
+  for (const r of rows) {
+    if (r.pmid) byPmid.set(r.pmid, r)
+  }
+  stage3Dir()
+  writeFileSync(
     stage3ResultsJsonlPath(),
-    rows.map((r) => JSON.stringify(r)).join("\n") + "\n",
+    [...byPmid.values()].map((r) => JSON.stringify(r)).join("\n") + "\n",
     "utf8",
   )
   rebuildStage3Outputs()
@@ -968,7 +994,6 @@ export function rebuildStage3Outputs(): void {
     "Label method",
     "Condition",
     "Detail condition",
-    "Condition-Sample map",
     "Enrichment method",
     "Mass spectrometer",
     "MS data source",
@@ -993,7 +1018,6 @@ export function rebuildStage3Outputs(): void {
         csvEscape(r.labelMethod),
         csvEscape(r.condition),
         csvEscape(r.detailCondition),
-        csvEscape(r.conditionSampleMap || ""),
         csvEscape(r.enrichmentMethod),
         csvEscape(r.massSpectrometer),
         csvEscape(r.msDataSource),
@@ -1019,7 +1043,6 @@ export function rebuildStage3Outputs(): void {
     "Label method",
     "Condition",
     "Detail condition",
-    "Condition-Sample map",
     "Enrichment method",
     "Mass spectrometer",
     "MS data source",
@@ -1038,7 +1061,6 @@ export function rebuildStage3Outputs(): void {
         csvEscape(r.labelMethod),
         csvEscape(r.condition),
         csvEscape(r.detailCondition),
-        csvEscape(r.conditionSampleMap || ""),
         csvEscape(r.enrichmentMethod),
         csvEscape(r.massSpectrometer),
         csvEscape(r.msDataSource),

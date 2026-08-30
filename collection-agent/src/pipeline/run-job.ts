@@ -22,6 +22,8 @@ import { runStage5Parse } from "./stage5.js"
 import { runStage6DownloadUrls } from "./stage6.js"
 import {
   loadAllScreenResults,
+  literatureInfoToDisplayRow,
+  loadStage3ResultForPmid,
   parseCsv,
   setDataRoot,
   stage2FulltextDir,
@@ -42,6 +44,7 @@ import {
   messageFulltextMissing,
   messageFulltextOk,
   messageInclude,
+  messageMetaFailed,
   messageMsUrlsComplete,
   messageParseEmpty,
   messageParseOk,
@@ -155,22 +158,38 @@ function loadScoutRecord(outDir: string, pmid: string): SuppScoutRecord | null {
 
 function loadStage3Row(pmid: string): Record<string, string> | null {
   const path = stage3LiteratureInfoPath()
-  if (!existsSync(path)) return null
-  const rows = parseCsv(readFileSync(path, "utf8"))
-  if (rows.length < 2) return null
-  const header = rows[0].map((h) => h.trim().replace(/^\uFEFF/, ""))
-  const pmidIdx = header.findIndex((h) => h.toLowerCase() === "pmid")
-  if (pmidIdx < 0) return null
-  for (let i = 1; i < rows.length; i++) {
-    const cols = rows[i]
-    if ((cols[pmidIdx] ?? "").trim() !== pmid) continue
-    const row: Record<string, string> = {}
-    header.forEach((key, idx) => {
-      row[key] = (cols[idx] ?? "").trim()
-    })
-    return row
+  if (existsSync(path)) {
+    const rows = parseCsv(readFileSync(path, "utf8"))
+    if (rows.length >= 2) {
+      const header = rows[0].map((h) => h.trim().replace(/^\uFEFF/, ""))
+      const pmidIdx = header.findIndex((h) => h.toLowerCase() === "pmid")
+      if (pmidIdx >= 0) {
+        for (let i = 1; i < rows.length; i++) {
+          const cols = rows[i]
+          if ((cols[pmidIdx] ?? "").trim() !== pmid) continue
+          const row: Record<string, string> = {}
+          header.forEach((key, idx) => {
+            row[key] = (cols[idx] ?? "").trim()
+          })
+          return row
+        }
+      }
+    }
   }
-  return null
+  // Fall back to stage3_results (includes error shells for UI / retry messaging).
+  const fromJsonl = loadStage3ResultForPmid(pmid)
+  return fromJsonl ? literatureInfoToDisplayRow(fromJsonl) : null
+}
+
+/** True when Stage3 produced usable experimental metadata for Stage5. */
+function hasUsableStage3Meta(row: Record<string, string> | null): boolean {
+  if (!row) return false
+  const status = String(row.status || "").toLowerCase()
+  if (status === "error") return false
+  const sample = String(row.Sample || row.sample || "").trim()
+  const organism = String(row.Organism || row.organism || "").trim()
+  const ptms = String(row.PTMs || row.ptms || "").trim()
+  return Boolean(sample || organism || ptms)
 }
 
 export async function runCollectionJob(options: RunCollectionJobOptions): Promise<CollectionJobState> {
@@ -534,18 +553,58 @@ export async function runCollectionJob(options: RunCollectionJobOptions): Promis
         onProgress: (step, message) => emit3(step, message),
       })
       const stage3Row = loadStage3Row(pmid)
+      const metaOk = hasUsableStage3Meta(stage3Row) && (s3.ok > 0 || s3.partial > 0)
+
+      if (!metaOk) {
+        const errText =
+          stage3Row?.error ||
+          stage3Row?.notes ||
+          (s3.errors > 0 ? "Metadata extraction failed" : "No experimental metadata extracted")
+        emit3("result", `Metadata extraction failed: ${errText}`)
+        markStage("stage3", "failed")
+        return patchJobState(options.outDir, {
+          jobId: options.jobId,
+          pmid,
+          status: "awaiting_continue",
+          currentStage: "stage3",
+          nextStage: "stage3",
+          awaitingUpload: null,
+          message: messageMetaFailed({ error: errText }),
+          stages: { stage3: "failed" },
+          error: String(errText),
+          summary: {
+            stage3: s3,
+            stage3Row,
+            stage3Thinking: thinking3,
+            stage3Failed: true,
+            ...artifactSummary(pmid),
+          },
+        })
+      }
 
       emit3("result", `Metadata extracted: ${stage3Row?.Sample || "unknown sample"}, ${stage3Row?.Organism || "unknown organism"}, PTM: ${stage3Row?.PTMs || "unknown"}`)
       markStage("stage3", "completed")
-      return pauseContinue(
-        "stage3",
-        [
+      return patchJobState(options.outDir, {
+        jobId: options.jobId,
+        pmid,
+        status: "awaiting_continue",
+        currentStage: "stage3",
+        nextStage: nextStageAfter("stage3"),
+        awaitingUpload: null,
+        error: "",
+        message: [
           "Literature metadata extracted. Review the table below.",
           UI_SEG.AFTER_META,
           "Click Continue to scout supplementary quantitative tables.",
         ].join("\n"),
-        { stage3: s3, stage3Row, stage3Thinking: thinking3, ...artifactSummary(pmid) },
-      )
+        summary: {
+          stage3: s3,
+          stage3Row,
+          stage3Thinking: thinking3,
+          stage3Failed: false,
+          ...artifactSummary(pmid),
+        },
+      })
     }
 
     // ── Stage 4: Supplementary scout ────────────────────────────────────────
@@ -607,6 +666,31 @@ export async function runCollectionJob(options: RunCollectionJobOptions): Promis
 
     // ── Stage 5: Parse quantitative tables ──────────────────────────────────
     if (shouldRunStage(resumeFrom, "stage5")) {
+      const stage3BeforeParse = loadStage3Row(pmid)
+      if (!hasUsableStage3Meta(stage3BeforeParse)) {
+        const errText =
+          stage3BeforeParse?.error ||
+          stage3BeforeParse?.notes ||
+          "Experimental metadata is missing (Sample / Organism / PTMs)"
+        markStage("stage3", "failed")
+        return patchJobState(options.outDir, {
+          jobId: options.jobId,
+          pmid,
+          status: "awaiting_continue",
+          currentStage: "stage3",
+          nextStage: "stage3",
+          awaitingUpload: null,
+          message: messageMetaFailed({ error: errText }),
+          stages: { stage3: "failed", stage5: "pending" },
+          error: String(errText),
+          summary: {
+            stage3Row: stage3BeforeParse,
+            stage3Failed: true,
+            ...artifactSummary(pmid),
+          },
+        })
+      }
+
       markStage("stage5", "running")
       log("Stage 5: parse quantitative tables")
       const thinking: unknown[] = []
@@ -685,6 +769,36 @@ export async function runCollectionJob(options: RunCollectionJobOptions): Promis
       }
 
       if (rowCount <= 0) {
+        markStage("stage5", "failed")
+        const stage3Row = loadStage3Row(pmid)
+        const identifier = String(
+          stage3Row?.Identifier || stage3Row?.identifier || "",
+        ).trim()
+        const canSkipToMsUrls = Boolean(identifier)
+        if (canSkipToMsUrls) {
+          // Quant parse failed, but Stage 3 already has PXD/IPX/… — allow Stage 6.
+          return patchJobState(options.outDir, {
+            jobId: options.jobId,
+            pmid,
+            status: "awaiting_continue",
+            currentStage: "stage5",
+            nextStage: "stage6",
+            awaitingUpload: null,
+            offerContribute: false,
+            message: messageParseEmpty({ canSkipToMsUrls: true, identifier }),
+            stages: { stage5: "failed" },
+            summary: {
+              stage5: s5,
+              qratioRowCount: 0,
+              stage5Thinking: thinking.slice(-60),
+              needsTableHints: true,
+              allowTableHints: true,
+              allowSkipToMsUrls: true,
+              stage3Row,
+              ...artifactSummary(pmid),
+            },
+          })
+        }
         return patchJobState(options.outDir, {
           jobId: options.jobId,
           pmid,
@@ -694,6 +808,7 @@ export async function runCollectionJob(options: RunCollectionJobOptions): Promis
           awaitingUpload: "supplementary",
           offerContribute: false,
           message: messageParseEmpty(),
+          stages: { stage5: "failed" },
           summary: {
             stage5: s5,
             qratioRowCount: 0,
@@ -772,6 +887,7 @@ export async function runCollectionJob(options: RunCollectionJobOptions): Promis
         priorContribution?.willing === true || priorContribution?.willing === false
       const stage3Row = loadStage3Row(pmid)
       const identifier = stage3Row?.Identifier || stage3Row?.identifier || ""
+      const missingIdentifier = !String(identifier).trim()
       return patchJobState(options.outDir, {
         jobId: options.jobId,
         pmid,
@@ -787,6 +903,7 @@ export async function runCollectionJob(options: RunCollectionJobOptions): Promis
         message: messageMsUrlsComplete({
           totalUrls: s6.totalUrls,
           statusNote: s6.error ? `Note: ${s6.error}` : undefined,
+          missingIdentifier: missingIdentifier && !(s6.totalUrls && s6.totalUrls > 0),
         }),
         summary: {
           stage6: { ...s6, identifier },

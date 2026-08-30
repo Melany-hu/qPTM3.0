@@ -8,7 +8,7 @@
 <body>
 <div id="preloader">
   <div class="preloader-inner">
-    <div class="preloader-spinner"></div>
+    <div class="typing-dots typing-dots-lg" aria-hidden="true"><span></span><span></span><span></span></div>
     <span class="preloader-text">Loading...</span>
   </div>
 </div>
@@ -50,6 +50,12 @@
               <li><a href="#help-literatures" class="help-nav-link">Curated literatures</a></li>
             </ul>
           </li>
+          <li>
+            <a href="#help-agent" class="help-nav-link"><i class="ri-robot-2-line mr-2"></i>PTM Agent</a>
+            <ul class="help-nav-sublist">
+              <li><a href="#help-agent-databases" class="help-nav-link">Integrated databases</a></li>
+            </ul>
+          </li>
           <li><a href="#help-contact" class="help-nav-link"><i class="ri-team-line mr-2"></i>Contact</a></li>
         </ul>
       </nav>
@@ -80,32 +86,32 @@
               <tr>
                 <td>Literatures</td>
                 <td>636</td>
-                <td>744</td>
-                <td>108</td>
+                <td>846</td>
+                <td>210</td>
               </tr>
               <tr>
                 <td>PTM events</td>
                 <td>11,482,553</td>
-                <td>14,183,172</td>
-                <td>2,700,619</td>
+                <td>15,896,674</td>
+                <td>4,314,121</td>
               </tr>
               <tr>
                 <td>PTM sites</td>
                 <td>660,030</td>
-                <td>796,337</td>
-                <td>136,307</td>
+                <td>959,686</td>
+                <td>299,656</td>
               </tr>
               <tr>
                 <td>Proteins</td>
                 <td>40,728</td>
-                <td>73,783</td>
-                <td>33,055</td>
+                <td>48,666</td>
+                <td>7,938</td>
               </tr>
               <tr>
                 <td>Conditions</td>
                 <td>2,596</td>
-                <td>3,391</td>
-                <td>795</td>
+                <td>3,730</td>
+                <td>1,134</td>
               </tr>
             </tbody>
           </table>
@@ -239,6 +245,67 @@
             </thead>
             <tbody id="curated-literatures-body">
               <tr><td colspan="7" class="text-muted">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="lp-panel help-section" id="help-agent">
+    <div class="lp-panel-header"><i class="ri-robot-2-line mr-2"></i>PTM Agent</div>
+    <div class="lp-panel-body">
+      <p class="text-des">The <strong>PTM Research Agent</strong> (<a href="agent.php">agent.php</a>) answers natural-language questions about modification sites by querying qPTM together with <strong>37</strong> complementary databases spanning upstream enzymes, quantitative dynamics, subcellular and sequence context, functional and disease associations, protein interactions, pathways, and supporting literature. Evidence retrieved from each source is tagged as <strong>Experimental</strong> or <strong>Predicted</strong> and cited in agent responses.</p>
+
+      <div class="help-summary-section help-section" id="help-agent-databases">
+        <h3 class="help-summary-title">Integrated databases (n = 37)</h3>
+        <div class="help-table-scroll">
+          <table class="lp-table help-agent-db-table">
+            <thead>
+              <tr>
+                <th>Database</th>
+                <th>Description</th>
+                <th>Evidence</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td><a href="https://research.bioinformatics.udel.edu/iptmnet/" target="_blank" rel="noopener">iPTMnet</a></td><td>Integrated PTM enzyme&ndash;substrate relationships and PTM-dependent protein&ndash;protein interactions aggregated from multiple resources and text mining.</td><td>Experimental</td></tr>
+              <tr><td><a href="https://www.phosphosite.org" target="_blank" rel="noopener">PhosphoSitePlus</a></td><td>Literature-based mammalian PTM annotations including kinase&ndash;substrate links, regulatory site functions, disease-associated sites, and PTM-disrupting variants (PTMVar).</td><td>Experimental</td></tr>
+              <tr><td><a href="https://gps.biocuckoo.cn" target="_blank" rel="noopener">GPS 6.0</a></td><td>Kinase-specific phosphorylation site annotations with GPS confidence scores for human substrates.</td><td>Experimental</td></tr>
+              <tr><td><a href="http://gpsuber.biocuckoo.cn/" target="_blank" rel="noopener">GPS-Uber</a></td><td>Site-specific E3 ligase&ndash;substrate relationships (ssESRs) for lysine ubiquitination sites.</td><td>Experimental</td></tr>
+              <tr><td><a href="https://sumo.biocuckoo.cn/" target="_blank" rel="noopener">GPS-SUMO 2.0</a></td><td>Literature-backed SUMOylation sites and SUMO-interacting motifs (SIMs) from the GPS-SUMO training and test datasets.</td><td>Experimental</td></tr>
+              <tr><td><a href="http://weram.biocuckoo.org" target="_blank" rel="noopener">WERAM</a></td><td>Writers, erasers, and readers of histone acetylation and methylation across eukaryotes.</td><td>Experimental</td></tr>
+              <tr><td><a href="http://ubibrowser.bio-it.cn/ubibrowser_v3/home/index" target="_blank" rel="noopener">UbiBrowser 2.0</a></td><td>Proteome-wide E3 ligase and deubiquitinase (DUB)&ndash;substrate interactions from literature and high-confidence prediction.</td><td>Experimental</td></tr>
+              <tr><td><a href="https://kaka.omicsbio.info/" target="_blank" rel="noopener">KAKA</a></td><td>Experimentally validated kinase activity&ndash;related key alterations (missense mutations classified by effect on kinase activity).</td><td>Experimental</td></tr>
+              <tr><td><a href="https://ekpi.omicsbio.info/" target="_blank" rel="noopener">eKPI</a></td><td>Quantitative Spearman correlations between kinase abundance (mRNA, protein, or kinase phosphosites) and substrate phosphosite levels across cancer cohorts.</td><td>Experimental</td></tr>
+              <tr><td><a href="https://pmads-db.org" target="_blank" rel="noopener">PMADS</a></td><td>Drug&ndash;PTM&ndash;disease associations across proteins, drugs, PTM types, and disease classes.</td><td>Experimental</td></tr>
+              <tr><td><a href="https://go.drugbank.com" target="_blank" rel="noopener">DrugBank 6.0</a></td><td>Drug&ndash;target associations including drug names, types, approval status, and pharmacological action at the protein level.</td><td>Experimental</td></tr>
+              <tr><td><a href="https://www.proteomicsdb.org/decryptm" target="_blank" rel="noopener">decryptM</a></td><td>Dose- and time-resolved drug&ndash;PTM modulation atlas from quantitative phospho, ubiquitin, and acetyl proteomics (ProteomicsDB).</td><td>Experimental</td></tr>
+              <tr><td><a href="https://qptm3.omicsbio.info" target="_blank" rel="noopener">qPTM</a></td><td>Core quantitative PTM database: site-resolved log<sub>2</sub> fold changes, <em>P</em> values, experimental conditions, matched whole-proteome ratios, and integrated kinase&ndash;substrate associations across 12 PTM classes.</td><td>Experimental</td></tr>
+              <tr><td><a href="http://bio-bigdata.hrbmu.edu.cn/CancerProteome" target="_blank" rel="noopener">CancerProteome</a></td><td>Literature-based and re-analysed MS quantification of PTM sites and whole proteomes across 21 cancer types (tumor vs. control).</td><td>Experimental</td></tr>
+              <tr><td><a href="https://www.uniprot.org" target="_blank" rel="noopener">UniProt</a></td><td>Protein function descriptions, subcellular location keywords, domain architecture, and cross-references.</td><td>Experimental</td></tr>
+              <tr><td><a href="https://www.ebi.ac.uk/interpro/" target="_blank" rel="noopener">InterPro</a></td><td>Integrated protein domain and family database with functional descriptions and GO terms.</td><td>Experimental</td></tr>
+              <tr><td><a href="https://www.ebi.ac.uk/interpro/entry/pfam/" target="_blank" rel="noopener">Pfam</a></td><td>Protein family and domain annotations accessed via the InterPro REST API.</td><td>Experimental</td></tr>
+              <tr><td><a href="https://compartments.jensenlab.org/" target="_blank" rel="noopener">COMPARTMENTS</a></td><td>Subcellular localization integrating literature, high-throughput screens, text mining, and sequence-based predictors with confidence scores.</td><td>Experimental</td></tr>
+              <tr><td><a href="https://subcell.idrblab.cn/" target="_blank" rel="noopener">SubCELL</a></td><td>Subcellular compartment-specific molecular interactions (SCSIs) and protein location annotations.</td><td>Experimental</td></tr>
+              <tr><td><a href="http://inuloc.omicsbio.info/" target="_blank" rel="noopener">iNuLoC</a></td><td>Determinant of nuclear localization (DNL) regions, nuclear localization probabilities, and NLS/NES motifs (via NLSdb).</td><td>Experimental</td></tr>
+              <tr><td><a href="https://services.healthtech.dtu.dk/services/SignalP-6.0/" target="_blank" rel="noopener">SignalP 6.0</a></td><td>Proteome-scale predictions of secretory signal peptides (Sec/SPI) and cleavage sites for placing PTM sites in signal-peptide context.</td><td>Predicted</td></tr>
+              <tr><td><a href="https://reactome.org" target="_blank" rel="noopener">Reactome</a></td><td>Pathway knowledgebase reporting pathway membership and biological process context.</td><td>Experimental</td></tr>
+              <tr><td><a href="https://www.kegg.jp" target="_blank" rel="noopener">KEGG</a></td><td>Kyoto Encyclopedia of Genes and Genomes pathway maps and metabolic/signaling context.</td><td>Experimental</td></tr>
+              <tr><td><a href="https://pathbank.org" target="_blank" rel="noopener">PathBank</a></td><td>Comprehensive pathway database indexing SMPDB protein&ndash;pathway associations (metabolic, disease, drug-action, and signaling pathways).</td><td>Experimental</td></tr>
+              <tr><td><a href="https://www.nature.com/articles/s41587-019-0344-3" target="_blank" rel="noopener">Funcscore</a></td><td>Machine-learning functional priority scores (0&ndash;1) for human phosphosites based on proteomic, structural, regulatory, and evolutionary features.</td><td>Predicted</td></tr>
+              <tr><td><a href="https://www.ncbi.nlm.nih.gov/pmc/articles/PMC9839724/" target="_blank" rel="noopener">PTM-stability</a></td><td>Literature-based PTM&ndash;protein stability relationships (stabilize/destabilize) covering phospho-, methyl-, acetyl-, ubiquityl-, SUMO-, and related degrons.</td><td>Experimental</td></tr>
+              <tr><td><a href="http://ptmcode.embl.de" target="_blank" rel="noopener">PTMcode2</a></td><td>Functional associations between PTM pairs within proteins and between interacting proteins (literature-backed subset for qPTM organisms).</td><td>Experimental</td></tr>
+              <tr><td><a href="https://ptmint.sjtu.edu.cn/" target="_blank" rel="noopener">PTMint</a></td><td>Literature-based evidence that PTMs enhance or inhibit protein&ndash;protein interactions.</td><td>Experimental</td></tr>
+              <tr><td><a href="https://ptmphase.sjtu.edu.cn" target="_blank" rel="noopener">PTMPhaSe</a></td><td>Literature-based PTM regulation of liquid&ndash;liquid phase separation (LLPS); includes the PhosLLPS predictor for phosphorylation-driven LLPS.</td><td>Experimental</td></tr>
+              <tr><td><a href="https://dscope.omicsbio.info" target="_blank" rel="noopener">dSCOPE</a></td><td>Literature-identified and predicted protein sequence segments critical for liquid&ndash;liquid phase separation (LLPS).</td><td>Experimental</td></tr>
+              <tr><td><a href="https://biomics.lab.nycu.edu.tw/dbPTM/" target="_blank" rel="noopener">dbPTM</a></td><td>PTM sites associated with disease via nearby non-synonymous SNPs (GWAS/dbSNP integration).</td><td>Experimental</td></tr>
+              <tr><td><a href="https://ptmd.biocuckoo.cn/" target="_blank" rel="noopener">PTMD 2.0</a></td><td>PTM&ndash;disease associations across PTM types and diseases with directional association states (up/down, absence/presence, creation/disruption).</td><td>Experimental</td></tr>
+              <tr><td><a href="https://activedriverdb.org" target="_blank" rel="noopener">ActiveDriverDB</a></td><td>Integration of PTM sites with germline/somatic mutations and site-specific kinase&ndash;target signaling network edges.</td><td>Experimental</td></tr>
+              <tr><td><a href="https://string-db.org" target="_blank" rel="noopener">STRING</a></td><td>Protein association networks including physical and functional interactions with confidence scores.</td><td>Experimental</td></tr>
+              <tr><td><a href="https://thebiogrid.org" target="_blank" rel="noopener">BioGRID</a></td><td>Repository of protein and genetic interactions from the literature.</td><td>Experimental</td></tr>
+              <tr><td><a href="https://www.ebi.ac.uk/intact" target="_blank" rel="noopener">IntAct</a></td><td>IMEx consortium molecular interaction database of experimentally reported interactions.</td><td>Experimental</td></tr>
+              <tr><td><a href="https://www.ncbi.nlm.nih.gov/research/pubtator3/" target="_blank" rel="noopener">PubTator3</a></td><td>Biomedical literature search and entity tagging (genes, chemicals, diseases, variants) when integrated databases cannot fully answer a question.</td><td>Experimental</td></tr>
             </tbody>
           </table>
         </div>

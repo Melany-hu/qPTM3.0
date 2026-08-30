@@ -48,8 +48,9 @@ import {
 import {
   dedupeQratioRows,
   parseMappedSheet,
-  QRATIO_CSV_HEADER,
+  qratioCsvHeader,
   qratioToCsvLine,
+  type QratioCsvOptions,
   type QratioRow,
 } from "../stage5/parse-rows.js"
 import { sheetsAlignWithStage3Samples } from "../stage5/sample-map.js"
@@ -114,6 +115,7 @@ export interface Stage5ThinkingStep {
     | "sample_from_sheet"
     | "try_sheet"
     | "mapping"
+    | "role_hint"
     | "progress"
     | "parsed"
     | "skip"
@@ -247,17 +249,55 @@ function loadDonePmids(): Set<string> {
 function appendQratioRows(rows: QratioRow[]): void {
   if (rows.length === 0) return
   const rowsPath = join(stage5Dir(), "qratio_rows.jsonl")
-  const csvPath = stage5QratioCsvPath()
-  if (!existsSync(csvPath)) {
-    writeFileSync(csvPath, QRATIO_CSV_HEADER.join(",") + "\n", "utf8")
-  }
-  // chunk writes to avoid giant intermediate strings
+  // Always persist full row objects; CSV columns are chosen when rebuilding.
   const chunk = 2000
   for (let i = 0; i < rows.length; i += chunk) {
     const part = rows.slice(i, i + chunk)
     appendFileSync(rowsPath, part.map((r) => JSON.stringify(r)).join("\n") + "\n", "utf8")
-    appendFileSync(csvPath, part.map(qratioToCsvLine).join("\n") + "\n", "utf8")
   }
+  // Rebuild CSV so Localization probability / PEP appear only when non-empty.
+  rebuildQratioCsvFromJsonlSync()
+}
+
+/** Sync rebuild of qratio.csv from jsonl with optional Localization/PEP columns. */
+function rebuildQratioCsvFromJsonlSync(): number {
+  const rowsPath = join(stage5Dir(), "qratio_rows.jsonl")
+  const csvPath = stage5QratioCsvPath()
+  let includeLocalization = false
+  let includePep = false
+  let n = 0
+  const lines = existsSync(rowsPath)
+    ? readFileSync(rowsPath, "utf8").split(/\r?\n/)
+    : []
+  for (const line of lines) {
+    const t = line.trim()
+    if (!t) continue
+    try {
+      const row = JSON.parse(t) as QratioRow
+      n++
+      if (!includeLocalization && String(row.localization || "").trim()) {
+        includeLocalization = true
+      }
+      if (!includePep && String(row.pep || "").trim()) {
+        includePep = true
+      }
+    } catch {
+      // skip
+    }
+  }
+  const opts: QratioCsvOptions = { includeLocalization, includePep }
+  const out: string[] = [qratioCsvHeader(opts).join(",")]
+  for (const line of lines) {
+    const t = line.trim()
+    if (!t) continue
+    try {
+      out.push(qratioToCsvLine(JSON.parse(t) as QratioRow, opts))
+    } catch {
+      // skip
+    }
+  }
+  writeFileSync(csvPath, out.join("\n") + "\n", "utf8")
+  return n
 }
 
 /**
@@ -305,22 +345,9 @@ export function clearPmidStage5Data(pmid: string): { removedRows: number } {
     writeFileSync(resultsPath, kept.length ? kept.join("\n") + "\n" : "", "utf8")
   }
 
-  // Rebuild CSV header-only; rows are re-appended after parse. Other PMIDs restored from jsonl.
-  const csvPath = stage5QratioCsvPath()
-  if (existsSync(rowsPath) || existsSync(csvPath)) {
-    writeFileSync(csvPath, QRATIO_CSV_HEADER.join(",") + "\n", "utf8")
-    if (existsSync(rowsPath)) {
-      for (const line of readFileSync(rowsPath, "utf8").split("\n")) {
-        const t = line.trim()
-        if (!t) continue
-        try {
-          const row = JSON.parse(t) as QratioRow
-          appendFileSync(csvPath, qratioToCsvLine(row) + "\n", "utf8")
-        } catch {
-          // skip
-        }
-      }
-    }
+  // Rebuild CSV from remaining jsonl (optional Localization/PEP columns as needed).
+  if (existsSync(rowsPath) || existsSync(stage5QratioCsvPath())) {
+    rebuildQratioCsvFromJsonlSync()
   }
   return { removedRows }
 }
@@ -329,8 +356,10 @@ export function clearPmidStage5Data(pmid: string): { removedRows: number } {
 export async function rebuildQratioCsvFromJsonl(): Promise<number> {
   const rowsPath = join(stage5Dir(), "qratio_rows.jsonl")
   const csvPath = stage5QratioCsvPath()
-  const out = createWriteStream(csvPath, { encoding: "utf8" })
-  out.write(QRATIO_CSV_HEADER.join(",") + "\n")
+
+  // Pass 1: decide which optional columns have data (and count rows).
+  let includeLocalization = false
+  let includePep = false
   let n = 0
   if (existsSync(rowsPath)) {
     const rl = createInterface({ input: createReadStream(rowsPath, { encoding: "utf8" }) })
@@ -339,8 +368,30 @@ export async function rebuildQratioCsvFromJsonl(): Promise<number> {
       if (!t) continue
       try {
         const row = JSON.parse(t) as QratioRow
-        out.write(qratioToCsvLine(row) + "\n")
         n++
+        if (!includeLocalization && String(row.localization || "").trim()) {
+          includeLocalization = true
+        }
+        if (!includePep && String(row.pep || "").trim()) {
+          includePep = true
+        }
+      } catch {
+        // skip
+      }
+    }
+  }
+
+  const opts: QratioCsvOptions = { includeLocalization, includePep }
+  const out = createWriteStream(csvPath, { encoding: "utf8" })
+  out.write(qratioCsvHeader(opts).join(",") + "\n")
+  if (existsSync(rowsPath)) {
+    const rl = createInterface({ input: createReadStream(rowsPath, { encoding: "utf8" }) })
+    for await (const line of rl) {
+      const t = line.trim()
+      if (!t) continue
+      try {
+        const row = JSON.parse(t) as QratioRow
+        out.write(qratioToCsvLine(row, opts) + "\n")
       } catch {
         // skip
       }
@@ -524,11 +575,8 @@ async function resolveMapping(opts: {
       return { ...cleaned, skip: true }
     }
     // User column-role note first, then STY+AA layout repair (data-driven) last.
-    const withRoles = applyColumnRoleHints(
-      cleaned,
-      opts.sheet.headers,
-      extractColumnRoleHints(opts.userGuidance || ""),
-    )
+    const roles = extractColumnRoleHints(opts.userGuidance || "")
+    const withRoles = applyColumnRoleHints(cleaned, opts.sheet.headers, roles)
     return repairSiteColumnMapping(withRoles, opts.sheet.headers)
   }
 
@@ -952,23 +1000,51 @@ async function processOnePmid(opts: {
     })
 
     if (kind === "ptm_no_site") {
-      sawPtmNoSite = true
-      mappingNotes.push(`${c.entryPath}#${c.sheet.name}:ptm_no_site(skip-not-proteome)`)
+      // Explicitly selected sheets may still be site-level via ModifiedSequence /
+      // ProteinAccessions_PTM even when classifySheetKind missed Position.
+      if (!c.hinted) {
+        sawPtmNoSite = true
+        mappingNotes.push(`${c.entryPath}#${c.sheet.name}:ptm_no_site(skip-not-proteome)`)
+        think({
+          step: "skip",
+          message: `Skipped “${c.sheet.name}”: looks like PTM peptide data without site-level Position columns.`,
+          entryPath: c.entryPath,
+          sheet: c.sheet.name,
+          kind,
+          status: "ptm_no_site",
+        })
+        continue
+      }
       think({
-        step: "skip",
-        message: `Skipped “${c.sheet.name}”: looks like PTM peptide data without site-level Position columns.`,
+        step: "try_sheet",
+        message: `User-selected “${c.sheet.name}” classified as ptm_no_site; parsing anyway (site may come from ModifiedSequence / accession+site columns).`,
         entryPath: c.entryPath,
         sheet: c.sheet.name,
         kind,
-        status: "ptm_no_site",
+        status: "force_parse_hinted_ptm_no_site",
       })
     }
     if (kind === "proteome") {
       // User Teach note can override proteome misclassification (e.g. combined
       // Protein+Phosphosite columns that look like proteome without Position).
+      // Only force when this sheet actually has the named split/site column —
+      // don't treat TotalProteins as site-level just because another sheet has mod_sites.
+      const roleHints = extractColumnRoleHints(hints?.note || "")
+      const hintedSiteCol = roleHints.siteCombinedCol
+      const sheetHasHintedSite =
+        Boolean(hintedSiteCol) &&
+        c.sheet.headers.some(
+          (h) => (h || "").toLowerCase() === String(hintedSiteCol).toLowerCase(),
+        )
       const forceSite =
-        noteWantsSiteLevelSheet(hints?.note) ||
-        Boolean(extractColumnRoleHints(hints?.note || "").siteCombinedCol)
+        sheetHasHintedSite ||
+        (noteWantsSiteLevelSheet(hints?.note) &&
+          (c.hinted ||
+            c.sheet.headers.some((h) =>
+              /mod[_\s.-]?sites?|phosphosite|feature[_\s-]?names?|protein\s*\+\s*phospho|glcnac\s*site|o\s*[- ]?glcnac\s*site|\w+\s+site$/i.test(
+                h || "",
+              ),
+            )))
       if (!forceSite) {
         mappingNotes.push(`${c.entryPath}#${c.sheet.name}:proteome(defer)`)
         think({
@@ -998,6 +1074,27 @@ async function processOnePmid(opts: {
       sheet: c.sheet,
       userGuidance: hints?.note || undefined,
     })
+
+    if (hints?.note) {
+      const roles = extractColumnRoleHints(hints.note)
+      if (roles.siteCombinedCol || roles.uniprotCol || roles.positionCol || roles.aminoAcidCol) {
+        const bits = [
+          roles.siteCombinedCol ? `split column “${roles.siteCombinedCol}”` : "",
+          roles.uniprotCol ? `UniProt=${roles.uniprotCol}` : "",
+          roles.geneCol ? `Gene=${roles.geneCol}` : "",
+          roles.positionCol ? `Position=${roles.positionCol}` : "",
+          roles.aminoAcidCol ? `AA=${roles.aminoAcidCol}` : "",
+        ].filter(Boolean)
+        if (bits.length) {
+          think({
+            step: "role_hint",
+            message: `Understood your column guidance: ${bits.join("; ")}.`,
+            entryPath: c.entryPath,
+            sheet: c.sheet.name,
+          })
+        }
+      }
+    }
     let effectiveMapping = mapping
     if (derivedSpecs.length > 0) {
       effectiveMapping = applyDerivedRatiosToMapping(mapping, c.sheet.headers, derivedSpecs)
@@ -1025,7 +1122,7 @@ async function processOnePmid(opts: {
     const colBrief = mappingColumnsBrief(effectiveMapping)
     think({
       step: "mapping",
-      message: `Mapped columns for “${c.sheet.name}” via ${effectiveMapping.source} (confidence ${effectiveMapping.confidence.toFixed(2)}): ID=${effectiveMapping.uniprotCol || effectiveMapping.geneCol || "—"}, Position=${effectiveMapping.positionCol || effectiveMapping.siteCombinedCol || "—"}, AA=${effectiveMapping.aminoAcidCol || effectiveMapping.modSeqCol || "—"}, ratios=[${effectiveMapping.ratioColumns.map((r) => r.column).slice(0, 6).join(", ") || "—"}]${effectiveMapping.derivedContrasts?.length ? `, derived=[${effectiveMapping.derivedContrasts.map((d) => d.condition).join(", ")}]` : ""}${effectiveMapping.notes ? `. Notes: ${effectiveMapping.notes}` : ""}.`,
+      message: `Mapped columns for “${c.sheet.name}” via ${effectiveMapping.source} (confidence ${effectiveMapping.confidence.toFixed(2)}): ID=${effectiveMapping.uniprotCol || effectiveMapping.geneCol || (effectiveMapping.siteCombinedCol ? `${effectiveMapping.siteCombinedCol} (split)` : "—")}, Position=${effectiveMapping.positionCol || (effectiveMapping.siteCombinedCol ? `${effectiveMapping.siteCombinedCol} (split)` : "—")}, AA=${effectiveMapping.aminoAcidCol || effectiveMapping.modSeqCol || (effectiveMapping.siteCombinedCol ? "from split" : "—")}, ratios=[${effectiveMapping.ratioColumns.map((r) => r.column).slice(0, 6).join(", ") || "—"}]${effectiveMapping.derivedContrasts?.length ? `, derived=[${effectiveMapping.derivedContrasts.map((d) => d.condition).join(", ")}]` : ""}${effectiveMapping.notes ? `. Notes: ${effectiveMapping.notes}` : ""}.`,
       entryPath: c.entryPath,
       sheet: c.sheet.name,
       kind,
@@ -1055,7 +1152,7 @@ async function processOnePmid(opts: {
     if (!mappingIsParsable(effectiveMapping)) {
       think({
         step: "skip",
-        message: `Skipped “${c.sheet.name}”: mapping not parsable as site-level quantitative PTM (need ID + site + ratio).`,
+        message: `Skipped “${c.sheet.name}”: mapping not parsable as site-level quantitative PTM (need ID + site + ratio; a split UniProt_AA### column counts as both ID and site).`,
         entryPath: c.entryPath,
         sheet: c.sheet.name,
         status: "not_parsable",

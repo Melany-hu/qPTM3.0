@@ -1099,7 +1099,7 @@ body.agent-page {
 <body class="agent-page">
 <div id="preloader">
   <div class="preloader-inner">
-    <div class="preloader-spinner"></div>
+    <div class="typing-dots typing-dots-lg" aria-hidden="true"><span></span><span></span><span></span></div>
     <span class="preloader-text">Loading...</span>
   </div>
 </div>

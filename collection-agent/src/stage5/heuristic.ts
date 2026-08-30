@@ -5,11 +5,13 @@ import {
   canonicalizeConditionKey,
   cleanMappedCondition,
   conditionLabelFromRatioHeader,
+  isAnnotationMasqueradingAsCondition,
   isSilacChannelRatioHeader,
   resolveRowCondition,
   silacBiologySuffixFromHeader,
 } from "./condition.js"
 import type { SheetInventory } from "./tables.js"
+import { resolveColumnName } from "./tables.js"
 import { looksLikePhosphositeCombinedId } from "./phosphosite-id.js"
 
 export type RatioLevel = "peptide" | "protein"
@@ -50,6 +52,13 @@ export interface ColumnMapping {
   conditionCol?: string | null
   /** MaxQuant probability / modified sequence — AA inferred when aminoAcidCol missing */
   modSeqCol: string | null
+  /**
+   * Search-engine localization confidence: "Score for localization",
+   * "Localization probability", "Localization", …
+   */
+  localizationCol?: string | null
+  /** MaxQuant / Andromeda posterior error probability (PEP). */
+  pepCol?: string | null
   ratioColumns: MappedRatioColumn[]
   pValueColumns: MappedPValueColumn[]
   /** Sheet appears to be intensity/abundance only (no true ratio) */
@@ -116,6 +125,14 @@ function scorePosition(n: string): number {
   if (/modified\s*lysine|modfied\s*lysine|mod(?:ified)?\s*lys/.test(n)) return 12
   if (/modified\s*(serine|threonine|tyrosine|residue)/.test(n)) return 12
   if (/phospho_?location/.test(n)) return 10
+  if (/\b(?:o\s*[- ]?)?glcnac\s*site\b/.test(n)) return 12
+  if (
+    /\b(?:glyco(?:syl)?|ubiquit|acetyl|methyl|succinyl|malonyl|crotonyl|lactyl|phospho|kla|kac)\w*\s+site\b/.test(
+      n,
+    )
+  ) {
+    return 10
+  }
   if (/site\s*positions?/.test(n)) return 10
   if (/positions?\s+within\s+proteins?/.test(n)) return 10
   if (/^sites?$/.test(n)) return 9
@@ -146,10 +163,38 @@ function scoreAmino(n: string): number {
 
 /** MaxQuant-style probability / modified-sequence columns (AA can be inferred). */
 function scoreModSequence(n: string): number {
+  // Localization score/prob are extracted separately — not AA sources
+  if (/localization/.test(n)) return 0
   if (/lactylation\s*probabilities/.test(n)) return 10
   if (/phosphorylation\s*probabilities|modification\s*probabilities/.test(n)) return 9
   if (/modified\s*sequence|mod\.?\s*sequence/.test(n)) return 8
   if (/probabilities/.test(n) && /(lactyl|phospho|acetyl|ubiquit|glyco)/.test(n)) return 8
+  return 0
+}
+
+/**
+ * Site localization confidence from MaxQuant / Spectronaut / Proteome Discoverer.
+ * Prefer "Localization probability" (0–1) over "Score for localization" when both exist.
+ */
+export function scoreLocalization(n: string): number {
+  if (/localization\s*probabilit/.test(n)) return 12
+  if (/localization\s*prob\.?$/.test(n) || /localization\s*prob\b/.test(n)) return 12
+  if (/score\s*(for\s*)?localization/.test(n)) return 10
+  if (/^localization$/.test(n)) return 9
+  if (/\blocalization\b/.test(n) && !/modif|sequence|position/.test(n)) return 7
+  return 0
+}
+
+/**
+ * Posterior Error Probability (PEP) — MaxQuant Andromeda / similar search engines.
+ * Must not match "peptide" or statistical p-value columns.
+ */
+export function scorePep(n: string): number {
+  if (/peptide|pepper|pepsin|pepscore|pep.?score/.test(n)) return 0
+  if (/p[- ]?value|pval|adj\.?\s*p|q[- ]?value|fdr/.test(n)) return 0
+  if (/^pep$/.test(n)) return 12
+  if (/^posterior\s*error\s*probabilit/.test(n)) return 11
+  if (/\bpep\b/.test(n)) return 9
   return 0
 }
 
@@ -167,10 +212,11 @@ function scoreGene(n: string): number {
 function scoreSiteCombined(n: string): number {
   // Accession / UniProt ID columns are never combined site IDs
   // (even if a section title mentions "modification sites")
-  if (/protein\s*accession|uniprot|\baccession\b/.test(n) && !/phosphosite|site\s*id|feature/.test(n))
+  if (/protein\s*accession|uniprot|\baccession\b/.test(n) && !/phosphosite|site\s*id|feature|mod/.test(n))
     return 0
   if (/uniprot.*phosphosite|phosphosite.*uniprot|protein\s*\+\s*phosphosite|gene\s*name\s*\+\s*phosphosite/i.test(n))
     return 11
+  if (/^mod[_\s.-]?sites?$/.test(n)) return 11
   if (/modification\s*sites?/.test(n)) return 10
   if (/^phosphosite/.test(n)) return 10
   // limma / feature tables: "feature_names" holding CIC-S739
@@ -182,7 +228,7 @@ function scoreSiteCombined(n: string): number {
   if (/site\s*id/.test(n)) return 5
   // Peptide span columns are not combined site IDs
   if (/positions?\s+in\s+(a\s+)?master\s*proteins?/.test(n)) return 0
-  if (/accession/.test(n) && !/site|phospho|feature/.test(n)) return 0
+  if (/accession/.test(n) && !/site|phospho|feature|mod/.test(n)) return 0
   return 0
 }
 
@@ -192,12 +238,32 @@ function isLog2Header(n: string): boolean {
 
 /** Intensity / abundance columns — must NOT be treated as ratios. */
 export function scoreIntensity(n: string): number {
-  if (/ratio|log\s*2|log2|fold\s*change|\bfc\b/.test(n)) return 0
   // Dedupe suffixes from buildHeaders (P1__2 → p1)
   const base = n.replace(/__\d+$/, "").trim()
+  // True contrasts (Log2FC / fold-change / ratio) are never intensity — even if
+  // the header also mentions abundance. Checked before the intensity match so
+  // "abundance ratio" stays a ratio.
+  const isContrast =
+    /\bratio\b/.test(n) ||
+    /fold\s*change/.test(n) ||
+    /\blog\s*2?\s*fc\b/.test(n) ||
+    /\blogfc\b/.test(n) ||
+    /\blog\.?\s*fc\b/.test(n) ||
+    (/\bfc\b/.test(n) && !/\bintensit(?:y|ies)\b/.test(n))
+
+  // "Log2 Intensity DMSO_15min_1" / "Ubi-Log2 Intensity …" are per-sample
+  // intensities (often already log-transformed), NOT fold-change ratios.
+  // Previously `log2` short-circuited this to 0 and scoreRatio then scored them as ratios.
+  if (/\bintensit(?:y|ies)\b/.test(n)) {
+    if (isContrast && /\bratio\b|fold\s*change/.test(n)) return 0
+    return 9
+  }
   if (/peak\s*area|peakarea/.test(n)) return 10
-  if (/normalized\s*abundance|abundance/.test(n)) return 9
-  if (/\bintensity\b/.test(n)) return 9
+  if (/normalized\s*abundance|\babundance\b/.test(n)) {
+    if (/\bratio\b/.test(n)) return 0
+    return 9
+  }
+  if (isContrast || /log\s*2|log2/.test(n)) return 0
   // Per-sample quantitation blocks (often under group headers P1/P5/P7)
   if (/\b(quantitation|quantity|quant\.?)\b/.test(n)) return 8
   // bare timepoint / channel labels like 0/5, 5/5 without ratio wording
@@ -246,8 +312,15 @@ export function stripIntensityRatioColumns(mapping: ColumnMapping): ColumnMappin
 }
 
 function scoreRatio(n: string): number {
-  // Hard reject intensity / abundance / peak area
+  // Hard reject intensity / abundance / peak area (incl. "Log2 Intensity …")
   if (scoreIntensity(n) >= 8) return 0
+  // Belt-and-suspenders for PMID 34518535-style log-intensity headers.
+  if (
+    /\bintensit(?:y|ies)\b/.test(n) &&
+    !/\bratio\b|fold\s*change|\bfc\b|logfc|log\s*2?\s*fc/.test(n)
+  ) {
+    return 0
+  }
   // Never treat p-values / counts as ratios (even if the header mentions "ratio")
   if (scorePValue(n) >= 7) return 0
   if (/variability|count|unique|razor|sequence\s*coverage|stdev|std\.?\s*dev|peptides$/.test(n))
@@ -262,6 +335,8 @@ function scoreRatio(n: string): number {
   if (/(log\s*2|log2|2log|2\s*log)/.test(n) && /(ratio|fc|fold)/.test(n)) s = 10
   // limma / common DE headers: logFC, logfc, log.FC, Log2FC
   else if (/^log\s*2?\s*fc$|^logfc$|^log\.?\s*fc$/.test(n)) s = 9
+  // "LogFC FT671_15min - DMSO_15min" / "Log2FC …" (contrast after FC token)
+  else if (/\blog\s*2?\s*fc\b|\blogfc\b/.test(n)) s = 9
   else if (/abundance\s*ratio/.test(n) && !/p[- ]?value|adj/.test(n)) s = 9
   else if (/^ratio\b/.test(n) || /\bratio\b/.test(n)) s = 8
   else if (/\bfold\s*change\b|\bfc\b/.test(n)) s = 7
@@ -272,7 +347,8 @@ function scoreRatio(n: string): number {
     /\b(kac|kla|lac|di\s*gly|ub|phospho|succinyl|malonyl|crotonyl)\b/.test(n)
   )
     s = 8
-  else if (/(log\s*2|log2|2log)/.test(n)) s = 6
+  // Bare "log2 …" without FC/ratio — weak; never promote intensity leftovers
+  else if (/(log\s*2|log2|2log)/.test(n) && !/\bintensit(?:y|ies)\b/.test(n)) s = 6
   else if (/\baverage\b/.test(n) && /\//.test(n) && /phospho|protein|ratio/.test(n)) s = 7
   else if (/\baverage\b/.test(n) && /(phospho|ratio)/.test(n)) s = 6
   // typo "nomolized" common in some supp tables
@@ -284,6 +360,8 @@ function scoreRatio(n: string): number {
 
 function scorePValue(n: string): number {
   if (/variability|count|intensity/.test(n)) return 0
+  // PEP is Andromeda posterior error probability — not a contrast p-value
+  if (scorePep(n) >= 8) return 0
   if (/significance/.test(n)) return 8
   if (/adj\.?\s*p|q[- ]?value|fdr/.test(n)) return 9
   if (/p[- ]?value|pval|\bp\b/.test(n)) return 8
@@ -407,8 +485,73 @@ function scoreConditionCol(n: string): number {
   return 0
 }
 
+/** Headers that hold protein identity / annotation — never long-format Condition. */
+function isAnnotationHeaderName(n: string): boolean {
+  return (
+    /fasta|description|accession|sequence|peptide|modificat|localization|probability|^pep$|^score$|positions?_sorted|accessions?_sorted|gene\.?names?_sorted|fasta\.?headers?_sorted|protein\.?description|protein\.?name|^protein$|^proteins$/i.test(
+      n,
+    ) || /gene\.?name/.test(n)
+  )
+}
+
+/**
+ * True biological / limma-style contrast cell — not "ATP-binding …" protein prose.
+ * Bare hyphens alone are NOT enough (FASTA/descriptions are full of them).
+ */
+function looksLikeContrastCell(v: string): boolean {
+  const s = (v || "").trim()
+  if (!s || s.length > 120) return false
+  if (isAnnotationMasqueradingAsCondition(s)) return false
+  if (/\b(?:vs\.?|versus)\b/i.test(s)) return true
+  // Treatment/Control slash (avoid UniProt "sp|…|…" pipes)
+  if (/[A-Za-z0-9).]\s*\/\s*[A-Za-z(]/.test(s) && !/^(sp|tr)\|/i.test(s)) return true
+  if (
+    /\b(control|ctr|ctrl|sham|vehicle|untreated|dmso|resting|stimulated|baseline)\b/i.test(s)
+  ) {
+    return true
+  }
+  // limma: "IGF1.10 - control.10" (spaced dash + treatment cue)
+  if (
+    /\s[-–—]\s/.test(s) &&
+    /\b(control|ctr|ctrl|sham|ins(?:ulin)?|igf|veh|treat|ko|wt|mut)\b/i.test(s)
+  ) {
+    return true
+  }
+  return false
+}
+
+function previewValuesForCol(
+  preview: string[][],
+  colIdx: number,
+  maxRows = 12,
+): string[] {
+  const out: string[] = []
+  for (const row of preview.slice(0, maxRows)) {
+    const v = (row[colIdx] ?? "").trim()
+    if (!v || /^-?\d+(\.\d+)?([eE][-+]?\d+)?$/.test(v)) continue
+    out.push(v)
+  }
+  return out
+}
+
+/** Preview-detected conditionCol must look like stacked contrasts, not annotation dumps. */
+function previewSupportsConditionCol(
+  preview: string[][],
+  colIdx: number,
+): boolean {
+  const vals = previewValuesForCol(preview, colIdx)
+  if (vals.length < 2) return false
+  const distinct = new Set(vals.map((v) => v.toLowerCase()))
+  if (distinct.size < 2) return false
+  const contrastLike = vals.filter(looksLikeContrastCell)
+  const annotationLike = vals.filter(isAnnotationMasqueradingAsCondition)
+  if (annotationLike.length >= Math.ceil(vals.length * 0.5)) return false
+  return contrastLike.length >= 2
+}
+
 /**
  * Long-format cue: a non-ratio column whose preview values look like many distinct contrasts.
+ * Never pick FASTA / description / accession columns; bare hyphens are not contrast cues.
  */
 function detectConditionColFromPreview(
   headers: string[],
@@ -421,16 +564,15 @@ function detectConditionColFromPreview(
   for (let c = 0; c < headers.length; c++) {
     const h = headers[c]
     if (!h || skip.has(h)) continue
-    if (scoreConditionCol(norm(h)) >= 8) return h
-    if (scoreRatio(norm(h)) >= 6 || scorePValue(norm(h)) >= 7) continue
-    const vals = new Set<string>()
-    for (const row of preview.slice(0, 12)) {
-      const v = (row[c] ?? "").trim()
-      if (!v || /^-?\d+(\.\d+)?([eE][-+]?\d+)?$/.test(v)) continue
-      vals.add(v.toLowerCase())
-    }
-    const contrastLike = [...vals].filter((v) => /[-–—/]|vs\.?|versus|control|ctr|ins|igf/i.test(v))
-    if (vals.size >= 2 && contrastLike.length >= 2 && vals.size > bestDistinct) {
+    const nh = norm(h)
+    if (scoreConditionCol(nh) >= 8) return h
+    if (isAnnotationHeaderName(nh)) continue
+    if (scoreRatio(nh) >= 6 || scorePValue(nh) >= 7) continue
+    if (!previewSupportsConditionCol(preview, c)) continue
+    const vals = new Set(
+      previewValuesForCol(preview, c).map((v) => v.toLowerCase()),
+    )
+    if (vals.size > bestDistinct) {
       bestDistinct = vals.size
       best = h
     }
@@ -484,14 +626,27 @@ export function heuristicMapSheet(
     siteCombinedCol = detectSiteCombinedFromPreview(headers, sheet.preview, skip)
   }
   const modSeqCol = findBest(headers, [scoreModSequence], 7)
+  const localizationCol = findBest(headers, [scoreLocalization], 7)
+  const pepCol = findBest(headers, [scorePep], 8)
   let conditionCol = findBest(headers, [scoreConditionCol], 8)
   if (!conditionCol) {
     const skip = new Set(
-      [uniprotCol, geneCol, positionCol, aminoAcidCol, siteCombinedCol, modSeqCol].filter(
-        Boolean,
-      ) as string[],
+      [
+        uniprotCol,
+        geneCol,
+        positionCol,
+        aminoAcidCol,
+        siteCombinedCol,
+        modSeqCol,
+        localizationCol,
+        pepCol,
+      ].filter(Boolean) as string[],
     )
     conditionCol = detectConditionColFromPreview(headers, sheet.preview, skip)
+  }
+  // Identity/annotation columns are never long-format Condition (Stage3 is the global fallback).
+  if (conditionCol && isAnnotationHeaderName(norm(conditionCol))) {
+    conditionCol = null
   }
 
   const intensityColumns = headers.filter((h) => scoreIntensity(norm(h)) >= 8)
@@ -624,6 +779,8 @@ export function heuristicMapSheet(
   }
   if (finalRatios.length > 1) notesParts.push(`${finalRatios.length} ratio conditions`)
   if (conditionCol) notesParts.push(`long_format_condition=${conditionCol}`)
+  if (localizationCol) notesParts.push(`localization=${localizationCol}`)
+  if (pepCol) notesParts.push(`pep=${pepCol}`)
 
   return {
     entryPath,
@@ -638,6 +795,8 @@ export function heuristicMapSheet(
     siteCombinedCol: positionCol && !siteCombinedCol ? null : siteCol,
     conditionCol: conditionCol || null,
     modSeqCol: aminoAcidCol ? null : modSeqCol,
+    localizationCol: localizationCol || null,
+    pepCol: pepCol || null,
     ratioColumns: finalRatios,
     pValueColumns: pValueColumns.slice(0, 24),
     intensityOnly,
@@ -651,13 +810,15 @@ export const HEURISTIC_HIGH = 0.72
 /** Worth attempting parse after LLM fails if still usable */
 export const HEURISTIC_MIN_PARSE = 0.55
 
-/** Parsable into qratio with UniProt (or gene→UniProt) + true ratio cols + site signal */
+/** Parsable into qratio with UniProt (or gene→UniProt) + true ratio cols + site signal.
+ * A siteCombinedCol that embeds accession/gene + residue (e.g. Q4VWZ5-K81 / GENE_S15)
+ * satisfies both ID and site — parse-rows splits it. */
 export function mappingIsParsable(m: ColumnMapping): boolean {
   if (m.intensityOnly && !(m.derivedContrasts && m.derivedContrasts.length > 0)) return false
   if (m.ratioColumns.some((r) => r.valueType === "intensity") && !(m.derivedContrasts?.length))
     return false
   const hasSite = Boolean(m.positionCol || m.siteCombinedCol || m.aminoAcidCol || m.modSeqCol)
-  const hasId = Boolean(m.uniprotCol || m.geneCol)
+  const hasId = Boolean(m.uniprotCol || m.geneCol || m.siteCombinedCol)
   const hasRatio =
     m.ratioColumns.length > 0 || Boolean(m.derivedContrasts && m.derivedContrasts.length > 0)
   return hasId && hasRatio && hasSite
@@ -744,6 +905,9 @@ function findHeaderByName(
   hint: string | undefined,
 ): string | null {
   if (!hint) return null
+  // Positional aliases (col_1 / column 1) and exact names — shared with parse-rows.
+  const resolved = resolveColumnName(headers, hint)
+  if (resolved) return resolved
   const nh = normHeaderForHint(hint)
   if (!nh) return null
   let hit = headers.find((h) => normHeaderForHint(h) === nh)
@@ -797,13 +961,32 @@ export function applyColumnRoleHints(
     .replace(/\bno_site_level;?\s*/gi, siteComb || pos ? "" : "no_site_level;")
     .replace(/^; /, "")
     .replace(/;\s*;/g, ";")
+
+  // User-taught combined site column: prefer splitting that one column over
+  // stale heuristic uniprot/position picks that conflict with the Teach note.
+  if (siteComb) {
+    return {
+      ...mapping,
+      uniprotCol: uni && uni !== siteComb ? uni : mapping.uniprotCol === siteComb ? null : mapping.uniprotCol,
+      geneCol: gene && gene !== siteComb ? gene : mapping.geneCol === siteComb ? null : mapping.geneCol,
+      // Position / AA come from splitting siteCombined — clear separate cols when
+      // the Teach note says this one column holds UniProt+AA+Position.
+      positionCol: pos && pos !== siteComb ? pos : null,
+      aminoAcidCol: aa && aa !== siteComb ? aa : null,
+      siteCombinedCol: siteComb,
+      conditionCol: condCol || mapping.conditionCol || null,
+      confidence,
+      notes,
+    }
+  }
+
   return {
     ...mapping,
     uniprotCol: uni || mapping.uniprotCol,
     geneCol: gene || mapping.geneCol,
     positionCol: pos || mapping.positionCol,
     aminoAcidCol: aa || mapping.aminoAcidCol,
-    siteCombinedCol: siteComb || mapping.siteCombinedCol,
+    siteCombinedCol: mapping.siteCombinedCol,
     conditionCol: condCol || mapping.conditionCol || null,
     confidence,
     notes,

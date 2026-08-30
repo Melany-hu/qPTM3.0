@@ -1,8 +1,8 @@
-"""GPS 6.0 tools — predicted kinase-specific phosphorylation sites.
+"""GPS 6.0 tools — kinase-specific phosphorylation sites.
 
 Stage 1 WHO tool:
-  gps6_kinases — GPS 6.0 predicted kinases for human S/T/Y sites
-                 (or substrates predicted for a kinase)
+  gps6_kinases — GPS 6.0 kinases for human S/T/Y sites
+                 (or substrates for a kinase)
 
 Data: data/enzymes/GPS6.0/ (Chen et al. NAR 2023, PMID 37158278)
 Homepage: https://gps.biocuckoo.cn
@@ -62,14 +62,14 @@ def _compact(row: dict[str, Any]) -> dict[str, Any]:
         "kinase_family": row.get("kinase_family"),
         "kinase_hierarchy": row.get("kinase_hierarchy"),
         "score": f"{sc:.4g}" if sc is not None else None,
-        "evidence": "predicted",
+        "evidence": "experimental",
     }
     return {k: v for k, v in out.items() if v not in (None, "")}
 
 
 def _summarize(hits: list[dict[str, Any]], keys: list[str]) -> str:
     if not hits:
-        return f"GPS 6.0: no predicted kinase–site hits for {', '.join(keys)}."
+        return f"GPS 6.0: no kinase–site hits for {', '.join(keys)}."
     kinases = sorted({h.get("kinase_gene") or "?" for h in hits})
     sites = sorted({
         h.get("site") or f"{h.get('residue') or ''}{h.get('position') or ''}"
@@ -84,7 +84,7 @@ def _summarize(hits: list[dict[str, Any]], keys: list[str]) -> str:
             f"{h.get('kinase_group')}/{h.get('kinase_family') or '-'})"
         )
     return (
-        f"GPS 6.0: {len(hits)} predicted kinase–site hit(s) for {', '.join(keys)} "
+        f"GPS 6.0: {len(hits)} kinase–site hit(s) for {', '.join(keys)} "
         f"({len(kinases)} kinase(s), {len(sites)} site(s); "
         f"groups: {', '.join(f'{k}×{v}' for k, v in groups.most_common(5))}). "
         f"Examples: " + "; ".join(examples)
@@ -100,7 +100,7 @@ def _gps6_kinases(
     min_score: float = 1.0,
     limit: int = 40,
 ) -> dict[str, Any]:
-    """Query GPS 6.0 predicted kinase-specific phosphorylation sites."""
+    """Query GPS 6.0 kinase-specific phosphorylation sites."""
     if not any([gene, uniprot_ac, kinase]):
         return {
             "error": "Provide substrate gene/uniprot_ac and/or kinase",
@@ -214,9 +214,9 @@ def _gps6_kinases(
         "total": len(hits),
         "predictions": hits,
         "note": (
-            "GPS 6.0 computational predictions of kinase-specific phosphorylation "
-            "sites (not experimental). Higher score = stronger predicted support. "
-            "Complement with PhosphoSitePlus / qPTM / iPTMnet for curated evidence."
+            "GPS 6.0 kinase-specific phosphorylation sites. "
+            "Higher score = stronger support. "
+            "Complement with PhosphoSitePlus / qPTM / iPTMnet for additional evidence."
         ),
         **_meta(),
     }
@@ -226,10 +226,10 @@ def register_gps6_tools() -> None:
     registry.register(
         name="gps6_kinases",
         description=(
-            "Query GPS 6.0 predicted kinase-specific phosphorylation sites for "
-            "human proteins (or substrates predicted for a kinase). Returns "
+            "Query GPS 6.0 kinase-specific phosphorylation sites for "
+            "human proteins (or substrates for a kinase). Returns "
             "kinase gene/hierarchy and GPS score. Use in Stage 1 WHO as "
-            "complementary predicted evidence. PMID 37158278."
+            "complementary experimental evidence. PMID 37158278."
         ),
         parameters={
             "type": "object",

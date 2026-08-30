@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta content="width=device-width, initial-scale=1.0" name="viewport">
+  <title>qPTM | API</title>
+  <script src="assets/js/include.js"></script>
+</head>
+<body>
+<div id="preloader">
+  <div class="preloader-inner">
+    <div class="typing-dots typing-dots-lg" aria-hidden="true"><span></span><span></span><span></span></div>
+    <span class="preloader-text">Loading...</span>
+  </div>
+</div>
+
+<div id="site-header"></div>
+
+<section id="main" class="help-page api-page">
+
+    <div class="page-hero">
+      <h1>REST API</h1>
+    </div>
+
+  <div class="help-layout">
+    <aside class="help-sidebar">
+      <nav class="help-nav" aria-label="API page navigation">
+        <ul class="help-nav-list">
+          <li><a href="#api-overview" class="help-nav-link active"><i class="ri-information-line mr-2"></i>Overview</a></li>
+          <li>
+            <a href="#api-endpoints" class="help-nav-link"><i class="ri-route-line mr-2"></i>Endpoints</a>
+            <ul class="help-nav-sublist">
+              <li><a href="#api-search" class="help-nav-link">Search events</a></li>
+              <li><a href="#api-protein" class="help-nav-link">Protein</a></li>
+              <li><a href="#api-site" class="help-nav-link">Site events</a></li>
+              <li><a href="#api-conditions" class="help-nav-link">Conditions</a></li>
+              <li><a href="#api-kinases" class="help-nav-link">Kinases / enzymes</a></li>
+              <li><a href="#api-browse" class="help-nav-link">Browse</a></li>
+            </ul>
+          </li>
+          <li><a href="#api-fields" class="help-nav-link"><i class="ri-list-check mr-2"></i>Response fields</a></li>
+          <li><a href="#api-examples" class="help-nav-link"><i class="ri-code-s-slash-line mr-2"></i>Code examples</a></li>
+          <li><a href="#api-try" class="help-nav-link"><i class="ri-play-circle-line mr-2"></i>Try it</a></li>
+        </ul>
+      </nav>
+    </aside>
+
+    <div class="help-content">
+
+  <div class="lp-panel help-section" id="api-overview">
+    <div class="lp-panel-header"><i class="ri-information-line mr-2"></i>Overview</div>
+    <div class="lp-panel-body">
+      <p class="text-des">The qPTM REST API returns quantitative PTM proteomics records as JSON. It is free to use for research; no API key is required. Please cite qPTM if you use these data in a publication.</p>
+      <p class="text-des"><strong>Base URL:</strong> <code>https://qptm3.omicsbio.info/api</code></p>
+      <ul class="help-list text-des">
+        <li>All endpoints accept <strong>GET</strong> (and CORS preflight OPTIONS).</li>
+        <li>Responses are <code>application/json; charset=utf-8</code>.</li>
+        <li>Errors use HTTP 400/404/500 with <code>{"error": "message"}</code>.</li>
+        <li>Clean paths such as <code>/api/protein/P04637</code> require Apache rewrite; the equivalent <code>.php</code> query-string form always works.</li>
+        <li>Please keep request rates reasonable. For bulk analysis, use the <a href="download.html">dataset download</a>.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="lp-panel help-section" id="api-endpoints">
+    <div class="lp-panel-header"><i class="ri-route-line mr-2"></i>Endpoints</div>
+    <div class="lp-panel-body">
+      <p class="text-des">Organism values: <code>human</code>, <code>mouse</code>, <code>rat</code>, <code>yeast</code>, or <code>all</code>. PTM types: <code>phosphorylation</code>, <code>acetylation</code>, <code>methylation</code>, <code>ubiquitylation</code>, <code>glycosylation</code>, <code>sumoylation</code>, or <code>all</code>.</p>
+
+      <div class="help-summary-section help-section" id="api-search">
+        <h3 class="help-summary-title"><span class="api-method">GET</span> Search events</h3>
+        <p class="text-des">Search quantitative events (same resolution as the website: gene, UniProt, protein name, function, sample, or condition).</p>
+        <pre class="api-code">GET /api/search?q={keyword}</pre>
+        <div class="help-table-scroll">
+          <table class="lp-table">
+            <thead><tr><th>Parameter</th><th>Required</th><th>Default</th><th>Description</th></tr></thead>
+            <tbody>
+              <tr><td><code>q</code></td><td>yes</td><td>—</td><td>Search keyword</td></tr>
+              <tr><td><code>field</code></td><td>no</td><td><code>any</code></td><td><code>any</code>, <code>gene</code>, <code>uniprot</code>, <code>protein</code>, <code>function</code>, <code>sample</code>, <code>condition</code></td></tr>
+              <tr><td><code>organism</code></td><td>no</td><td><code>all</code></td><td>Organism filter</td></tr>
+              <tr><td><code>ptm_type</code></td><td>no</td><td><code>all</code></td><td>PTM type filter</td></tr>
+              <tr><td><code>page</code></td><td>no</td><td>1</td><td>Page number</td></tr>
+              <tr><td><code>per_page</code></td><td>no</td><td>20</td><td>Page size, maximum 100</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="text-des">Example: <code>GET /api/search?q=TP53&amp;field=gene&amp;organism=human&amp;per_page=5</code></p>
+      </div>
+
+      <div class="help-summary-section help-section" id="api-protein">
+        <h3 class="help-summary-title"><span class="api-method">GET</span> Protein</h3>
+        <p class="text-des">Protein annotation and aggregated PTM sites.</p>
+        <pre class="api-code">GET /api/protein/{uniprot_ac}</pre>
+        <p class="text-des">Example: <code>GET /api/protein/P04637</code></p>
+      </div>
+
+      <div class="help-summary-section help-section" id="api-site">
+        <h3 class="help-summary-title"><span class="api-method">GET</span> Site events</h3>
+        <p class="text-des">All quantitative events for one residue. Optional <code>ptm_type</code>. Query form: <code>uniprot_ac</code> and <code>position</code>.</p>
+        <pre class="api-code">GET /api/site/{uniprot_ac}/{position}</pre>
+        <p class="text-des">Example: <code>GET /api/site/P04637/15</code></p>
+      </div>
+
+      <div class="help-summary-section help-section" id="api-conditions">
+        <h3 class="help-summary-title"><span class="api-method">GET</span> Conditions</h3>
+        <p class="text-des">Distinct experimental conditions for a protein or site, with event counts and log<sub>2</sub> ratio range.</p>
+        <pre class="api-code">GET /api/conditions?uniprot_ac={ac}</pre>
+        <div class="help-table-scroll">
+          <table class="lp-table">
+            <thead><tr><th>Parameter</th><th>Required</th><th>Description</th></tr></thead>
+            <tbody>
+              <tr><td><code>uniprot_ac</code></td><td>yes</td><td>UniProt accession</td></tr>
+              <tr><td><code>position</code></td><td>no</td><td>Residue position</td></tr>
+              <tr><td><code>ptm_type</code></td><td>no</td><td>PTM type filter</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="text-des">Example: <code>GET /api/conditions?uniprot_ac=P04637&amp;position=15</code></p>
+      </div>
+
+      <div class="help-summary-section help-section" id="api-kinases">
+        <h3 class="help-summary-title"><span class="api-method">GET</span> Kinases / enzymes</h3>
+        <p class="text-des">Experimental and predicted kinases (phosphorylation) or acetyltransferases (acetylation) for a site. Query form: <code>uniprot_ac</code> and <code>position</code>.</p>
+        <pre class="api-code">GET /api/kinases/{uniprot_ac}/{position}</pre>
+        <p class="text-des">Example: <code>GET /api/kinases/P04637/15</code></p>
+      </div>
+
+      <div class="help-summary-section help-section" id="api-browse">
+        <h3 class="help-summary-title"><span class="api-method">GET</span> Browse</h3>
+        <p class="text-des"><code>type</code> must be <code>gene</code>, <code>condition</code>, or <code>sample</code>.</p>
+        <pre class="api-code">GET /api/browse/{type}</pre>
+        <div class="help-table-scroll">
+          <table class="lp-table">
+            <thead><tr><th>Parameter</th><th>Required</th><th>Default</th><th>Description</th></tr></thead>
+            <tbody>
+              <tr><td><code>type</code></td><td>yes</td><td>—</td><td>Path segment or query parameter</td></tr>
+              <tr><td><code>organism</code></td><td>no</td><td><code>all</code></td><td>Organism filter</td></tr>
+              <tr><td><code>ptm_type</code></td><td>no</td><td><code>all</code></td><td>PTM type filter</td></tr>
+              <tr><td><code>letter</code></td><td>no</td><td><code>all</code></td><td>First letter A–Z</td></tr>
+              <tr><td><code>page</code></td><td>no</td><td>1</td><td>Page number</td></tr>
+              <tr><td><code>per_page</code></td><td>no</td><td>50</td><td>Page size, maximum 200</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="text-des">Example: <code>GET /api/browse/gene?organism=human&amp;letter=T&amp;per_page=20</code></p>
+      </div>
+    </div>
+  </div>
+
+  <div class="lp-panel help-section" id="api-fields">
+    <div class="lp-panel-header"><i class="ri-list-check mr-2"></i>Event response fields</div>
+    <div class="lp-panel-body">
+      <p class="text-des">Search and site endpoints return event objects with these fields:</p>
+      <div class="help-table-scroll">
+        <table class="lp-table">
+          <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>pmid</code></td><td>string</td><td>PubMed ID of the source study</td></tr>
+            <tr><td><code>uniprot_ac</code></td><td>string</td><td>UniProt accession</td></tr>
+            <tr><td><code>gene</code></td><td>string</td><td>Gene symbol</td></tr>
+            <tr><td><code>position</code></td><td>integer</td><td>Modified residue position</td></tr>
+            <tr><td><code>ptm_type</code></td><td>string</td><td>Modification type (lowercase)</td></tr>
+            <tr><td><code>sequence_window</code></td><td>string</td><td>Peptide / sequence window</td></tr>
+            <tr><td><code>sample</code></td><td>string</td><td>Sample description</td></tr>
+            <tr><td><code>condition</code></td><td>string</td><td>Experimental condition</td></tr>
+            <tr><td><code>organism</code></td><td>string</td><td>Organism</td></tr>
+            <tr><td><code>log2_ratio</code></td><td>number</td><td>PTM log<sub>2</sub> quantification ratio</td></tr>
+            <tr><td><code>p_value</code></td><td>number</td><td>PTM p-value</td></tr>
+            <tr><td><code>proteome_log2_ratio</code></td><td>number</td><td>Matched proteome log<sub>2</sub> ratio, if available</td></tr>
+            <tr><td><code>proteome_p_value</code></td><td>number</td><td>Matched proteome p-value</td></tr>
+            <tr><td><code>stars</code></td><td>integer</td><td>qPTM reliability score</td></tr>
+            <tr><td><code>fdr</code></td><td>string</td><td>FDR value from the source table</td></tr>
+            <tr><td><code>fdr_flag</code></td><td>boolean</td><td>Whether an FDR value is present</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="lp-panel help-section" id="api-examples">
+    <div class="lp-panel-header"><i class="ri-code-s-slash-line mr-2"></i>Code examples</div>
+    <div class="lp-panel-body">
+      <p class="text-des">Replace the base URL if you are calling a local deployment.</p>
+      <p class="filter-label">curl</p>
+      <pre class="api-code">curl -s "https://qptm3.omicsbio.info/api/search.php?q=TP53&amp;field=gene&amp;per_page=5"</pre>
+      <p class="filter-label">Python</p>
+      <pre class="api-code">import requests
+
+r = requests.get(
+    "https://qptm3.omicsbio.info/api/search.php",
+    params={"q": "TP53", "field": "gene", "per_page": 5},
+    timeout=30,
+)
+r.raise_for_status()
+print(r.json()["total"], "events")</pre>
+      <p class="filter-label">R</p>
+      <pre class="api-code">library(jsonlite)
+url &lt;- "https://qptm3.omicsbio.info/api/search.php?q=TP53&amp;field=gene&amp;per_page=5"
+data &lt;- fromJSON(url)
+print(data$total)</pre>
+    </div>
+  </div>
+
+  <div class="lp-panel help-section" id="api-try">
+    <div class="lp-panel-header"><i class="ri-play-circle-line mr-2"></i>Try it</div>
+    <div class="lp-panel-body">
+      <p class="text-des">Run a live request against this server. Large queries may take a few seconds.</p>
+      <div class="api-try-row">
+        <label class="api-try-label" for="api-try-endpoint">Endpoint</label>
+        <label class="api-try-label" for="api-try-q">Keyword / UniProt</label>
+        <label class="api-try-label" for="api-try-pos">Position</label>
+        <span class="api-try-label api-try-label--empty" aria-hidden="true"></span>
+
+        <select id="api-try-endpoint" class="form-control api-try-control">
+          <option value="search">Search events</option>
+          <option value="protein">Protein</option>
+          <option value="site">Site events</option>
+          <option value="conditions">Conditions</option>
+          <option value="kinases">Kinases / enzymes</option>
+          <option value="browse">Browse genes</option>
+        </select>
+        <input id="api-try-q" class="form-control api-try-control" value="TP53">
+        <input id="api-try-pos" class="form-control api-try-control" value="15">
+        <button type="button" class="btn btn-primary api-try-control" id="api-try-run"><i class="ri-send-plane-line"></i> Send</button>
+      </div>
+      <div class="api-try-url" id="api-try-url"></div>
+      <pre class="api-code api-try-output" id="api-try-output">Click Send to load a JSON response.</pre>
+    </div>
+  </div>
+
+    </div>
+  </div>
+
+</section>
+
+<div id="site-footer"></div>
+
+<a href="#" class="back-to-top"><i class="ri-arrow-up-line"></i></a>
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jquery.easing@1.4.1/jquery.easing.min.js"></script>
+<script src="assets/js/main.js"></script>
+<script src="assets/js/api.js"></script>
+</body>
+</html>

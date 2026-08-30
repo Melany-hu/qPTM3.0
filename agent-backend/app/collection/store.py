@@ -14,6 +14,51 @@ from app.config import settings
 
 _PMID_RE = re.compile(r"\b(?:PMID[:\s#]*)?(\d{7,8})\b", re.I)
 _STEM_PMID_RE = re.compile(r"^(\d{7,8})$")
+# Do not use \\b: CJK chars are Unicode "word" chars, so "中PXD…" would miss.
+_ACCESSION_RE = re.compile(
+    r"(?<![A-Za-z0-9_])((?:PXD|IPX|JPST|MSV|PDC)\d+)(?![A-Za-z0-9_])",
+    re.I,
+)
+_RESOLVE_URLS_RE = re.compile(
+    r"("
+    r"download\s*url|download\s*link|ftp\s*link|raw\s*file|"
+    r"ms\s*url|pride|iprox|jpost|massive|cptac|proteomexchange|"
+    r"resolve[- ]?url|get[- ]?url|"
+    r"下载链接|下载地址|质谱.*下载|原始数据|获取.*链接|解析.*链接"
+    r")",
+    re.I,
+)
+
+
+def extract_accessions(text: str | None) -> list[str]:
+    """Unique MS repository accessions in appearance order."""
+    if not text:
+        return []
+    seen: set[str] = set()
+    out: list[str] = []
+    for m in _ACCESSION_RE.finditer(text):
+        acc = m.group(1).upper()
+        if acc in seen:
+            continue
+        seen.add(acc)
+        out.append(acc)
+    return out
+
+
+def looks_like_resolve_urls_request(message: str | None) -> bool:
+    """True when the user asks for MS download links by accession (no PMID job)."""
+    text = (message or "").strip()
+    if not text:
+        return False
+    accessions = extract_accessions(text)
+    if not accessions:
+        return False
+    if _RESOLVE_URLS_RE.search(text):
+        return True
+    # Bare accession(s) only, e.g. "PXD012345" or "PXD1; IPX2"
+    stripped = _ACCESSION_RE.sub(" ", text)
+    stripped = re.sub(r"[\s,;:/|=#\-]+", "", stripped)
+    return len(stripped) == 0
 
 # agent-backend/ — relative CONVERSATIONS / COLLECTION_JOBS paths resolve here.
 # Collection job dirs themselves live under collection-agent/runtime (absolute
@@ -198,7 +243,11 @@ def mark_upload_ready(
         # Upload was requested from stage4 (or stage5 empty-parse). Stay focused there.
         if current not in ("stage4", "stage5"):
             state["currentStage"] = "stage4"
-        if not state.get("nextStage"):
+        # Fresh supplementary upload always re-runs Stage5 parse — even when the
+        # prior pause offered skip-to-Stage6 (allowSkipToMsUrls / nextStage=stage6).
+        if current == "stage5":
+            state["nextStage"] = "stage5"
+        elif not state.get("nextStage"):
             state["nextStage"] = "stage5"
         stages = dict(state.get("stages") or {})
         stages["stage4"] = "completed"
@@ -207,6 +256,7 @@ def mark_upload_ready(
         prior_summary = state.get("summary") if isinstance(state.get("summary"), dict) else {}
         prior_summary = dict(prior_summary)
         prior_summary["needsTableHints"] = False
+        prior_summary["allowSkipToMsUrls"] = False
         prior_summary["stage4Source"] = "user_upload"
         state["summary"] = prior_summary
 
@@ -902,7 +952,7 @@ def _preview_xlsx_bytes(raw: bytes, max_sheets: int = 4, max_rows: int = 5) -> l
             if not _is_real_sheet_name(name):
                 continue
             # Skip obvious non-data sheets for the stage4 glance
-            if re.search(r"legend|note|readme|instruction", name, re.I):
+            if re.search(r"legend|note|readme|instruction|study\s*information|sample\s*info", name, re.I):
                 continue
             ws = wb[name]
             matrix: list[list[str]] = []
@@ -911,6 +961,9 @@ def _preview_xlsx_bytes(raw: bytes, max_sheets: int = 4, max_rows: int = 5) -> l
                     break
                 matrix.append(["" if c is None else str(c).strip() for c in row])
             sheet = _matrix_to_sheet_preview(name, matrix, max_rows)
+            # Prefer sheets that actually have data rows under the header
+            if sheet and not (sheet.get("preview") or []):
+                continue
             if sheet:
                 out.append(sheet)
             if len(out) >= max_sheets:
@@ -934,7 +987,7 @@ def _preview_xls_bytes(raw: bytes, max_sheets: int = 4, max_rows: int = 5) -> li
         name = sheet.name
         if not _is_real_sheet_name(name):
             continue
-        if re.search(r"legend|note|readme|instruction", name, re.I):
+        if re.search(r"legend|note|readme|instruction|study\s*information|sample\s*info", name, re.I):
             continue
         nrows = min(sheet.nrows, max_rows + 8)
         matrix: list[list[str]] = []
@@ -943,6 +996,8 @@ def _preview_xls_bytes(raw: bytes, max_sheets: int = 4, max_rows: int = 5) -> li
                 ["" if c in (None, "") else str(c).strip() for c in sheet.row_values(r)]
             )
         sheet_preview = _matrix_to_sheet_preview(name, matrix, max_rows)
+        if sheet_preview and not (sheet_preview.get("preview") or []):
+            continue
         if sheet_preview:
             out.append(sheet_preview)
         if len(out) >= max_sheets:
@@ -1073,12 +1128,20 @@ def read_csv_preview(
     path: Path,
     max_rows: int = 10,
     drop_columns: list[str] | None = None,
+    drop_empty_columns: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Return CSV headers + first max_rows data rows for UI table previews."""
+    """Return CSV headers + first max_rows data rows for UI table previews.
+
+    drop_empty_columns: omit these columns when every data cell is blank
+    (e.g. Localization probability / PEP with no search-engine scores).
+    """
     headers: list[str] = []
     preview: list[list[str]] = []
     total = 0
     drop = {str(c).strip().lower() for c in (drop_columns or []) if c}
+    if drop_empty_columns:
+        for name in empty_optional_csv_columns(path, list(drop_empty_columns)):
+            drop.add(name.strip().lower())
     try:
         with path.open(encoding="utf-8", errors="replace", newline="") as fh:
             reader = csv.reader(fh)
@@ -1105,13 +1168,39 @@ def read_csv_preview(
     return {"headers": headers, "preview": preview, "totalRows": total}
 
 
-def stage7_artifact(job_id: str, name: str) -> Path | None:
-    """Legacy stage7 path; prefer stage3/stage5 artifacts."""
-    if name == "literature_info.csv":
-        return stage3_artifact(job_id, name)
-    if name == "qratio.csv":
-        return stage5_artifact(job_id, name)
-    path = job_dir(job_id) / "stage7" / name
-    if name == "qratio.csv" and path.is_file() and not _csv_has_data_rows(path):
-        return stage5_artifact(job_id, name)
-    return path if path.is_file() else None
+def empty_optional_csv_columns(
+    path: Path,
+    candidates: list[str],
+) -> set[str]:
+    """Return candidate column names that exist but are blank in every data row."""
+    want = {c.strip().lower() for c in candidates if c and str(c).strip()}
+    if not want or not path.is_file():
+        return set()
+    try:
+        with path.open(encoding="utf-8", errors="replace", newline="") as fh:
+            reader = csv.reader(fh)
+            try:
+                raw_headers = next(reader)
+            except StopIteration:
+                return set()
+            headers = [str(c or "").strip().lstrip("\ufeff") for c in raw_headers]
+            idx_map = {
+                i: headers[i]
+                for i in range(len(headers))
+                if headers[i].strip().lower() in want
+            }
+            if not idx_map:
+                return set()
+            nonempty: set[int] = set()
+            for row in reader:
+                for i in idx_map:
+                    if i in nonempty:
+                        continue
+                    if i < len(row) and str(row[i]).strip():
+                        nonempty.add(i)
+                if len(nonempty) == len(idx_map):
+                    break
+            return {idx_map[i] for i in idx_map if i not in nonempty}
+    except OSError:
+        return set()
+

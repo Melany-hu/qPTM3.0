@@ -8,7 +8,7 @@
 
 The qPTM Agent is a conversational AI system designed to help researchers investigate PTM sites in a structured, evidence-attributed manner. Given a natural-language question (e.g., *"Under what conditions is TP53 S15 phosphorylated?"* or *"Where does EGFR Y1173 phosphorylation occur?"*), the agent retrieves information from qPTM and more than thirty external PTM-related databases, synthesizes a narrative answer, and links each factual claim to its originating data source.
 
-The agent follows a **ReAct** (Reasoning + Acting) architecture: an LLM iteratively decides which database tools to invoke, inspects structured JSON results, and terminates when sufficient evidence has been collected. Tool selection is scoped per question through a **Tool Retriever** that exposes only the top-*K* relevant tools (default *K* = 6; up to 10 for site-importance questions), rather than the full catalog of 54 tools. Answers are streamed to the user interface via Server-Sent Events (SSE) and are accompanied by a numbered **Sources** list generated from tool-level citation metadata.
+The agent follows a **ReAct** (Reasoning + Acting) architecture: an LLM iteratively decides which database tools to invoke, inspects structured JSON results, and terminates when sufficient evidence has been collected. Tool selection is scoped per question through a **Tool Retriever** that exposes only the top-*K* relevant tools (default *K* = 6; up to 10 for site-importance questions), rather than the full catalog of 49 tools. Answers are streamed to the user interface via Server-Sent Events (SSE) and are accompanied by a numbered **Sources** list generated from tool-level citation metadata.
 
 Internally, the agent organizes evidence along four investigative dimensions—**regulators (WHO)**, **kinetics and conditions (WHEN)**, **cellular and sequence context (WHERE)**, and **functional significance (WHY)**—but these labels are not shown to end users; responses are written as natural scientific prose with topic headings matched to the question.
 
@@ -91,7 +91,7 @@ For **site-importance** questions (e.g., *"Why does TP53 S15 matter?"*), the ret
 Every tool result is tagged with an **evidence level**:
 
 - **experimental** — quantitative or curated experimental data (including qPTM measurements and literature-backed curated sets);
-- **predicted** — computational predictions (e.g., GPS kinase specificity, AlphaFold structural context).
+- **predicted** — computational predictions (e.g., GPS kinase specificity, PhosLLPS).
 
 Citations are assigned globally across a single answer: the first distinct database invoked becomes [S1], the second [S2], and so on. The front end renders narrative attributions by **database name** (e.g., **qPTM**, **PhosphoSitePlus**) and appends a numbered **Sources** section with hyperlinks to each database homepage or record URL. Structured multi-row facts are presented in markdown tables with a dedicated **Source** column rather than inline reference numbers in prose.
 
@@ -101,7 +101,7 @@ The agent is instructed **not** to enumerate empty database results or internal 
 
 ## 3. Registered Tools and Data Sources
 
-As of the current deployment, **54 tools** are registered in `app/tools/registry.py`. Each tool maps to one primary database (see `app/tools/metadata.py`). Data are accessed through three mechanisms:
+As of the current deployment, **49 tools** are registered in `app/tools/registry.py`. Each tool maps to one primary database (see `app/tools/metadata.py`). Data are accessed through three mechanisms:
 
 1. **qPTM REST API** — live queries against the qPTM MySQL backend;
 2. **Local indexed files** — TSV/CSV tables under `agent-backend/data/`, optionally compiled to SQLite via `python -m app.sources.build_index`;
@@ -123,7 +123,7 @@ Thirty-seven local source folders include a `SOURCE.yaml` manifest documenting p
 |------|----------|---------------|
 | `iptmnet_enzymes` | iPTMnet | Experimental + curated |
 | `psp_kinase_substrate` | PhosphoSitePlus | Curated |
-| `gps6_kinases` | GPS 6.0 | Predicted (kinase specificity) |
+| `gps6_kinases` | GPS 6.0 | Experimental (kinase specificity) |
 | `gpsuber_e3_sites` | GPS-Uber | Predicted (E3 ligase sites) |
 | `gpssumo2_sites` | GPS-SUMO 2.0 | Curated + predicted |
 | `weram_regulators` | WERAM | Curated (histone acetylation/methylation) |
@@ -185,17 +185,11 @@ Thirty-seven local source folders include a `SOURCE.yaml` manifest documenting p
 | `kegg_pathways` | KEGG | Pathway maps |
 | `pathbank_pathways` | PathBank | Metabolic/signaling pathway diagrams |
 
-### 3.8 Literature and complementary genomics
+### 3.8 Literature search
 
 | Tool | Database | Content |
 |------|----------|---------|
 | `pubtator_literature_search` | PubTator3 | Biomedical literature search and entity tagging |
-| `alphafold_structure` | AlphaFold DB | Predicted structure metadata |
-| `ensembl_gene` | Ensembl | Gene identifiers and orthologs |
-| `gnomad_variants` | gnomAD | Population variant frequencies |
-| `opentargets_disease` | Open Targets | Disease–target associations |
-| `gwas_catalog_assoc` | GWAS Catalog | Trait-associated variants |
-| `jaspar_tf_motifs` | JASPAR | Transcription factor binding motifs |
 
 ### 3.9 Local data organization
 
@@ -254,7 +248,7 @@ The following question classes are **not** fully supported and should be interpr
 - Solvent-accessible surface area (SASA) and residue burial/exposure;
 - Complete proteoform catalogs or combinatorial multi-PTM states;
 - Systematic PTM crosstalk networks beyond PTMcode2 curated subsets;
-- De novo structural modeling beyond AlphaFold metadata.
+- De novo structural modeling beyond domain annotations from InterPro/Pfam.
 
 When a question falls entirely outside available tools, the agent provides a brief honest statement rather than inventing measurements.
 

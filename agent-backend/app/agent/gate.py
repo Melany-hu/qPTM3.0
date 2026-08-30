@@ -526,6 +526,14 @@ def _is_collection_request(
             kind = classify_upload_filename(name)
             if kind in ("fulltext", "supplementary"):
                 return True
+    # Standalone MS accession → download URLs (PXD / IPX / …)
+    try:
+        from app.collection.store import looks_like_resolve_urls_request
+
+        if looks_like_resolve_urls_request(text):
+            return True
+    except Exception:
+        pass
     if _COLLECTION_RE.search(text):
         return True
     pmid = entities.get("pmid") or _extract_pmid(text)
@@ -966,7 +974,7 @@ def build_gate_reply(mode: str, message: str) -> str:
             "|----------|------|\n"
             "| iPTMnet / PhosphoSitePlus | enzyme–substrate, regulatory/disease sites |\n"
             "| UniProt / InterPro / Pfam | function, domains |\n"
-            "| GPS 6.0 / UbiBrowser, … | predicted or specialized enzyme links |\n"
+            "| GPS 6.0 / UbiBrowser, … | experimental or specialized enzyme links |\n"
             "| ActiveDriverDB / PTMD / CancerProteome | mutation, disease, tumor quant |\n"
             "| PubTator3 | literature supplement |\n\n"
             "**Common PTM types:** phosphorylation, acetylation, ubiquitination, "
