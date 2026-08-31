@@ -67,12 +67,15 @@ def _iptmnet_get(path: str) -> dict[str, Any] | list[Any] | None:
     url = f"{_base()}/{path.lstrip('/')}"
     try:
         with httpx.Client(
-            timeout=settings.http_timeout_seconds,
+            timeout=min(float(settings.http_timeout_seconds), 15.0),
             follow_redirects=True,
             headers={"Accept": "application/json", "User-Agent": "qPTM_agent/1.0"},
         ) as client:
             resp = client.get(url)
             if resp.status_code == 404:
+                return None
+            if resp.status_code >= 500:
+                logger.warning("iPTMnet API %s for %s", resp.status_code, path)
                 return None
             resp.raise_for_status()
             return resp.json()
@@ -230,20 +233,10 @@ def _iptmnet_enzymes(
 
     data = _iptmnet_get(f"v1/{ac}/substrate")
     if data is None:
-        info = _iptmnet_get(f"v1/{ac}/info")
-        if info is None:
-            return {
-                **meta,
-                "summary": f"No data found in iPTMnet for {ac}.",
-                "gene": gene or (identity or {}).get("gene"),
-                "uniprot_ac": ac,
-                "enzymes": [],
-                "total": 0,
-            }
         return {
             **meta,
-            "summary": f"Protein {ac} found in iPTMnet but no substrate/enzyme data available.",
-            "gene": (info.get("gene_name") if isinstance(info, dict) else None) or gene,
+            "summary": f"No data found in iPTMnet for {ac}.",
+            "gene": gene or (identity or {}).get("gene"),
             "uniprot_ac": ac,
             "enzymes": [],
             "total": 0,

@@ -8,7 +8,15 @@ import logging
 import re
 from typing import Any
 
-from app.agent.gate import QUERY_MODE_LITERATURE, QUERY_MODE_PMID_LOOKUP
+from app.agent.gate import QUERY_MODE_LITERATURE, QUERY_MODE_PMID_LOOKUP, QUERY_MODE_RESEARCH
+from app.agent.knowledge_bases import (
+    KB_LITERATURE,
+    is_literature_tool,
+    select_knowledge_bases,
+    select_knowledge_bases_for_depth,
+    tools_for_kbs,
+)
+from app.agent.llm_fallback import log_llm_fallback
 from app.agent.memory import InvestigationMemory
 from app.models.schemas import WorkflowStage
 from app.workflow.stages import _STAGE_KEYWORDS, _keyword_hit
@@ -17,9 +25,10 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_TOP_K = 6
 IMPORTANCE_TOP_K = 10
+_TOOL_RETRIEVER_LLM_TIMEOUT_S = 6.0
 
 # Always-available utility tools for certain modes
-_LITERATURE_TOOLS = ["pubtator_literature_search"]
+_LITERATURE_TOOLS = ["pubtator_literature_search", "pubmed_fetch_abstracts"]
 _SITE_CORE_TOOLS = ["qptm_search", "qptm_kinases", "iptmnet_enzymes", "uniprot_annotation"]
 
 # Cross-stage tools for site-importance / WHY questions:
@@ -95,15 +104,53 @@ def _score_stages(message: str) -> dict[WorkflowStage, int]:
     return scores
 
 
+def _kb_heuristic_tools(
+    question: str,
+    memory: InvestigationMemory,
+    valid: set[str],
+    top_k: int,
+    *,
+    include_literature: bool = True,
+) -> list[str]:
+    """Knowledge-base grouped tool pick (primary path)."""
+    kbs = select_knowledge_bases_for_depth(
+        question, memory, include_literature=include_literature,
+    )
+    db_kbs = [k for k in kbs if k != KB_LITERATURE]
+    picked = tools_for_kbs(db_kbs, valid)
+
+    for t in _SITE_CORE_TOOLS:
+        if t in valid and t not in picked:
+            picked.append(t)
+
+    if memory.query_mode == QUERY_MODE_RESEARCH:
+        scores = _score_stages(question)
+        if _is_importance_question(question, scores):
+            for tool in _SITE_IMPORTANCE_TOOLS:
+                if tool in valid and tool not in picked:
+                    picked.append(tool)
+
+    return picked[:top_k]
+
+
 def _heuristic_tools(
     question: str,
     memory: InvestigationMemory,
     catalog: list[dict[str, str]],
     top_k: int,
+    *,
+    include_literature: bool = True,
 ) -> list[str]:
     """Keyword-based fallback when LLM retrieval fails."""
     valid = {item["tool"] for item in catalog}
-    picked: list[str] = []
+    kb_pick = _kb_heuristic_tools(
+        question, memory, valid, top_k, include_literature=include_literature,
+    )
+    if len(kb_pick) >= 3:
+        logger.info("ToolRetriever KB picked: %s", kb_pick)
+        return kb_pick
+
+    picked: list[str] = list(kb_pick)
     effective_k = top_k
 
     mode = memory.query_mode or ""
@@ -192,6 +239,11 @@ def _parse_tool_list(raw: str, valid: set[str]) -> list[str]:
     return result
 
 
+def filter_react_tools(tool_names: list[str]) -> list[str]:
+    """Exclude literature tools from ReAct LLM tool list (enrich_literature handles them)."""
+    return [t for t in tool_names if not is_literature_tool(t)]
+
+
 async def retrieve_tools(
     question: str,
     memory: InvestigationMemory,
@@ -200,6 +252,7 @@ async def retrieve_tools(
     *,
     top_k: int = DEFAULT_TOP_K,
     use_llm: bool = False,
+    include_literature: bool = True,
 ) -> list[str]:
     """Pick top-K tool names for the current question."""
     valid = {item["tool"] for item in catalog}
@@ -207,6 +260,11 @@ async def retrieve_tools(
         return []
 
     if use_llm:
+        fallback = filter_react_tools(
+            _heuristic_tools(
+                question, memory, catalog, top_k, include_literature=include_literature,
+            ),
+        )
         catalog_lines = "\n".join(
             f"- {item['tool']}: {item['description'][:200]}"
             for item in catalog
@@ -222,15 +280,27 @@ async def retrieve_tools(
             f"Available tools:\n{catalog_lines}\n"
         )
         try:
-            resp = await asyncio.wait_for(_llm_pick(llm, prompt), timeout=20.0)
-            picked = _parse_tool_list(resp, valid)
+            resp = await asyncio.wait_for(_llm_pick(llm, prompt), timeout=_TOOL_RETRIEVER_LLM_TIMEOUT_S)
+            picked = filter_react_tools(_parse_tool_list(resp, valid))
             if picked:
                 logger.info("ToolRetriever LLM picked: %s", picked)
                 return picked[:top_k]
+            logger.info("ToolRetriever LLM returned no valid tools; using heuristic router")
         except Exception as exc:
-            logger.warning("ToolRetriever LLM failed: %s", exc)
+            log_llm_fallback(
+                "Tool retriever",
+                exc,
+                timeout_s=_TOOL_RETRIEVER_LLM_TIMEOUT_S,
+                detail="heuristic/KB router",
+            )
+        logger.info("ToolRetriever heuristic picked: %s", fallback)
+        return fallback
 
-    fallback = _heuristic_tools(question, memory, catalog, top_k)
+    fallback = filter_react_tools(
+        _heuristic_tools(
+            question, memory, catalog, top_k, include_literature=include_literature,
+        ),
+    )
     logger.info("ToolRetriever heuristic picked: %s", fallback)
     return fallback
 

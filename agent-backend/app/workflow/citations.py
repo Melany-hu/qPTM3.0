@@ -1140,6 +1140,31 @@ def extract_citations(
                 ).strip(),
             )
 
+    elif tool_name == "pubmed_fetch_abstracts":
+        _cite(
+            citations,
+            source_db="PubMed",
+            label="PubMed abstract fetch (NCBI eutils)",
+            source_type=SourceType.literature,
+            url=result.get("homepage") or "https://pubmed.ncbi.nlm.nih.gov/",
+            evidence_level=EvidenceLevel.experimental,
+            detail=f"{len(result.get('abstracts') or [])} abstract(s) fetched",
+        )
+        for row in (result.get("abstracts") or [])[:10]:
+            pmid = str(row.get("pmid") or "").strip()
+            if not pmid.isdigit():
+                continue
+            title = (row.get("title") or "")[:120]
+            _cite(
+                citations,
+                source_db="PubMed",
+                label=f"Literature: {title}",
+                source_type=SourceType.literature,
+                pmid=pmid,
+                evidence_level=EvidenceLevel.experimental,
+                detail=(row.get("abstract") or "")[:200],
+            )
+
     else:
         _cite(
             citations,
@@ -1734,6 +1759,20 @@ def compact_tool_data(tool_name: str, result: dict[str, Any]) -> dict[str, Any]:
                 "highlight": p.get("highlight"),
             }
             for p in (result.get("papers") or [])[:8]
+        ]
+
+    elif tool_name == "pubmed_fetch_abstracts":
+        compact["pmids"] = result.get("pmids") or []
+        compact["abstracts"] = [
+            {
+                "pmid": a.get("pmid"),
+                "title": a.get("title"),
+                "abstract": (a.get("abstract") or "")[:700],
+                "journal": a.get("journal"),
+                "year": a.get("year"),
+                "url": a.get("url"),
+            }
+            for a in (result.get("abstracts") or [])[:5]
         ]
 
     return compact

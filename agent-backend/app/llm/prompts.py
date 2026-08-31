@@ -149,12 +149,7 @@ that hit that site — do **not** invent or assume an allele such as S15F.
   Different databases → different [Sx].
 - When PubTator3 results are available, include a **## Recommended Literature** section
 - End with a **## Sources** section listing every [Sx] tag used (must include Evidence column)
-- End with **## Next step**: 2–3 concrete follow-up **questions** as a markdown bullet
-  list (each item a full question the user can ask next). Do not write prose advice —
-  only clickable-style questions, e.g.:
-  `## Next step`
-  `- Which drugs inhibit AKT1 S473 phosphorylation?`
-  `- What is the time course of AKT1 S473 under insulin?`
+- **Do NOT** add follow-up questions, "Next step", or example queries (e.g. "ask about TP53 S15") in the answer — the UI shows them in a separate panel
 
 ## Data Sources
 
@@ -313,7 +308,8 @@ contextualize rewiring after mutation [Sx]. Label experimental vs predicted.
 Disease associations, cancer vs normal quantification, and therapeutic /
 biomarker implications tied to the mutation–PTM axis [Sx].
 
-Then tables + ## Recommended Literature + ## Sources + Next step as below.
+Then tables + ## Recommended Literature + ## Sources as below.
+Do **not** add ## Next step / ## 后续问题 or inline example questions — follow-ups are shown separately in the UI.
 
 **Otherwise (site-centric questions)**, organize with biological headings
 (also use `###`). If the plan skipped a theme because the user already
@@ -349,9 +345,7 @@ Then:
 3. **## Sources** — paste the provided **Retrieval Summary Table** verbatim
    (keep database markdown links `[Name](url)`; do not invent rows;
    do not add Tool/Status columns or a legend)
-4. **## Next step** — 2–3 concrete follow-up **questions** as markdown bullets
-   (each a full question the user can click/ask next). No prose paragraphs —
-   questions only. Match the answer language.
+4. **Do NOT** add ## Next step / ## 后续问题 or suggested example questions in the answer body.
 
 Write in a clear, structured style:
 - Prefer **numbered lists** (`1.` `2.` `3.`) or **bullet points** (`- `) under each heading
@@ -363,6 +357,35 @@ If evidence for a theme is missing, omit that section — never fabricate.
 **Never narrate empty/no-hit database results.** Show only retrieved facts.
 Do not write sentences like “No … were retrieved/found in database X” or
 「未在某数据库中检索到…」— simply skip those sources."""
+
+SYNTHESIS_PROMPT_COMPACT = """You are qPTM Agent. Tools already ran; synthesize a **concise** cited answer.
+
+Rules:
+- Use ONLY the evidence and Source Registry below. Every claim ends with [Sx].
+- Name the database/tool; label evidence as experimental or predicted (实验验证/计算预测 for Chinese).
+- Include hit-level `(PMID:…)` when present in evidence rows — never invent PMIDs.
+- Omit databases with no positive hits. Use `###` biological headings only.
+- End with `## Sources` — paste the retrieval table if provided, else list [Sx] entries.
+- Match the user question language (English ↔ English, 中文 ↔ 中文).
+- Prefer bullets/short paragraphs; avoid long introductions."""
+
+SYNTHESIS_MECHANISM_ADDENDUM = """
+## Mechanism synthesis mode (regulatory / downstream-target questions)
+
+The user asks how a PTM site regulates downstream function (e.g. target-gene transcription).
+Database tools may only list upstream kinases — that is NOT a reason to stop.
+
+When PubMed abstracts or Literature agent mechanism_steps are present:
+1. Write a **numbered mechanistic chain** (1. stimulus → kinase → site phosphorylation →
+   intermediate regulators → downstream transcription) using ONLY abstract-backed claims.
+2. Lead with database facts (kinases, site annotations) under `### Upstream regulators` /
+   `### 上游调控`, then add literature-backed steps under `### Regulatory mechanism` /
+   `### 调控机制` or `### Functional consequences` / `### 功能意义`.
+3. Each step MUST cite [Sx] from PubMed/PubTator evidence. Include `(PMID:…)` when available.
+4. **Do NOT** say "retrieved records do not contain evidence" when abstracts explain the pathway.
+5. Absence of a direct edge in qPTM/iPTMnet does NOT forbid a literature-supported mechanism narrative.
+6. Still omit empty database sections — never narrate no-hit databases.
+"""
 
 
 def _detect_response_language(question: str) -> str:
@@ -379,9 +402,11 @@ def _detect_response_language(question: str) -> str:
 def build_synthesis_prompt(context: dict) -> str:
     """Build synthesis system prompt from the full agent context."""
     history_text = ""
-    for msg in context.get("history", []):
+    history_limit = 4 if context.get("compact") else 6
+    history_char_cap = 500 if context.get("compact") else 800
+    for msg in context.get("history", [])[-history_limit:]:
         role = msg.get("role", "user").capitalize()
-        history_text += f"\n**{role}**: {msg.get('content', '')[:800]}"
+        history_text += f"\n**{role}**: {msg.get('content', '')[:history_char_cap]}"
 
     history_block = history_text.strip() or "(First message in this conversation.)"
     question = context.get("question") or ""
@@ -404,16 +429,25 @@ def build_synthesis_prompt(context: dict) -> str:
             "Do not use Chinese words anywhere in the answer body."
         )
 
+    prompt_body = SYNTHESIS_PROMPT_COMPACT if context.get("compact") else SYNTHESIS_PROMPT
+    if context.get("mechanism_mode"):
+        prompt_body = f"{prompt_body}\n{SYNTHESIS_MECHANISM_ADDENDUM}"
+    retrieval_section = ""
+    if context.get("retrieval_table"):
+        retrieval_section = (
+            f"\n\n## Retrieval Summary Table (paste under ## Sources)\n"
+            f"{context.get('retrieval_table', '')}"
+        )
+
     return (
-        f"{SYNTHESIS_PROMPT}\n\n"
+        f"{prompt_body}\n\n"
         f"{lang_block}\n\n"
         f"## User Question\n{question}\n\n"
         f"## Conversation History\n{history_block}\n\n"
         f"## Research Plan\n{context['plan_summary']}\n\n"
         f"## Source Registry\n{context['citations_text']}\n\n"
-        f"## Tool Evidence\n{context['evidence_text']}\n\n"
-        f"## Retrieval Summary Table (paste under ## Sources)\n"
-        f"{context.get('retrieval_table', '')}"
+        f"## Tool Evidence\n{context['evidence_text']}"
+        f"{retrieval_section}"
     )
 
 
@@ -484,18 +518,126 @@ def build_synthesis_messages(context: dict) -> list[dict[str, str]]:
             "Stay faithful to the User Question: do not assume a specific allele "
             "unless it appears in that question."
         )
+    elif context.get("mechanism_mode"):
+        user_content = (
+            "Synthesize a dual-source answer: database kinases/site facts PLUS a numbered "
+            "literature-backed regulatory mechanism chain for the user's downstream question. "
+            "Weave PubMed abstract claims into the main narrative — not only a separate "
+            "Recommended Literature section. "
+            f"{evidence_rules} {lang_rule}"
+        )
     else:
         user_content = (
-            "Synthesize a comprehensive, source-attributed answer based on the "
-            "research plan, tool evidence, and Source Registry above. "
-            "Organize with short biological headings "
-            "(upstream regulators, quantitative dynamics, cellular context & localization, "
-            "functional consequences — or Chinese equivalents). "
+            "Synthesize a source-attributed answer based on the tool evidence and "
+            "Source Registry above. Answer the user's specific question directly — "
+            "organize with headings only when they improve readability (not a fixed "
+            "four-part template). Weave database facts and PubMed abstract claims "
+            "together in the same narrative where both are available. "
             "Never write Stage 1/2/3/4 or WHO/WHEN/WHERE/WHY. "
-            "Skip themes the plan marked as user-provided. "
             f"{evidence_rules} {lang_rule}"
         )
     return [
         {"role": "system", "content": build_synthesis_prompt(context)},
         {"role": "user", "content": user_content},
     ]
+
+
+REACT_SYSTEM_PROMPT = """You are qPTM Agent — a PTM research assistant with access to quantitative \
+databases (qPTM, iPTMnet, PhosphoSitePlus, etc.) and literature tools.
+
+## How you work
+1. Understand the user question — answer only what was asked (do not run a full survey unless requested).
+2. Call 1–3 database tools per round when evidence is missing.
+3. Stop calling tools when you have enough structured evidence; the system will search PubMed and \
+write the final cited answer.
+4. Prefer experimental database hits over predicted; never invent sites, kinases, PMIDs, or abstracts.
+
+## Tool strategy
+- Narrow kinase questions → qptm_kinases, iptmnet_enzymes first.
+- Condition / fold-change questions → qptm_site_conditions, qptm_search.
+- Localization → compartments_localization, uniprot_annotation.
+- Do NOT call pubtator_literature_search or pubmed_fetch_abstracts — literature is added automatically.
+
+## Citation rules (for any text you emit)
+- Every fact needs inline [Sx] matching executed tool citations.
+- State database name and experimental vs predicted.
+- Include hit-level PMIDs inline when present in tool JSON.
+
+## Response style (if you answer without waiting for synthesis)
+- Direct, natural scientific prose; bullets/tables when helpful.
+- No Stage/WHO/WHEN/WHERE/WHY labels; no mandatory four-section template.
+- End with ## Sources when citing [Sx] tags.
+"""
+
+
+def build_react_messages(
+    user_message: str,
+    history: list[dict[str, str]],
+    memory_block: str,
+    *,
+    query_mode: str = "research",
+    graph_summary: str = "",
+) -> list[dict[str, str]]:
+    """Build OpenAI-format messages for the ReAct tool-calling loop."""
+    sys_parts = [REACT_SYSTEM_PROMPT, f"\n## Investigation context\n{memory_block}"]
+    if graph_summary:
+        sys_parts.append(f"\n{graph_summary}")
+
+    messages: list[dict[str, str]] = [
+        {"role": "system", "content": "\n".join(sys_parts)},
+    ]
+    for msg in history[-10:]:
+        role = msg.get("role", "user")
+        if role in ("user", "assistant"):
+            content = (msg.get("content") or "")[:4000]
+            if content:
+                messages.append({"role": role, "content": content})
+
+    messages.append({
+        "role": "user",
+        "content": (
+            f"User question ({query_mode}):\n{user_message}\n\n"
+            "Use tools to gather evidence, then stop when sufficient."
+        ),
+    })
+    return messages
+
+
+CONCEPT_SYSTEM_PROMPT = """You are qPTM Agent, a molecular and cell biology research assistant integrated with qPTM \
+(https://qptm3.omicsbio.info).
+
+The user asks a **conceptual / educational** question — general biology or PTM concepts, not a specific \
+protein/site database lookup. Answer directly from established molecular/cell biology knowledge. \
+**Do not** refuse biology-related questions.
+
+You specialize in post-translational modifications (PTM) and quantitative PTM data, but you may clearly \
+explain related topics such as proteins, enzymes, genes, cells, signaling, and metabolism when asked.
+
+Guidelines:
+- Match the user's language (Chinese question → Chinese answer; English → English).
+- Be clear, structured, and concise (use headings or bullets when helpful).
+- Cover definition, biological roles, and why the topic matters for research / medicine when relevant.
+- When the topic connects naturally to PTM (e.g. protein structure, enzymes, signaling), mention that link briefly.
+- Do not invent database statistics or cite [Sx] tags — no tools were run.
+- **Do not** ask the user to supply a gene/site unless they clearly want a specific database investigation.
+- **Do not** end with suggested follow-up or example questions — the UI shows follow-ups separately.
+"""
+
+
+def build_concept_messages(
+    user_message: str,
+    history: list[dict[str, str]],
+) -> list[dict[str, str]]:
+    """LLM messages for educational PTM questions (no tools)."""
+    messages: list[dict[str, str]] = [
+        {"role": "system", "content": CONCEPT_SYSTEM_PROMPT},
+    ]
+    for msg in history[-8:]:
+        role = msg.get("role", "user")
+        if role in ("user", "assistant"):
+            content = (msg.get("content") or "")[:3000]
+            if content:
+                messages.append({"role": role, "content": content})
+    messages.append({"role": "user", "content": user_message})
+    return messages
+

@@ -66,13 +66,15 @@ from app.tools.subcell_tools import register_subcell_tools
 from app.tools.domain_tools import register_domain_tools
 from app.tools.pubtator_tools import register_pubtator_tools
 from app.workflow.state import session_manager
+from app.agent.gate import (
+    classify_query_mode,
+    build_gate_reply,
+    QUERY_MODE_RESEARCH,
+)
 from app.workflow.planner import (
     build_research_plan,
     infer_tool_arguments,
     parse_query_entities,
-    classify_query_mode,
-    build_gate_reply,
-    QUERY_MODE_RESEARCH,
 )
 from app.workflow.stages import (
     advance_stage,
@@ -82,6 +84,8 @@ from app.workflow.stages import (
 from app.workflow.citations import attach_citations
 from app.workflow.context import build_agent_context
 from app.storage import conversations as conv_store
+from app.agent.react import run_react
+from app.orchestrator.run import run_orchestrator
 
 logging.basicConfig(
     level=logging.INFO,
@@ -161,6 +165,14 @@ def _startup_register_tools() -> None:
     """Register all tools on FastAPI startup."""
     register_all_tools()
     conv_store.init_db()
+    # Warm source manifests so the first chat request does not pay ~10s disk I/O.
+    try:
+        from app.sources.catalog import get_catalog
+
+        n = len(get_catalog().all())
+        logger.info("Preloaded %d source manifests", n)
+    except Exception:
+        logger.exception("source catalog preload failed")
     # Jobs left in "running" after a crash/restart can never finish (no in-memory
     # task survived). Flag them so the UI stops spinning and lets the user resume.
     try:
@@ -210,6 +222,11 @@ def _sse_tool_result(
 def _sse_sources(citations: list[dict[str, Any]]) -> str:
     """SSE event: source registry for the answer."""
     return _sse_event("sources", {"citations": citations})
+
+
+def _sse_phase_update(phase: str, label: str) -> str:
+    """SSE event for ReAct phase (database / literature / synthesis)."""
+    return _sse_event("phase_update", {"phase": phase, "label": label})
 
 
 def _sse_stage_update(stage: str, label: str, description: str) -> str:
@@ -591,7 +608,86 @@ async def _stream_llm_events(
         yield event
 
 
-async def _agent_loop(
+def _react_event_to_sse(event: dict[str, Any]) -> Optional[str]:
+    """Convert agent dict events to SSE strings."""
+    etype = event.get("type")
+    if etype and str(etype).startswith("_"):
+        return None
+    if etype == "text":
+        return _sse_text_chunk(event.get("content") or "")
+    if etype == "tool_call":
+        payload = {
+            "tool_name": event.get("tool_name"),
+            "arguments": event.get("arguments") or {},
+            "kind": event.get("kind") or "database",
+        }
+        if event.get("parent_agent"):
+            payload["parent_agent"] = event["parent_agent"]
+        return _sse_event("tool_call", payload)
+    if etype == "tool_result":
+        payload = event.get("payload") or {}
+        out = {**payload, "kind": event.get("kind") or "database"}
+        if event.get("parent_agent"):
+            out["parent_agent"] = event["parent_agent"]
+        return _sse_event("tool_result", out)
+    if etype == "sources":
+        return _sse_sources(event.get("citations") or [])
+    if etype == "phase_update":
+        return _sse_phase_update(
+            event.get("phase") or "",
+            event.get("label") or "",
+        )
+    if etype == "plan_created":
+        plan = event.get("plan") or {}
+        return _sse_event("plan_created", plan)
+    if etype == "done":
+        return _sse_done()
+    if etype == "follow_up_questions":
+        return _sse_event("follow_up_questions", {
+            "questions": event.get("questions") or [],
+        })
+    if etype == "clarification_request":
+        payload = {k: v for k, v in event.items() if k != "type"}
+        return _sse_event("clarification_request", payload)
+    if etype == "orchestrator_plan":
+        payload = {k: v for k, v in event.items() if k != "type"}
+        return _sse_event("orchestrator_plan", payload)
+    if etype == "agent_started":
+        return _sse_event("agent_started", {
+            "agent": event.get("agent"),
+            "label": event.get("label"),
+            "focus": event.get("focus") or "",
+        })
+    if etype == "agent_completed":
+        return _sse_event("agent_completed", {
+            "agent": event.get("agent"),
+            "summary": event.get("summary") or "",
+        })
+    if etype == "agent_handoff":
+        return _sse_event("agent_handoff", {
+            "from_agent": event.get("from_agent"),
+            "to_agent": event.get("to_agent"),
+            "clues": event.get("clues") or [],
+            "pmid_count": event.get("pmid_count") or 0,
+        })
+    if etype == "agent_brief":
+        return _sse_event("agent_brief", {
+            "agent": event.get("agent"),
+            "preview": event.get("preview") or "",
+        })
+    if etype == "literature_search":
+        return _sse_event("literature_search", {
+            "round": event.get("round"),
+            "query": event.get("query") or "",
+            "papers_found": event.get("papers_found") or 0,
+            "elapsed_s": event.get("elapsed_s") or 0,
+        })
+    if etype == "error":
+        return _sse_error(event.get("message") or "Unknown error")
+    return None
+
+
+async def _agent_loop_planner(
     user_message: str,
     history: list[dict[str, str]],
     session_id: str,
@@ -775,6 +871,34 @@ async def _agent_loop(
     yield _sse_done()
 
 
+async def _agent_loop(
+    user_message: str,
+    history: list[dict[str, str]],
+    session_id: str,
+    *,
+    clarification_response: Optional[dict[str, Any]] = None,
+) -> AsyncGenerator[str, None]:
+    """Primary agent loop — orchestrator by default; react/planner fallback."""
+    if settings.agent_mode == "planner":
+        async for chunk in _agent_loop_planner(user_message, history, session_id):
+            yield chunk
+        return
+
+    runner = run_react
+    if settings.agent_mode == "orchestrator":
+        runner = run_orchestrator
+
+    async for event in runner(
+        user_message,
+        history,
+        session_id,
+        clarification_response=clarification_response,
+    ):
+        chunk = _react_event_to_sse(event)
+        if chunk:
+            yield chunk
+
+
 def _get_device_id(request: Request) -> Optional[str]:
     """Browser-persisted device key from X-Device-Id (not IP)."""
     raw = (request.headers.get("X-Device-Id") or "").strip()
@@ -870,6 +994,54 @@ def _collect_turn_meta_from_sse(chunk: str, meta: dict[str, Any]) -> None:
                         tools[-1]["tool_name"] = payload["tool_name"]
                 else:
                     tools.append(payload)
+            elif event_type == "follow_up_questions":
+                meta["follow_ups"] = data.get("questions") or []
+            elif event_type == "orchestrator_plan":
+                wf = meta.setdefault("workflow", {})
+                wf["orchestrator"] = {
+                    "goal": data.get("user_goal") or "",
+                    "tasks": data.get("tasks") or [],
+                    "reasoning": data.get("reasoning") or "",
+                }
+            elif event_type == "agent_started":
+                wf = meta.setdefault("workflow", {})
+                agents = wf.setdefault("agents", {})
+                agent_id = data.get("agent") or "unknown"
+                agents[agent_id] = {
+                    "status": "running",
+                    "label": data.get("label") or "",
+                    "focus": data.get("focus") or "",
+                    "tools": agents.get(agent_id, {}).get("tools") or [],
+                }
+            elif event_type == "agent_completed":
+                wf = meta.setdefault("workflow", {})
+                agents = wf.setdefault("agents", {})
+                agent_id = data.get("agent") or "unknown"
+                prev = agents.get(agent_id) or {}
+                agents[agent_id] = {
+                    **prev,
+                    "status": "done",
+                    "summary": data.get("summary") or "",
+                }
+            elif event_type == "agent_handoff":
+                wf = meta.setdefault("workflow", {})
+                handoffs = wf.setdefault("handoffs", [])
+                handoffs.append({
+                    "from": data.get("from_agent"),
+                    "to": data.get("to_agent"),
+                    "pmid_count": data.get("pmid_count") or 0,
+                    "clues": data.get("clues") or [],
+                })
+            elif event_type == "tool_call" and data.get("parent_agent"):
+                wf = meta.get("workflow") or {}
+                agents = wf.get("agents") or {}
+                pa = data.get("parent_agent")
+                if pa and pa in agents:
+                    agents[pa].setdefault("tools", []).append({
+                        "tool_name": data.get("tool_name"),
+                        "kind": data.get("kind"),
+                    })
+                    meta.setdefault("workflow", wf)
 
             event_type = None
 
@@ -879,6 +1051,8 @@ async def _agent_loop_with_persist(
     history: list[dict[str, str]],
     session_id: str,
     conversation_id: str,
+    *,
+    clarification_response: Optional[dict[str, Any]] = None,
 ) -> AsyncGenerator[str, None]:
     """Wrap agent loop and persist assistant reply when complete.
 
@@ -919,7 +1093,12 @@ async def _agent_loop_with_persist(
             )
 
     try:
-        async for chunk in _agent_loop(user_message, history, session_id):
+        async for chunk in _agent_loop(
+            user_message,
+            history,
+            session_id,
+            clarification_response=clarification_response,
+        ):
             _collect_text_from_sse(chunk, text_parts)
             _collect_turn_meta_from_sse(chunk, turn_meta)
             # Save before the client can close on ``done``.
@@ -1111,26 +1290,43 @@ async def chat(request: Request) -> StreamingResponse:
     if isinstance(device_id, JSONResponse):
         return device_id
 
+    clarification_payload = None
+    if chat_req.clarification_response is not None:
+        clarification_payload = chat_req.clarification_response.model_dump()
+
     conversation_id = chat_req.conversation_id
     if conversation_id and not conv_store.belongs_to_device(conversation_id, device_id):
         return JSONResponse({"error": "Conversation not found"}, status_code=403)
 
     is_new = False
+    user_msg = (chat_req.message or "").strip()
+    if not user_msg and clarification_payload:
+        user_msg = (
+            "（跳过补充，直接研究）"
+            if clarification_payload.get("skip")
+            else "（已补充研究信息）"
+        )
+
     if not conversation_id:
-        conv = conv_store.create_conversation(device_id, _title_from_message(chat_req.message))
+        conv = conv_store.create_conversation(device_id, _title_from_message(user_msg or "Research"))
         conversation_id = conv["id"]
         is_new = True
 
-    conv_store.add_message(conversation_id, "user", chat_req.message)
-    if is_new:
-        conv_store.update_title(conversation_id, _title_from_message(chat_req.message))
+    if user_msg:
+        conv_store.add_message(conversation_id, "user", user_msg)
+    if is_new and user_msg:
+        conv_store.update_title(conversation_id, _title_from_message(user_msg))
 
     session_id = chat_req.session_id or str(uuid.uuid4())
     history = [{"role": m.role, "content": m.content} for m in chat_req.history]
 
     return StreamingResponse(
         _agent_loop_with_persist(
-            chat_req.message, history, session_id, conversation_id,
+            chat_req.message or user_msg,
+            history,
+            session_id,
+            conversation_id,
+            clarification_response=clarification_payload,
         ),
         media_type="text/event-stream",
         headers={

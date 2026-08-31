@@ -379,6 +379,48 @@ _CONCEPT_RE = re.compile(
     re.I,
 )
 
+# Educational questions about a PTM type or PTM research in general (no protein/site target)
+_PTM_TYPE_CONCEPT_RE = re.compile(
+    r"("
+    r"(what\s+is|what\s+are|define|explain|significance\s+of|importance\s+of|role\s+of|"
+    r"why\s+(study|research|matters?))\s+"
+    r"(phosphorylation|acetylation|ubiquitination|methylation|glycosylation|sumoylation|"
+    r"ptm|post[-\s]?translational\s+modification)s?\b|"
+    r"(phosphorylation|acetylation|ubiquitination|methylation|glycosylation|sumoylation)\s+"
+    r"(research|stud(y|ies))\b.{0,30}(significance|importance|meaning|purpose|value|matter)?|"
+    r"(什么是|何为|解释一下?|介绍一下?)(磷酸化|乙酰化|泛素化|甲基化|糖基化|sumo化|翻译后修饰|ptm)|"
+    r"(磷酸化|乙酰化|泛素化|甲基化|糖基化|翻译后修饰|ptm).{0,20}"
+    r"(是什么|有啥用|有什么作用|有何作用|的作用|的意义|的功能|为什么重要|研究的意义|研究意义|有什么用)|"
+    r"(磷酸化|乙酰化|泛素化|甲基化|糖基化|翻译后修饰|ptm)\s*研究.{0,10}(意义|作用|价值|重要性)|"
+    r"(研究|探讨).{0,12}(磷酸化|乙酰化|泛素化|甲基化|糖基化|翻译后修饰|ptm).{0,12}(意义|作用|价值|重要性)"
+    r")",
+    re.I,
+)
+
+# Site-centric regulatory / downstream-target mechanism questions
+_SITE_MECHANISM_RE = re.compile(
+    r"("
+    r"如何调控|怎样调控|下游靶基因|靶基因.{0,16}表达|转录调控|信号通路|"
+    r"调控.{0,24}(表达|转录|下游)|机制.{0,12}(调控|表达)|"
+    r"how\s+does.+regulat|how\s+do.+regulat|downstream\s+target|"
+    r"transcription(al)?\s+regulat|signaling\s+pathway|"
+    r"regulat.{0,32}(expression|transcription|downstream)"
+    r")",
+    re.I,
+)
+
+# Field-level mechanism / signaling questions (no concrete protein site)
+_BROAD_MECHANISM_RE = re.compile(
+    r"("
+    r"(如何|怎样|为什么|为何|机制|原理|特异性|级联|信号转导|关系|进展|应用|预测|调控|"
+    r"可逆|协同|举例|哪些|家族|磷酸酶|去磷酸化)|"
+    r"(how|why|mechanism|specificity|cascade|signaling|signalling|relationship|"
+    r"recent|progress|application|predict|regulate|reversib|phosphatase|"
+    r"which\s+famil|examples?|协同)"
+    r")",
+    re.I,
+)
+
 _PTM_SIGNAL_RE = re.compile(
     r"("
     r"ptm|phospho|acetyl|ubiquit|methyl|glycosyl|sumoy|"
@@ -388,6 +430,30 @@ _PTM_SIGNAL_RE = re.compile(
     r"phosphoproteom|proteomics|ptmomics|"
     r"磷酸化|乙酰化|泛素化|甲基化|糖基化|激酶|位点|突变|定位|稳定性|"
     r"翻译后修饰|修饰位点|修饰组学|磷酸化组学|蛋白组"
+    r")",
+    re.I,
+)
+
+# General molecular / cell biology (educational, no concrete site lookup)
+_BIOLOGY_TOPIC_RE = re.compile(
+    r"("
+    r"protein|peptide|amino\s+acid|polypeptide|enzyme|gene|genome|dna|rna|mrna|"
+    r"cell|nucleus|mitochond|membrane|receptor|antibody|immun|chromosome|"
+    r"transcription|translation|replication|metabolism|pathway|signaling|signalling|"
+    r"apoptosis|autophagy|histone|ribosome|organism|evolution|"
+    r"蛋白质|蛋白|氨基酸|肽|酶|基因|染色体|细胞|核酸|"
+    r"转录|翻译|复制|代谢|凋亡|自噬|免疫|膜|受体|核糖体|生物体"
+    r")",
+    re.I,
+)
+
+_EDUCATIONAL_INTENT_RE = re.compile(
+    r"("
+    r"what\s+(is|are)|define|explain|describe|overview|introduction\s+to|"
+    r"basics?|fundamentals?|properties|characteristics|role\s+of|function\s+of|"
+    r"structure\s+of|how\s+does|how\s+do|why\s+(is|are|do)|"
+    r"什么是|何为|介绍一下?|解释一下?|基础|特性|原理|机制|功能|结构|定义|概念|"
+    r"有哪些|怎样|如何|概述|概论|入门"
     r")",
     re.I,
 )
@@ -448,7 +514,7 @@ _PMID_RE = re.compile(
 
 _COLLECTION_RE = re.compile(
     r"("
-    r"collect(?:ion)?|curat(?:e|ing)?|ingest|import|extract|mine|parse|scrap"
+    r"\bcollect(?:ion)?\b|\bcurat(?:e|ing)?\b|\bingest\b|\bimport\b|\bextract\b|\bmine\b|\bparse\b|\bscrap\b"
     r"|qratio|quantitative\s+table|supplementary\s+table|literature\s+metadata"
     r"|full\s*text|supplement(?:ary)?|data\s+collect"
     r"|数据收集|文献收集|抽取|入库|解析|定量表|补充表|全文|元数据|策展"
@@ -475,6 +541,18 @@ _FOLLOWUP_RE = re.compile(
     re.I,
 )
 
+_LITERATURE_ASK_RE = re.compile(
+    r"("
+    r"推荐.{0,16}(一些|相关|有关)?(的)?(文献|论文|文件|paper|papers)|"
+    r"(相关|有关).{0,8}(文献|论文|paper|papers)|"
+    r"(文献|论文).{0,12}(推荐|有哪些|查阅|阅读|给我)|"
+    r"\b(recommend|suggest).{0,24}(paper|literature|publication)s?\b|"
+    r"\b(related|relevant)\s+(paper|literature|publication)s?\b|"
+    r"参考文献|引用文献|reading\s+list|more\s+(paper|reference)s?"
+    r")",
+    re.I,
+)
+
 _SITE_TOKEN_RE = re.compile(
     r"(?<![A-Za-z0-9])([STYKR])(\d{1,4})(?![A-Za-z0-9])",
     re.I,
@@ -487,6 +565,77 @@ def _message_language(message: str) -> str:
     if zh >= 1 and zh >= max(1, latin) * 0.35:
         return "zh"
     return "en"
+
+
+def is_literature_request(message: str) -> bool:
+    """User asks for paper recommendations / reading list."""
+    text = (message or "").strip()
+    if not text:
+        return False
+    if _LITERATURE_ASK_RE.search(text):
+        return True
+    return bool(re.search(r"(文献|论文|paper|papers|publication)", text, re.I) and re.search(
+        r"(推荐|recommend|suggest|related|relevant|相关|有关|有哪些|给我)",
+        text,
+        re.I,
+    ))
+
+
+def _merge_session_entities(
+    entities: dict[str, Any],
+    state: Any = None,
+) -> dict[str, Any]:
+    """Carry gene/site from session when the current turn omits them."""
+    merged = dict(entities or {})
+    if not state:
+        return merged
+    mem = None
+    try:
+        mem = state.get_memory()
+    except Exception:
+        mem = None
+    if not merged.get("gene") and state.target_gene:
+        merged["gene"] = state.target_gene
+    if not merged.get("uniprot_ac") and state.target_uniprot_ac:
+        merged["uniprot_ac"] = state.target_uniprot_ac
+    if not merged.get("position") and state.target_position:
+        merged["position"] = state.target_position
+    if mem:
+        if not merged.get("gene") and mem.gene:
+            merged["gene"] = mem.gene
+        if not merged.get("uniprot_ac") and mem.uniprot_ac:
+            merged["uniprot_ac"] = mem.uniprot_ac
+        if not merged.get("position") and mem.position:
+            merged["position"] = mem.position
+        if not merged.get("ptm_type") and mem.ptm_type:
+            merged["ptm_type"] = mem.ptm_type
+    return merged
+
+
+def _history_has_ptm_target(history: list[dict[str, str]] | None) -> bool:
+    if not history:
+        return False
+    for msg in reversed(history):
+        if msg.get("role") != "user":
+            continue
+        content = (msg.get("content") or "").strip()
+        if not content:
+            continue
+        parsed = parse_query_entities(content)
+        if parsed.get("gene") or parsed.get("position") or parsed.get("uniprot_ac"):
+            return True
+    return False
+
+
+def _session_has_target(state: Any) -> bool:
+    if state and state.has_target:
+        return True
+    if not state:
+        return False
+    try:
+        return bool(state.get_memory().has_target)
+    except Exception:
+        return False
 
 
 def _extract_site_positions(message: str) -> list[int]:
@@ -547,18 +696,81 @@ def _is_collection_request(
     return False
 
 
+def _has_concrete_site_target(message: str, entities: dict[str, Any]) -> bool:
+    """True when the user names a specific protein/site to look up."""
+    if entities.get("uniprot_ac") or entities.get("position") or entities.get("mutation_label"):
+        return True
+    if re.search(r"\b([STYKR]\d+|Ser\d+|Thr\d+|Tyr\d+|Lys\d+)\b", message or "", re.I):
+        return True
+    gene = entities.get("gene")
+    if gene and is_plausible_gene(gene) and re.search(
+        rf"\b{re.escape(str(gene))}\b", message or "", re.I,
+    ):
+        return True
+    return False
+
+
+def is_site_mechanism_question(
+    message: str,
+    entities: dict[str, Any] | None = None,
+    memory: Any = None,
+) -> bool:
+    """Concrete site/gene question asking how a PTM regulates downstream function."""
+    text = (message or "").strip()
+    if not text or not _SITE_MECHANISM_RE.search(text):
+        return False
+    entities = entities or {}
+    has_site = bool(
+        (memory and getattr(memory, "position", None))
+        or entities.get("position")
+        or re.search(r"\b([STYKR]\d+|Ser\d+|Thr\d+|Tyr\d+)\b", text, re.I)
+    )
+    has_gene = bool(
+        (memory and getattr(memory, "gene", None))
+        or entities.get("gene")
+        or re.search(r"\b[A-Z][A-Z0-9]{1,9}\b", text)
+    )
+    return has_site or has_gene
+
+
+def _is_broad_mechanism_question(message: str, entities: dict[str, Any]) -> bool:
+    """Mechanism / field-level PTM questions without a concrete site target."""
+    text = (message or "").strip()
+    if _has_concrete_site_target(text, entities):
+        return False
+    if not _PTM_SIGNAL_RE.search(text):
+        return False
+    if len(text) > 280:
+        return False
+    return bool(_BROAD_MECHANISM_RE.search(text))
+
+
 def _is_concept_question(message: str, entities: dict[str, Any]) -> bool:
     """True for educational PTM questions without a concrete protein/site target."""
+    text = (message or "").strip()
+    if _LITERATURE_FIELD_RE.search(text):
+        return False
+
+    strong_concept = bool(_CONCEPT_RE.search(text) or _PTM_TYPE_CONCEPT_RE.search(text))
+    if strong_concept:
+        # Spurious gene tokens (e.g. "research" → RESEARCH) must not block textbook asks.
+        if entities.get("uniprot_ac") or entities.get("position") or entities.get("mutation_label"):
+            return False
+        if re.search(r"\b([STYKR]\d+|Ser\d+|Thr\d+|Tyr\d+|Lys\d+)\b", text, re.I):
+            return False
+        if re.search(
+            r"\b(kinase|phosphorylat|condition|localization|fold|log2|激酶|条件|定位|倍数)\b",
+            text,
+            re.I,
+        ):
+            return False
+        return True
+
     if entities.get("uniprot_ac") or entities.get("position") or entities.get("mutation_label"):
         return False
     gene = entities.get("gene")
     if gene and is_plausible_gene(gene):
         return False
-    text = (message or "").strip()
-    if _LITERATURE_FIELD_RE.search(text):
-        return False
-    if _CONCEPT_RE.search(text):
-        return True
     if re.search(
         r"^(what\s+is|what\s+are|define|explain)\b.{0,60}\b(ptm|modification)",
         text,
@@ -566,6 +778,50 @@ def _is_concept_question(message: str, entities: dict[str, Any]) -> bool:
     ):
         return True
     if re.search(r"^(ptm|翻译后修饰).{0,20}(是什么|有什么|作用|意义)", text, re.I):
+        return True
+    if re.search(
+        r"^(磷酸化|乙酰化|泛素化|甲基化|糖基化).{0,20}(是什么|有什么|作用|意义|研究)",
+        text,
+        re.I,
+    ):
+        return True
+    if _is_broad_mechanism_question(text, entities):
+        return True
+    if _is_general_biology_concept(text, entities):
+        return True
+    return False
+
+
+def _is_general_biology_concept(message: str, entities: dict[str, Any]) -> bool:
+    """Educational molecular/cell biology without a concrete PTM site lookup."""
+    text = (message or "").strip()
+    if not text or len(text) > 400:
+        return False
+    if _has_concrete_site_target(text, entities):
+        return False
+    if entities.get("position") or entities.get("mutation_label") or entities.get("uniprot_ac"):
+        return False
+
+    gene = entities.get("gene")
+    if gene and is_plausible_gene(gene):
+        stripped = re.sub(r"[\s\W]+", "", text, flags=re.UNICODE).upper()
+        gene_only = re.fullmatch(
+            rf"{re.escape(str(gene).upper())}[?？]?",
+            stripped,
+        )
+        if gene_only or (len(text) <= len(str(gene)) + 6 and str(gene).upper() in text.upper()):
+            return False
+
+    if not _BIOLOGY_TOPIC_RE.search(text):
+        return False
+
+    if _EDUCATIONAL_INTENT_RE.search(text):
+        return True
+    if re.search(r"(基础|特性|基本概念|概论|概述|入门)", text):
+        return True
+    if re.search(r"(basics?|fundamentals?|properties|characteristics|overview)", text, re.I):
+        return True
+    if len(text) <= 36:
         return True
     return False
 
@@ -654,11 +910,13 @@ def _is_followup_question(
     state: Any,
 ) -> bool:
     """Short continuation that should reuse the session target."""
-    if not state or not state.has_target:
+    if not state or not _session_has_target(state):
         return False
     text = (message or "").strip()
     if not text or len(text) > 160:
         return False
+    if is_literature_request(text):
+        return True
     # Brand-new gene that differs from session → fresh research, not follow-up
     gene = entities.get("gene")
     if gene and is_plausible_gene(gene) and state.target_gene:
@@ -754,8 +1012,10 @@ def _has_research_signal(
     scores = _score_stages(message)
     if gene and any(v > 0 for v in scores.values()):
         return True
-    if state and state.has_target and len(message.strip()) >= 2:
+    if state and _session_has_target(state) and len(message.strip()) >= 2:
         if _PTM_SIGNAL_RE.search(message) or any(v > 0 for v in scores.values()):
+            return True
+        if is_literature_request(message):
             return True
     return False
 
@@ -765,6 +1025,7 @@ def classify_query_mode(
     entities: dict[str, Any] | None = None,
     state: Any = None,
     upload_filenames: list[str] | None = None,
+    history: list[dict[str, str]] | None = None,
 ) -> str:
     """Gate query intent across static / literature / research modes.
 
@@ -782,6 +1043,7 @@ def classify_query_mode(
         return QUERY_MODE_CLARIFY
 
     entities = entities or parse_query_entities(text)
+    entities = _merge_session_entities(entities, state)
 
     if _is_collection_request(text, entities, upload_filenames):
         pmid = _extract_pmid(text)
@@ -815,13 +1077,25 @@ def classify_query_mode(
         return QUERY_MODE_CONCEPT
     if _is_compare_question(text, entities):
         return QUERY_MODE_COMPARE
+    if is_literature_request(text) and (
+        _session_has_target(state) or _history_has_ptm_target(history)
+    ):
+        return QUERY_MODE_FOLLOWUP
+    if (
+        is_literature_request(text)
+        and not _has_concrete_site_target(text, entities)
+        and not _session_has_target(state)
+        and not _history_has_ptm_target(history)
+    ):
+        return QUERY_MODE_CLARIFY
     if _is_followup_question(text, entities, state):
         return QUERY_MODE_FOLLOWUP
     if _has_research_signal(text, entities, state):
         return QUERY_MODE_RESEARCH
 
+    # PTM-related but no concrete site → educational answer, not "please add TP53 S15"
     if _PTM_SIGNAL_RE.search(text) or re.search(r"\bptm\b|翻译后修饰|修饰", text, re.I):
-        return QUERY_MODE_CLARIFY
+        return QUERY_MODE_CONCEPT
 
     return QUERY_MODE_OFF_TOPIC
 

@@ -18,6 +18,17 @@ from app.models.schemas import WorkflowStage
 
 logger = logging.getLogger(__name__)
 
+# Investigation memory + evidence graph (ReAct agent)
+_investigation_memory_import = None
+
+
+def _memory_cls():
+    global _investigation_memory_import
+    if _investigation_memory_import is None:
+        from app.agent.memory import InvestigationMemory
+        _investigation_memory_import = InvestigationMemory
+    return _investigation_memory_import
+
 
 @dataclass
 class ConversationState:
@@ -59,6 +70,42 @@ class ConversationState:
     current_plan: Any | None = None  # ResearchPlan, stored as dict for serialization
     current_step_index: int = 0
     plan_entities: dict[str, Any] = field(default_factory=dict)
+
+    # ReAct agent session memory
+    investigation_memory: Any | None = None
+    evidence_graph: Any | None = None
+
+    # Pending interactive clarification (original question before user fills modal)
+    pending_clarification: dict[str, Any] | None = None
+
+    def get_memory(self):
+        """Per-session investigation memory for ReAct."""
+        cls = _memory_cls()
+        if self.investigation_memory is None:
+            self.investigation_memory = cls(
+                gene=self.target_gene,
+                uniprot_ac=self.target_uniprot_ac,
+                position=self.target_position,
+                ptm_type=self.target_ptm_type or "phosphorylation",
+            )
+        return self.investigation_memory
+
+    def get_evidence_graph(self):
+        from app.agent.evidence_graph import PTMEvidenceGraph
+        if self.evidence_graph is None:
+            self.evidence_graph = PTMEvidenceGraph()
+        return self.evidence_graph
+
+    def sync_memory_to_targets(self) -> None:
+        mem = self.get_memory()
+        if mem.gene:
+            self.target_gene = mem.gene
+        if mem.uniprot_ac:
+            self.target_uniprot_ac = mem.uniprot_ac
+        if mem.position:
+            self.target_position = mem.position
+        if mem.ptm_type:
+            self.target_ptm_type = mem.ptm_type
 
     # ── Stage transitions ──
 

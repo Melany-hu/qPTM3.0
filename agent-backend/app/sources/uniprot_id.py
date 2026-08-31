@@ -8,12 +8,13 @@ API: https://rest.uniprot.org
 
 from __future__ import annotations
 
+import json
 import logging
+from functools import lru_cache
 from typing import Any
 
-import httpx
-
 from app.config import settings
+from app.http_clients import get_uniprot_client
 
 logger = logging.getLogger(__name__)
 
@@ -21,12 +22,11 @@ logger = logging.getLogger(__name__)
 def _get(path: str, params: dict[str, Any] | None = None) -> dict[str, Any] | None:
     url = f"{settings.uniprot_api_base_url.rstrip('/')}/{path.lstrip('/')}"
     try:
-        with httpx.Client(timeout=settings.http_timeout_seconds) as client:
-            resp = client.get(url, params=params, headers={"Accept": "application/json"})
-            if resp.status_code == 404:
-                return None
-            resp.raise_for_status()
-            return resp.json()
+        resp = get_uniprot_client().get(url, params=params)
+        if resp.status_code == 404:
+            return None
+        resp.raise_for_status()
+        return resp.json()
     except Exception as e:
         logger.warning("UniProt identity request failed %s: %s", path, e)
         return None
@@ -82,8 +82,7 @@ def _parse_entry(data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def lookup_by_accession(uniprot_ac: str) -> dict[str, Any] | None:
-    """Fetch canonical identity for a UniProt accession."""
+def _lookup_by_accession_uncached(uniprot_ac: str) -> dict[str, Any] | None:
     ac = (uniprot_ac or "").strip().upper()
     if not ac:
         return None
@@ -93,17 +92,30 @@ def lookup_by_accession(uniprot_ac: str) -> dict[str, Any] | None:
     return _parse_entry(data)
 
 
-def lookup_by_gene(
+@lru_cache(maxsize=512)
+def _lookup_by_accession_cached(uniprot_ac: str) -> str:
+    ident = _lookup_by_accession_uncached(uniprot_ac)
+    return json.dumps(ident, sort_keys=True) if ident else ""
+
+
+def lookup_by_accession(uniprot_ac: str) -> dict[str, Any] | None:
+    """Fetch canonical identity for a UniProt accession."""
+    ac = (uniprot_ac or "").strip().upper()
+    if not ac:
+        return None
+    raw = _lookup_by_accession_cached(ac)
+    return json.loads(raw) if raw else None
+
+
+def _lookup_by_gene_uncached(
     gene: str,
     *,
     organism_id: int = 9606,
     reviewed_only: bool = True,
 ) -> dict[str, Any] | None:
-    """Resolve gene symbol → UniProt accession (human SwissProt by default)."""
     symbol = (gene or "").strip()
     if not symbol:
         return None
-    # Escape special query chars lightly
     safe = symbol.replace("'", "")
     parts = [f"gene_exact:{safe}", f"organism_id:{organism_id}"]
     if reviewed_only:
@@ -116,11 +128,32 @@ def lookup_by_gene(
         return None
     results = data.get("results") or []
     if not results and reviewed_only:
-        # retry without reviewed filter
-        return lookup_by_gene(gene, organism_id=organism_id, reviewed_only=False)
+        return _lookup_by_gene_uncached(gene, organism_id=organism_id, reviewed_only=False)
     if not results:
         return None
     return _parse_entry(results[0])
+
+
+@lru_cache(maxsize=512)
+def _lookup_by_gene_cached(gene: str, organism_id: int, reviewed_only: bool) -> str:
+    ident = _lookup_by_gene_uncached(
+        gene, organism_id=organism_id, reviewed_only=reviewed_only,
+    )
+    return json.dumps(ident, sort_keys=True) if ident else ""
+
+
+def lookup_by_gene(
+    gene: str,
+    *,
+    organism_id: int = 9606,
+    reviewed_only: bool = True,
+) -> dict[str, Any] | None:
+    """Resolve gene symbol → UniProt accession (human SwissProt by default)."""
+    symbol = (gene or "").strip()
+    if not symbol:
+        return None
+    raw = _lookup_by_gene_cached(symbol, organism_id, reviewed_only)
+    return json.loads(raw) if raw else None
 
 
 def resolve_identity(

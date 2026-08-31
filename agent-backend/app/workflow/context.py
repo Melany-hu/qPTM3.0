@@ -402,7 +402,12 @@ def _has_positive_evidence(tr: ToolResult) -> bool:
     return _record_count(data) > 0
 
 
-def format_tool_results_block(enriched_results: list[ToolResult]) -> str:
+def format_tool_results_block(
+    enriched_results: list[ToolResult],
+    *,
+    max_blocks: int = 12,
+    max_chars_per_block: int = 2500,
+) -> str:
     """Serialize tool evidence for the LLM context window.
 
     Empty / no-hit / failed tools are omitted so the model cannot narrate absences.
@@ -415,7 +420,7 @@ def format_tool_results_block(enriched_results: list[ToolResult]) -> str:
         )
 
     blocks: list[str] = []
-    for i, tr in enumerate(positive, 1):
+    for i, tr in enumerate(positive[:max_blocks], 1):
         if tr.citations:
             cite_bits = []
             for c in tr.citations[:12]:
@@ -430,8 +435,8 @@ def format_tool_results_block(enriched_results: list[ToolResult]) -> str:
         compact = _compact_tool_data(tr.data if isinstance(tr.data, dict) else {"value": tr.data})
         lit_pmids = _extract_literature_pmids(compact)
         payload = json.dumps(compact, ensure_ascii=False, indent=2)
-        if len(payload) > 2500:
-            payload = payload[:2500] + "\n…(truncated)"
+        if len(payload) > max_chars_per_block:
+            payload = payload[:max_chars_per_block] + "\n…(truncated)"
         pmid_line = (
             f"Literature PMIDs in this block (put matching PMIDs inline in answer "
             f"sentences): {', '.join(lit_pmids)}\n"
@@ -634,3 +639,75 @@ def build_agent_context(
         ),
         "response_lang": lang,
     }
+
+
+_LIGHT_DEPTH_HINTS = frozenset({
+    "light", "narrow factual", "focused follow-up", "standard",
+    "standard research", "direct",
+})
+
+
+def build_writer_agent_context(
+    question: str,
+    plan,
+    db_brief,
+    lit_brief,
+    enriched_results: list[ToolResult],
+    history: list[dict[str, str]] | None = None,
+    *,
+    graph_summary: str = "",
+) -> dict[str, Any]:
+    """Lean synthesis context for the orchestrator writer (faster TTFT)."""
+    mechanism_mode = bool(getattr(plan, "mechanism_question", False))
+    depth = getattr(plan, "depth_hint", None) or "light"
+    compact = depth in _LIGHT_DEPTH_HINTS and not mechanism_mode
+
+    plan_parts = [f"Goal: {getattr(plan, 'user_goal', question)[:300]}"]
+    if mechanism_mode:
+        plan_parts.append(
+            "MODE: site regulatory mechanism — synthesize DB facts + literature mechanism chain."
+        )
+    if db_brief and getattr(db_brief, "summary", None):
+        plan_parts.append(f"Database agent summary: {db_brief.summary[:600]}")
+        for finding in (db_brief.key_findings or [])[:4]:
+            plan_parts.append(f"- {finding[:200]}")
+    if lit_brief and getattr(lit_brief, "summary", None):
+        plan_parts.append(f"Literature agent summary: {lit_brief.summary[:500]}")
+        for paper in (lit_brief.recommended_papers or [])[:3]:
+            plan_parts.append(
+                f"- PMID:{paper.get('pmid')} {(paper.get('title') or '')[:80]}"
+            )
+        for step in (getattr(lit_brief, "mechanism_steps", None) or [])[:6]:
+            if isinstance(step, dict):
+                plan_parts.append(
+                    f"- Step {step.get('step', '')}: {step.get('title', '')} "
+                    f"({', '.join(step.get('molecules') or [])}) "
+                    f"PMIDs:{','.join(step.get('pmids') or [])}"
+                )
+    if graph_summary and not compact:
+        plan_parts.append(graph_summary[:800])
+
+    ctx = build_agent_context(
+        question,
+        "\n".join(plan_parts),
+        enriched_results,
+        history,
+    )
+    ctx["evidence_text"] = format_tool_results_block(
+        enriched_results,
+        max_blocks=8 if mechanism_mode else (4 if compact else 8),
+        max_chars_per_block=2000 if mechanism_mode else (1200 if compact else 2000),
+    )
+    ctx["compact"] = compact
+    ctx["mechanism_mode"] = mechanism_mode
+    if compact:
+        ctx["retrieval_table"] = ""
+    return ctx
+
+
+def _writer_max_tokens(depth_hint: str | None) -> int:
+    if depth_hint in ("full", "comprehensive", "multi-aspect", "literature survey", "site mechanism"):
+        return 4500
+    if depth_hint in _LIGHT_DEPTH_HINTS:
+        return 2800
+    return 3600

@@ -5,6 +5,51 @@ const CLASSIFY_URL = CHAT_URL.replace(/\/chat\/?$/, '/classify');
 const COLLECTION_URL = CHAT_URL.replace(/\/chat\/?$/, '/collection');
 const CONV_STORAGE_KEY = 'qptm_agent_conversation_id';
 const DEVICE_STORAGE_KEY = 'qptm_agent_device_id';
+const SESSION_STORAGE_PREFIX = 'qptm_agent_session_';
+
+function sessionStorageKey(conversationId) {
+  return conversationId ? `${SESSION_STORAGE_PREFIX}${conversationId}` : null;
+}
+
+function persistSessionForConversation(conversationId, sid) {
+  const key = sessionStorageKey(conversationId);
+  if (key && sid) sessionStorage.setItem(key, sid);
+}
+
+function restoreSessionForConversation(conversationId) {
+  const key = sessionStorageKey(conversationId);
+  return key ? sessionStorage.getItem(key) : null;
+}
+
+const TOOL_DISPLAY = {
+  qptm_search: { name: 'qPTM', desc: 'PTM search', kind: 'database' },
+  qptm_kinases: { name: 'qPTM', desc: 'Kinase associations', kind: 'database' },
+  qptm_site_conditions: { name: 'qPTM', desc: 'Site conditions', kind: 'database' },
+  iptmnet_enzymes: { name: 'iPTMnet', desc: 'Enzyme–substrate', kind: 'database' },
+  pubtator_literature_search: { name: 'PubTator3', desc: 'Literature search', kind: 'literature' },
+  pubmed_fetch_abstracts: { name: 'PubMed', desc: 'Abstract fetch', kind: 'literature' },
+};
+
+function friendlyTool(toolName, kindHint) {
+  const meta = TOOL_DISPLAY[toolName];
+  if (meta) return { label: meta.name, desc: meta.desc, kind: meta.kind };
+  const label = toolName.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  return { label, desc: toolName, kind: kindHint || 'database' };
+}
+
+function showStreamStatus(_text, _roundText) {
+  /* Status bar removed — progress shown in message activity timeline only */
+}
+
+function renderSourcesDrawer(_citations, _activeTab) {
+  /* Sources sidebar removed — citations remain inline in answers as [Sx] */
+}
+
+function initSourcesDrawerUi() {
+  initClarificationModal();
+}
+
+document.addEventListener('DOMContentLoaded', initSourcesDrawerUi);
 
 function getDeviceId() {
   let id = localStorage.getItem(DEVICE_STORAGE_KEY);
@@ -2442,7 +2487,7 @@ async function loadConversation(id, { force = false } = {}) {
     }
     const data = await res.json();
     persistConversationId(data.id);
-    sessionId = null;
+    sessionId = restoreSessionForConversation(data.id);
     clearChatArea();
     if (welcome) welcome.style.display = 'none';
     chatHistory = [];
@@ -2549,8 +2594,19 @@ async function refreshAssistantContentFromStore(contentDiv, { attempts = 4 } = {
         continue;
       }
       contentDiv.classList.remove('is-loading', 'is-streaming');
-      contentDiv.innerHTML = renderMarkdown(last.content);
+      const displayText = stripTrailingInvite(last.content);
+      contentDiv.innerHTML = renderMarkdown(displayText);
       attachMessageActions(contentDiv, last.content);
+      const qs = last.meta?.follow_ups?.length
+        ? last.meta.follow_ups
+        : extractNextStepQuestions(last.content);
+      mountFollowUpPanel(contentDiv.closest('.assistant-body'), qs, detectLangFromText(last.content));
+      if (last.meta?.workflow) {
+        const body = contentDiv.closest('.assistant-body');
+        if (body && !body.querySelector('.agent-workflow')) {
+          body.insertBefore(mountWorkflowPanel(last.meta.workflow), contentDiv);
+        }
+      }
       if (chatHistory.length && chatHistory[chatHistory.length - 1].role === 'assistant') {
         chatHistory[chatHistory.length - 1].content = last.content;
       } else {
@@ -2920,6 +2976,7 @@ async function downloadMessage(btn) {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
+  initWorkflowSidebarUi();
   await loadConversationList();
   if (conversationId && conversationList.some((c) => c.id === conversationId)) {
     await loadConversation(conversationId, { force: true });
@@ -2930,7 +2987,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 chatArea.addEventListener('click', (e) => {
-  const btn = e.target.closest('.next-step-chip');
+  const btn = e.target.closest('.next-step-chip, .follow-up-item');
   if (!btn || isStreaming) return;
   const q = btn.getAttribute('data-question');
   if (q) sendExample(q);
@@ -3045,6 +3102,88 @@ function renderNextStepChips(questions) {
   }
   if (!chips.length) return '';
   return `<div class="next-step-block"><div class="next-step-chips">${chips.join('')}</div></div>`;
+}
+
+function stripNextStepSection(text) {
+  return String(text || '').replace(
+    /\r?\n##\s*(?:Next step|后续问题|下一步)\s*\r?\n[\s\S]*?(?=\r?\n##\s|$)/i,
+    '',
+  ).trim();
+}
+
+/** Remove trailing "e.g. ask TP53 S15…" invites — follow-ups live in the panel. */
+function stripTrailingInvite(text) {
+  let s = stripNextStepSection(text);
+  s = s.replace(/\n+---\s*\n[\s\S]*$/m, '').trim();
+  s = s.replace(
+    /\n+(如果您想了解|如果您想查|若想了解|如需查询|如果只是想了解)[^\n]{0,200}[？?]?\s*$/u,
+    '',
+  ).trim();
+  s = s.replace(
+    /\n+(If you want to|To look up|For database|If you have a concrete)[^\n]{0,220}[?.]?\s*$/i,
+    '',
+  ).trim();
+  return s;
+}
+
+function extractNextStepQuestions(text) {
+  const m = String(text || '').match(
+    /\r?\n##\s*(?:Next step|后续问题|下一步)\s*\r?\n([\s\S]*?)(?=\r?\n##\s|$)/i,
+  );
+  if (!m) return [];
+  const questions = [];
+  for (const line of m[1].split('\n')) {
+    const t = line.trim();
+    if (!t) continue;
+    const q = stripInlineMdMarkers(t.replace(/^[\-\*\d.]+\s*/, ''));
+    if (q.length >= 8 && !questions.includes(q)) questions.push(q);
+  }
+  return questions.slice(0, 4);
+}
+
+function detectLangFromText(text) {
+  const zh = (String(text || '').match(/[\u4e00-\u9fff]/g) || []).length;
+  return zh >= 2 ? 'zh' : 'en';
+}
+
+function followUpPanelTitle(lang) {
+  return lang === 'zh' ? '后续问题' : 'Follow-up questions';
+}
+
+function createFollowUpPanel(questions, langHint) {
+  if (!questions?.length) return null;
+  const lang = langHint || detectLangFromText(questions.join(' '));
+  const panel = document.createElement('div');
+  panel.className = 'follow-up-panel';
+  panel.innerHTML = `
+    <button type="button" class="follow-up-header" aria-expanded="true">
+      <i class="ri-chat-forward-line" aria-hidden="true"></i>
+      <span class="follow-up-title">${escapeHtml(followUpPanelTitle(lang))}</span>
+      <i class="ri-arrow-down-s-line follow-up-toggle" aria-hidden="true"></i>
+    </button>
+    <div class="follow-up-list"></div>
+  `;
+  const list = panel.querySelector('.follow-up-list');
+  questions.forEach((q) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'follow-up-item';
+    btn.dataset.question = q;
+    btn.innerHTML = `<i class="ri-arrow-right-s-line" aria-hidden="true"></i><span>${escapeHtml(q)}</span>`;
+    list.appendChild(btn);
+  });
+  panel.querySelector('.follow-up-header').addEventListener('click', () => {
+    const collapsed = panel.classList.toggle('collapsed');
+    panel.querySelector('.follow-up-header').setAttribute('aria-expanded', String(!collapsed));
+  });
+  return panel;
+}
+
+function mountFollowUpPanel(assistantBody, questions, langHint) {
+  if (!assistantBody || !questions?.length) return;
+  assistantBody.querySelector('.follow-up-panel')?.remove();
+  const panel = createFollowUpPanel(questions, langHint);
+  if (panel) assistantBody.appendChild(panel);
 }
 
 function applyInlineMarkdown(text) {
@@ -3458,7 +3597,9 @@ function addStoredAssistantMessage(content, meta) {
     return contentDiv;
   }
 
-  if (meta?.plan) {
+  if (meta?.workflow) {
+    body.appendChild(mountWorkflowPanel(meta.workflow));
+  } else if (meta?.plan) {
     body.appendChild(createPlanPanelEl(meta.plan, true));
   }
   if (meta?.tools?.length) {
@@ -3467,8 +3608,11 @@ function addStoredAssistantMessage(content, meta) {
 
   const contentDiv = document.createElement('div');
   contentDiv.className = 'msg-content';
-  contentDiv.innerHTML = renderMarkdown(content || '');
+  const displayContent = stripTrailingInvite(content || '');
+  contentDiv.innerHTML = renderMarkdown(displayContent);
   body.appendChild(contentDiv);
+  const followUps = (meta?.follow_ups?.length ? meta.follow_ups : extractNextStepQuestions(content || ''));
+  mountFollowUpPanel(body, followUps, detectLangFromText(content || ''));
   msg.appendChild(body);
   chatArea.appendChild(msg);
   attachMessageActions(contentDiv, content || '');
@@ -3477,47 +3621,649 @@ function addStoredAssistantMessage(content, meta) {
 
 let currentThinkingTools = null;
 let currentPlanPanel = null;
+let currentActivityTimeline = null;
+let activityToolCount = 0;
+
+let currentWorkflowState = null;
+let workflowSidebarOpen = false;
+const workflowPanelMeta = new WeakMap();
+
+const AGENT_LABELS = {
+  orchestrator: { en: 'Orchestrator', zh: '调度员' },
+  database: { en: 'Database', zh: '数据库' },
+  literature: { en: 'Literature', zh: '文献' },
+  writer: { en: 'Writer', zh: '撰写' },
+};
+
+const AGENT_ICONS = {
+  orchestrator: 'ri-compass-3-line',
+  database: 'ri-database-2-line',
+  literature: 'ri-book-open-line',
+  writer: 'ri-quill-pen-line',
+};
+
+function initWorkflowSidebarUi() {
+  document.getElementById('workflowSidebarClose')?.addEventListener('click', closeWorkflowSidebar);
+  document.getElementById('workflowSidebarBackdrop')?.addEventListener('click', closeWorkflowSidebar);
+  document.getElementById('workflowSidebarToggle')?.addEventListener('click', () => {
+    if (workflowSidebarOpen) closeWorkflowSidebar();
+    else openWorkflowSidebar();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && workflowSidebarOpen) closeWorkflowSidebar();
+  });
+  syncWorkflowToggleButton();
+}
+
+function syncWorkflowToggleButton() {
+  const btn = document.getElementById('workflowSidebarToggle');
+  if (!btn) return;
+  btn.classList.toggle('active', workflowSidebarOpen);
+  const zh = workflowLang() === 'zh';
+  btn.title = zh ? 'Agent 工作室' : 'Agent Studio';
+  const label = btn.querySelector('span');
+  if (label) label.textContent = zh ? 'Agent 工作室' : 'Agent Studio';
+}
+
+function activateWorkflowPanel(activityEl, state) {
+  if (!activityEl || !state) return;
+  currentActivityTimeline = activityEl;
+  currentWorkflowState = state;
+  workflowPanelMeta.set(activityEl, state);
+  renderWorkflowPanel();
+}
+
+function openWorkflowSidebar() {
+  const main = document.querySelector('.agent-main');
+  const sidebar = document.getElementById('workflowSidebar');
+  if (!main || !sidebar) return;
+  workflowSidebarOpen = true;
+  main.classList.add('workflow-sidebar-open');
+  sidebar.setAttribute('aria-hidden', 'false');
+  document.getElementById('workflowSidebarBackdrop')?.setAttribute('aria-hidden', 'false');
+  syncWorkflowToggleButton();
+  syncWorkflowSidebar();
+}
+
+function closeWorkflowSidebar() {
+  const main = document.querySelector('.agent-main');
+  const sidebar = document.getElementById('workflowSidebar');
+  if (!main || !sidebar) return;
+  workflowSidebarOpen = false;
+  main.classList.remove('workflow-sidebar-open');
+  sidebar.setAttribute('aria-hidden', 'true');
+  document.getElementById('workflowSidebarBackdrop')?.setAttribute('aria-hidden', 'true');
+  syncWorkflowToggleButton();
+}
+
+function workflowLang() {
+  const sample = currentWorkflowState?.orchestrator?.goal
+    || document.querySelector('.message.user:last-of-type')?.textContent
+    || '';
+  return /[\u4e00-\u9fff]/.test(sample) ? 'zh' : 'en';
+}
+
+function agentLabel(id) {
+  const zh = workflowLang() === 'zh';
+  return (zh ? AGENT_LABELS[id]?.zh : AGENT_LABELS[id]?.en) || id;
+}
+
+function statusBadgeLabel(status) {
+  const zh = workflowLang() === 'zh';
+  if (status === 'running') return zh ? '运行中' : 'Running';
+  if (status === 'done') return zh ? '完成' : 'Done';
+  return zh ? '等待' : 'Pending';
+}
+
+function logWorkflowEvent(kind, message, extra = {}) {
+  if (!currentWorkflowState) return;
+  if (!currentWorkflowState.events) currentWorkflowState.events = [];
+  currentWorkflowState.events.push({ ts: Date.now(), kind, message, ...extra });
+  if (currentWorkflowState.events.length > 48) {
+    currentWorkflowState.events = currentWorkflowState.events.slice(-48);
+  }
+}
+
+function formatFlowTime(ts) {
+  try {
+    return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  } catch (_) {
+    return '';
+  }
+}
+
+function synthesizeEventsFromMeta(state) {
+  const events = [];
+  if (state.orchestrator?.goal) {
+    events.push({
+      ts: Date.now() - 60000,
+      kind: 'plan',
+      message: state.orchestrator.goal,
+    });
+  }
+  ['database', 'literature', 'writer'].forEach((id) => {
+    const a = state.agents?.[id];
+    if (!a) return;
+    (a.tools || []).forEach((t) => {
+      events.push({
+        ts: Date.now() - 30000,
+        kind: 'tool',
+        message: t.tool_name || '',
+        agent: id,
+      });
+    });
+    if (a.summary) {
+      events.push({
+        ts: Date.now() - 10000,
+        kind: 'agent',
+        message: a.summary,
+        agent: id,
+      });
+    }
+  });
+  (state.handoffs || []).forEach((h) => {
+    const n = h.pmid_count || (h.clues || []).length;
+    events.push({
+      ts: Date.now() - 20000,
+      kind: 'handoff',
+      message: `${h.from_agent || 'database'} → ${h.to_agent || 'literature'} (${n} clues)`,
+    });
+  });
+  return events;
+}
+
+function createActivityTimelineEl({ initState = true } = {}) {
+  const el = document.createElement('div');
+  el.className = 'activity-timeline agent-workflow collapsed workflow-launcher';
+  const zh = /[\u4e00-\u9fff]/.test(
+    document.getElementById('inputField')?.placeholder || '',
+  ) || /^zh/i.test(navigator.language || '');
+  el.innerHTML = `
+    <div class="activity-header" role="button" tabindex="0" title="Open Agent Studio">
+      <i class="ri-git-branch-line"></i>
+      <span class="activity-summary-text">Agent Studio</span>
+      <span class="workflow-open-hint">${zh ? '点击查看' : 'View panel'}</span>
+      <i class="ri-layout-right-line toggle-arrow"></i>
+    </div>
+    <div class="workflow-nodes"></div>
+    <div class="activity-tools" hidden></div>
+  `;
+  const open = () => {
+    const state = workflowPanelMeta.get(el) || currentWorkflowState;
+    if (state) activateWorkflowPanel(el, state);
+    openWorkflowSidebar();
+  };
+  el.querySelector('.activity-header').addEventListener('click', open);
+  el.querySelector('.activity-header').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      open();
+    }
+  });
+  if (initState) initWorkflowState();
+  return el;
+}
+
+function workflowStateFromMeta(wf) {
+  const orch = wf?.orchestrator || {};
+  const agents = {};
+  Object.entries(wf?.agents || {}).forEach(([id, a]) => {
+    agents[id] = { ...a, tools: a.tools || [] };
+  });
+  const state = {
+    orchestrator: {
+      status: 'done',
+      goal: orch.goal || '',
+      reasoning: orch.reasoning || '',
+      tasks: orch.tasks || [],
+    },
+    agents,
+    handoffs: (wf?.handoffs || []).map((h) => ({
+      from_agent: h.from,
+      to_agent: h.to,
+      pmid_count: h.pmid_count,
+      clues: h.clues || [],
+    })),
+    events: wf?.events || [],
+  };
+  if (!state.events.length) state.events = synthesizeEventsFromMeta(state);
+  return state;
+}
+
+function mountWorkflowPanel(wfMeta) {
+  const activity = createActivityTimelineEl({ initState: false });
+  const state = workflowStateFromMeta(wfMeta);
+  workflowPanelMeta.set(activity, state);
+  const prevTimeline = currentActivityTimeline;
+  const prevState = currentWorkflowState;
+  currentActivityTimeline = activity;
+  currentWorkflowState = state;
+  renderWorkflowPanel();
+  currentActivityTimeline = prevTimeline;
+  currentWorkflowState = prevState;
+  return activity;
+}
+
+function initWorkflowState() {
+  currentWorkflowState = {
+    orchestrator: { status: 'pending', goal: '', reasoning: '', tasks: [] },
+    agents: {},
+    handoffs: [],
+    events: [],
+  };
+  if (currentActivityTimeline) {
+    workflowPanelMeta.set(currentActivityTimeline, currentWorkflowState);
+  }
+}
+
+function studioConnector() {
+  return `<div class="studio-connector" aria-hidden="true">
+    <div class="studio-connector-line"></div>
+    <i class="ri-arrow-down-s-line studio-connector-arrow"></i>
+  </div>`;
+}
+
+function workflowEventsForAgent(agentId, events, tools = []) {
+  const list = events || [];
+  const matched = list.filter((ev) => {
+    if (agentId === 'orchestrator') {
+      return ev.kind === 'plan' || ev.agent === 'orchestrator';
+    }
+    if (ev.kind === 'handoff') return agentId === 'literature';
+    return ev.agent === agentId;
+  });
+  const hasToolEvents = matched.some((ev) => ev.kind === 'tool');
+  if (!hasToolEvents && tools?.length) {
+    tools.forEach((t) => {
+      matched.push({
+        kind: 'tool',
+        message: t.tool_name || '',
+        agent: agentId,
+        ts: 0,
+      });
+    });
+  }
+  return matched.sort((a, b) => (a.ts || 0) - (b.ts || 0));
+}
+
+function flowTickIcon(kind, agentId) {
+  if (kind === 'handoff') return 'ri-arrow-right-circle-line';
+  if (kind === 'plan') return 'ri-compass-3-line';
+  if (kind === 'literature') return 'ri-search-line';
+  if (kind === 'tool') {
+    return agentId === 'literature' ? 'ri-book-open-line' : 'ri-database-2-line';
+  }
+  return 'ri-record-circle-line';
+}
+
+function renderStageFlowTicks(events, isLive) {
+  if (!events?.length) return '';
+  const shown = events.slice(-8);
+  const ticks = shown.map((ev, i) => {
+    const isLatest = isLive && i === shown.length - 1;
+    const kind = ev.kind || 'agent';
+    return `<div class="studio-flow-tick kind-${escapeHtml(kind)}${isLatest ? ' is-live' : ''}">
+      <i class="${flowTickIcon(kind, ev.agent)}"></i>
+      <span>${escapeHtml(ev.message || '')}</span>
+    </div>`;
+  }).join('');
+  return `<div class="studio-stage-ticker">${ticks}</div>`;
+}
+
+function renderLiteratureTraces(traces) {
+  if (!traces?.length) return '';
+  const zh = workflowLang() === 'zh';
+  const items = traces.map((t) => (
+    `<div class="studio-lit-trace">
+      <span class="studio-lit-trace-round">#${escapeHtml(String(t.round || ''))}</span>
+      <span class="studio-lit-trace-query">${escapeHtml(t.query || '')}</span>
+      <span class="studio-lit-trace-meta">${escapeHtml(String(t.papers_found ?? 0))} · ${escapeHtml(String(t.elapsed_s ?? ''))}s</span>
+    </div>`
+  )).join('');
+  return `<details class="studio-lit-traces" open>
+    <summary>${zh ? '文献检索轨迹' : 'Literature search traces'}</summary>
+    ${items}
+  </details>`;
+}
+
+function renderStudioStage(id, { status, focus, summary, tools, flowEvents, searchTraces }) {
+  const st = status || 'pending';
+  const icon = AGENT_ICONS[id] || 'ri-robot-2-line';
+  const isLive = st === 'running';
+  const ticks = renderStageFlowTicks(flowEvents, isLive);
+  const litTraces = id === 'literature' ? renderLiteratureTraces(searchTraces) : '';
+  return `<div class="studio-stage status-${st}" data-agent="${escapeHtml(id)}">
+    <div class="studio-stage-head">
+      <div class="studio-stage-name"><i class="${icon}"></i> ${agentLabel(id)}</div>
+      <span class="studio-stage-badge ${st}">${statusBadgeLabel(st)}</span>
+    </div>
+    ${focus ? `<div class="studio-stage-focus">${escapeHtml(focus)}</div>` : ''}
+    ${summary ? `<div class="studio-stage-summary">${escapeHtml(summary)}</div>` : ''}
+    ${litTraces}
+    ${ticks}
+  </div>`;
+}
+
+function renderHandoffBlock(h) {
+  const zh = workflowLang() === 'zh';
+  const n = h.pmid_count || (h.clues || []).length;
+  const from = agentLabel(h.from_agent || 'database');
+  const to = agentLabel(h.to_agent || 'literature');
+  const clues = (h.clues || []).slice(0, 6).map((c) => {
+    const pmid = c.pmid || c;
+    return `<a class="workflow-clue-chip" href="https://pubmed.ncbi.nlm.nih.gov/${escapeHtml(pmid)}/" target="_blank" rel="noopener">PMID:${escapeHtml(pmid)}</a>`;
+  }).join('');
+  return `<div class="studio-handoff-block">
+    <div class="studio-handoff-label"><i class="ri-arrow-right-circle-line"></i>
+      ${zh ? `${from} → ${to}` : `${from} → ${to}`}
+    </div>
+    <div class="studio-handoff-meta">${zh ? `传递 ${n} 条文献/数据线索` : `${n} data clue(s) handed off`}</div>
+    ${clues ? `<div class="studio-handoff-clues">${clues}</div>` : ''}
+  </div>`;
+}
+
+function syncWorkflowSidebar() {
+  const body = document.getElementById('workflowSidebarBody');
+  const titleEl = document.getElementById('workflowSidebarTitle');
+  if (!body) return;
+
+  const hasData = currentWorkflowState && (
+    currentWorkflowState.orchestrator?.goal
+    || Object.keys(currentWorkflowState.agents || {}).length
+  );
+
+  if (!hasData) {
+    const zh = workflowLang() === 'zh';
+    body.innerHTML = `<div class="workflow-sidebar-empty">
+      <i class="ri-git-branch-line"></i>
+      <p>${zh ? '多 Agent 工作流将在此展示调度与数据流动。' : 'Multi-agent workflow and data flow appear here.'}</p>
+      <p class="workflow-sidebar-empty-hint">${zh ? '发起研究类问题后，点击消息中的「Agent Studio」打开本面板。' : 'Ask a research question, then click Agent Studio in the message.'}</p>
+    </div>`;
+    if (titleEl) titleEl.textContent = zh ? 'Agent 工作室' : 'Agent Studio';
+    return;
+  }
+
+  const zh = workflowLang() === 'zh';
+  if (titleEl) titleEl.textContent = zh ? 'Agent 工作室' : 'Agent Studio';
+
+  const allEvents = currentWorkflowState.events || [];
+  const orch = currentWorkflowState.orchestrator;
+  const order = ['database', 'literature', 'writer'];
+  let pipeline = '';
+
+  const orchStatus = orch.status || 'done';
+  pipeline += renderStudioStage('orchestrator', {
+    status: orchStatus,
+    focus: orch.goal || '',
+    summary: orch.reasoning || '',
+    flowEvents: workflowEventsForAgent('orchestrator', allEvents),
+  });
+
+  let handoffIdx = 0;
+  order.forEach((id) => {
+    const agent = currentWorkflowState.agents[id];
+    if (!agent && id !== 'writer') return;
+    if (!agent && id === 'writer' && orchStatus !== 'running' && !currentWorkflowState.agents.database) return;
+
+    pipeline += studioConnector();
+
+    const handoffsBefore = (currentWorkflowState.handoffs || []).filter(
+      (h) => (h.to_agent || 'literature') === id || (id === 'literature' && h.to_agent === 'literature'),
+    );
+    if (id === 'literature' && handoffIdx < (currentWorkflowState.handoffs || []).length) {
+      const h = currentWorkflowState.handoffs[handoffIdx];
+      if (h && (h.from_agent === 'database' || !h.from_agent)) {
+        pipeline += renderHandoffBlock(h);
+        pipeline += studioConnector();
+        handoffIdx += 1;
+      }
+    }
+
+    if (agent) {
+      pipeline += renderStudioStage(id, {
+        status: agent.status || 'pending',
+        focus: agent.focus || agent.label || '',
+        summary: agent.summary || '',
+        tools: agent.tools || [],
+        flowEvents: workflowEventsForAgent(id, allEvents, agent.tools || []),
+        searchTraces: id === 'literature' ? (agent.searchTraces || []) : [],
+      });
+    } else if (id === 'writer') {
+      pipeline += renderStudioStage(id, {
+        status: 'pending',
+        focus: '',
+        summary: '',
+        flowEvents: workflowEventsForAgent(id, allEvents),
+      });
+    }
+  });
+
+  body.innerHTML = `<div class="studio-pipeline">${pipeline}</div>`;
+
+  if (workflowSidebarOpen) {
+    body.scrollTop = body.scrollHeight;
+  }
+}
+
+function renderWorkflowPanel() {
+  if (!currentActivityTimeline || !currentWorkflowState) return;
+  const root = currentActivityTimeline.querySelector('.workflow-nodes');
+  const summaryEl = currentActivityTimeline.querySelector('.activity-summary-text');
+  const hintEl = currentActivityTimeline.querySelector('.workflow-open-hint');
+  const zh = workflowLang() === 'zh';
+
+  const agentCount = Object.keys(currentWorkflowState.agents || {}).length;
+  const handoffCount = (currentWorkflowState.handoffs || []).length;
+  const runningId = Object.keys(currentWorkflowState.agents || {}).find(
+    (k) => currentWorkflowState.agents[k]?.status === 'running',
+  );
+  const running = runningId ? currentWorkflowState.agents[runningId] : null;
+
+  if (summaryEl) {
+    if (runningId) {
+      summaryEl.textContent = zh
+        ? `Agent Studio · ${agentLabel(runningId)} 运行中`
+        : `Agent Studio · ${agentLabel(runningId)} running`;
+    } else if (agentCount) {
+      summaryEl.textContent = zh
+        ? `Agent Studio · ${agentCount} 个 Agent${handoffCount ? ` · ${handoffCount} 次传递` : ''}`
+        : `Agent Studio · ${agentCount} agent(s)${handoffCount ? ` · ${handoffCount} handoff(s)` : ''}`;
+    } else {
+      summaryEl.textContent = 'Agent Studio';
+    }
+  }
+  if (hintEl) hintEl.textContent = zh ? '点击查看' : 'View panel';
+
+  if (root) {
+    const orch = currentWorkflowState.orchestrator;
+    const chips = [];
+    if (orch.goal) chips.push(orch.goal.slice(0, 48) + (orch.goal.length > 48 ? '…' : ''));
+    Object.entries(currentWorkflowState.agents).forEach(([id, a]) => {
+      if (a.status === 'done') chips.push(`${agentLabel(id)} ✓`);
+      else if (a.status === 'running') chips.push(`${agentLabel(id)} …`);
+    });
+    root.innerHTML = chips.length
+      ? `<div class="workflow-node-meta" style="padding:4px 12px 10px;font-size:12px">${escapeHtml(chips.join(' · '))}</div>`
+      : '';
+  }
+
+  currentActivityTimeline.classList.add('collapsed');
+  if (currentActivityTimeline && currentWorkflowState) {
+    workflowPanelMeta.set(currentActivityTimeline, currentWorkflowState);
+  }
+  syncWorkflowSidebar();
+}
+
+function handleOrchestratorPlan(data) {
+  if (!currentWorkflowState) initWorkflowState();
+  currentWorkflowState.orchestrator = {
+    status: 'done',
+    goal: data.user_goal || '',
+    reasoning: data.reasoning || '',
+    tasks: data.tasks || [],
+  };
+  (data.tasks || []).forEach((t) => {
+    if (!t.enabled) return;
+    currentWorkflowState.agents[t.agent] = currentWorkflowState.agents[t.agent] || {
+      status: 'pending', tools: [], focus: t.focus || '',
+    };
+    if (t.focus) currentWorkflowState.agents[t.agent].focus = t.focus;
+  });
+  logWorkflowEvent('plan', data.user_goal || data.reasoning || 'Orchestrator plan', { agent: 'orchestrator' });
+  renderWorkflowPanel();
+}
+
+function handleAgentStarted(data, contentEl) {
+  if (!currentWorkflowState) initWorkflowState();
+  const id = data.agent;
+  if (id === 'orchestrator') {
+    currentWorkflowState.orchestrator.status = 'running';
+  } else {
+    currentWorkflowState.agents[id] = {
+      ...(currentWorkflowState.agents[id] || {}),
+      status: 'running',
+      label: data.label || '',
+      focus: data.focus || '',
+      tools: currentWorkflowState.agents[id]?.tools || [],
+    };
+  }
+  logWorkflowEvent('agent', data.label || `${id} started`, { agent: id });
+  renderWorkflowPanel();
+  if (id === 'writer') return;
+  const target = contentEl || document.querySelector('.msg-content.is-loading');
+  if (target) showContentLoading(target, data.label || 'Working…');
+}
+
+function handleAgentCompleted(data) {
+  if (!currentWorkflowState) return;
+  const id = data.agent;
+  if (currentWorkflowState.agents[id]) {
+    currentWorkflowState.agents[id].status = 'done';
+    currentWorkflowState.agents[id].summary = data.summary || '';
+  }
+  logWorkflowEvent('agent', data.summary || `${id} completed`, { agent: id });
+  renderWorkflowPanel();
+}
+
+function handleLiteratureSearch(data) {
+  if (!currentWorkflowState) initWorkflowState();
+  currentWorkflowState.agents.literature = {
+    ...(currentWorkflowState.agents.literature || {}),
+    status: currentWorkflowState.agents.literature?.status || 'running',
+    tools: currentWorkflowState.agents.literature?.tools || [],
+    searchTraces: [
+      ...(currentWorkflowState.agents.literature?.searchTraces || []),
+      {
+        round: data.round,
+        query: data.query,
+        papers_found: data.papers_found,
+        elapsed_s: data.elapsed_s,
+      },
+    ],
+  };
+  const zh = workflowLang() === 'zh';
+  const msg = zh
+    ? `检索 ${data.round}: ${data.query} (${data.papers_found} 篇, ${data.elapsed_s}s)`
+    : `Search ${data.round}: ${data.query} (${data.papers_found} papers, ${data.elapsed_s}s)`;
+  logWorkflowEvent('literature', msg, { agent: 'literature' });
+  renderWorkflowPanel();
+}
+
+function handleAgentHandoff(data) {
+  if (!currentWorkflowState) initWorkflowState();
+  currentWorkflowState.handoffs.push(data);
+  if (!currentWorkflowState.agents.literature) {
+    currentWorkflowState.agents.literature = { status: 'pending', tools: [] };
+  }
+  const n = data.pmid_count || (data.clues || []).length;
+  const zh = workflowLang() === 'zh';
+  logWorkflowEvent(
+    'handoff',
+    zh ? `${n} 条线索: ${data.from_agent || 'database'} → ${data.to_agent || 'literature'}`
+      : `${n} clue(s): ${data.from_agent || 'database'} → ${data.to_agent || 'literature'}`,
+    { agent: 'handoff' },
+  );
+  renderWorkflowPanel();
+}
+
+function handleWorkflowToolCall(data) {
+  if (!currentWorkflowState) return;
+  const parent = data.parent_agent || 'database';
+  if (!currentWorkflowState.agents[parent]) {
+    currentWorkflowState.agents[parent] = { status: 'running', tools: [] };
+  }
+  currentWorkflowState.agents[parent].tools.push({
+    tool_name: data.tool_name,
+    kind: data.kind,
+  });
+  logWorkflowEvent('tool', data.tool_name || 'tool', { agent: parent });
+  renderWorkflowPanel();
+}
+
+function setActivityPhase(phase) {
+  if (!currentActivityTimeline) return;
+  currentActivityTimeline.querySelectorAll('.phase-pill').forEach((pill) => {
+    const p = pill.dataset.phase;
+    pill.classList.remove('active', 'done');
+    if (p === phase) pill.classList.add('active');
+    else if (
+      (phase === 'literature' && p === 'database') ||
+      (phase === 'synthesis' && (p === 'database' || p === 'literature'))
+    ) {
+      pill.classList.add('done');
+    }
+  });
+}
+
+function refreshActivitySummary() {
+  if (!currentActivityTimeline) return;
+  const textEl = currentActivityTimeline.querySelector('.activity-summary-text');
+  if (textEl) {
+    textEl.textContent = activityToolCount
+      ? `Queried ${activityToolCount} source${activityToolCount > 1 ? 's' : ''}`
+      : 'Research activity';
+  }
+}
 
 function beginAssistantTurn() {
   if (welcome) welcome.style.display = 'none';
+  activityToolCount = 0;
+  initWorkflowState();
 
   const msg = document.createElement('div');
   msg.className = 'message assistant';
 
+  const avatar = document.createElement('img');
+  avatar.className = 'msg-avatar';
+  avatar.src = 'assets/img/logo.png';
+  avatar.alt = '';
+
   const body = document.createElement('div');
   body.className = 'assistant-body';
 
-  const thinkingTools = document.createElement('div');
-  thinkingTools.className = 'thinking-tools';
-  const summary = document.createElement('div');
-  summary.className = 'thinking-tools-summary';
-  summary.innerHTML = '<i class="ri-database-2-line"></i><span class="thinking-summary-text"></span><i class="ri-arrow-down-s-line toggle-arrow"></i>';
-  summary.addEventListener('click', () => thinkingTools.classList.toggle('collapsed'));
-  thinkingTools.appendChild(summary);
+  const activity = createActivityTimelineEl();
+  currentActivityTimeline = activity;
+  activateWorkflowPanel(activity, currentWorkflowState);
+  currentThinkingTools = activity.querySelector('.activity-tools');
 
   const contentDiv = document.createElement('div');
   contentDiv.className = 'msg-content is-loading';
 
-  body.appendChild(thinkingTools);
+  body.appendChild(activity);
   body.appendChild(contentDiv);
+  msg.appendChild(avatar);
   msg.appendChild(body);
   chatArea.appendChild(msg);
 
-  currentThinkingTools = thinkingTools;
   currentPlanPanel = null;
-  showContentLoading(contentDiv, 'Planning...');
+  showContentLoading(contentDiv, 'Starting…');
+  showStreamStatus('Starting…', '');
   chatArea.scrollTop = chatArea.scrollHeight;
   return contentDiv;
 }
 
 function refreshThinkingToolsHeader() {
-  if (!currentThinkingTools) return;
-  const count = currentThinkingTools.querySelectorAll('.tool-indicator').length;
-  if (count > 0) currentThinkingTools.classList.add('has-tools');
-  const textEl = currentThinkingTools.querySelector('.thinking-summary-text');
-  if (textEl && count > 0) {
-    textEl.textContent = `Queried ${count} data source${count > 1 ? 's' : ''}`;
-  }
+  refreshActivitySummary();
 }
 
 function showContentLoading(contentDiv, label = 'Thinking...') {
@@ -3566,11 +4312,9 @@ function renderStreamingContent(contentDiv, text) {
 }
 
 function collapseThinkingTools() {
-  if (!currentThinkingTools) return;
-  refreshThinkingToolsHeader();
-  const count = currentThinkingTools.querySelectorAll('.tool-indicator').length;
-  if (count === 0) return;
-  currentThinkingTools.classList.add('collapsed');
+  if (currentActivityTimeline) {
+    currentActivityTimeline.classList.add('collapsed');
+  }
 }
 
 function collapsePlanPanel() {
@@ -3578,22 +4322,26 @@ function collapsePlanPanel() {
   currentPlanPanel.classList.add('collapsed');
 }
 
-function addToolIndicator(toolName, args) {
+function addToolIndicator(toolName, args, kindHint) {
   if (!currentThinkingTools) return null;
+  const meta = friendlyTool(toolName, kindHint);
+  const icon = meta.kind === 'literature' ? 'ri-article-line' : 'ri-database-2-line';
   const ind = document.createElement('div');
   ind.className = 'tool-indicator';
+  ind.dataset.kind = meta.kind;
   ind.innerHTML = `
-    <i class="ri-tools-line tool-icon"></i>
+    <i class="${icon} tool-icon"></i>
     <div class="tool-indicator-body">
-      <span class="tool-name">${escapeHtml(toolName)}</span>
-      <span class="tool-args">${escapeHtml(formatArgs(args))}</span>
+      <span class="tool-name">${escapeHtml(meta.label)}</span>
+      <span class="tool-args">${escapeHtml(meta.desc)}${formatArgs(args) ? ' · ' + escapeHtml(formatArgs(args)) : ''}</span>
       <span class="tool-summary"></span>
     </div>
     <span class="tool-status">running...</span>
   `;
   currentThinkingTools.appendChild(ind);
-  currentThinkingTools.classList.remove('collapsed');
-  refreshThinkingToolsHeader();
+  if (currentActivityTimeline) currentActivityTimeline.classList.remove('collapsed');
+  activityToolCount += 1;
+  refreshActivitySummary();
   chatArea.scrollTop = chatArea.scrollHeight;
   return ind;
 }
@@ -3754,6 +4502,369 @@ async function sendCollectionGuidance(jobId, text, panel) {
   }
 }
 
+let pendingClarificationState = null;
+
+function initClarificationModal() {
+  const modal = document.getElementById('clarificationModal');
+  if (!modal || modal.dataset.bound === '1') return;
+  modal.dataset.bound = '1';
+
+  modal.querySelector('.clarify-submit-btn')?.addEventListener('click', () => {
+    handleClarificationSubmit(false);
+  });
+  modal.querySelector('.clarify-skip-btn')?.addEventListener('click', () => {
+    handleClarificationSubmit(true);
+  });
+  modal.querySelector('[data-clarify-dismiss]')?.addEventListener('click', () => {
+    pendingClarificationState = null;
+    closeClarificationModal();
+  });
+  modal.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeClarificationModal();
+  });
+}
+
+function closeClarificationModal() {
+  const modal = document.getElementById('clarificationModal');
+  if (!modal) return;
+  modal.hidden = true;
+  modal.classList.remove('is-open');
+  document.body.classList.remove('clarify-modal-open');
+}
+
+function showClarificationModal(payload) {
+  const modal = document.getElementById('clarificationModal');
+  if (!modal) return;
+
+  const introEl = modal.querySelector('.clarify-intro');
+  const fieldsEl = modal.querySelector('.clarify-fields');
+  const freeWrap = modal.querySelector('.clarify-free-text');
+  const freeLabel = modal.querySelector('.clarify-free-label');
+  const freeInput = modal.querySelector('.clarify-free-input');
+  const skipBtn = modal.querySelector('.clarify-skip-btn');
+  const submitBtn = modal.querySelector('.clarify-submit-btn');
+  const titleEl = modal.querySelector('.clarify-title');
+
+  if (introEl) introEl.textContent = payload.intro || '';
+  if (titleEl) {
+    titleEl.textContent = /[\u4e00-\u9fff]/.test(payload.intro || '')
+      ? '补充研究信息'
+      : 'Refine your research';
+  }
+  if (fieldsEl) {
+    fieldsEl.innerHTML = '';
+    (payload.fields || []).forEach((field) => {
+      const section = document.createElement('div');
+      section.className = 'clarify-field';
+      section.dataset.fieldId = field.id;
+
+      const label = document.createElement('div');
+      label.className = 'clarify-field-label';
+      label.textContent = field.label || field.id;
+      section.appendChild(label);
+
+      const opts = document.createElement('div');
+      opts.className = 'clarify-options';
+      const labels = field.options || [];
+      const values = field.option_values || labels;
+
+      labels.forEach((optLabel, idx) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'clarify-option';
+        btn.textContent = optLabel;
+        btn.dataset.value = values[idx] != null ? values[idx] : optLabel;
+        btn.addEventListener('click', () => {
+          opts.querySelectorAll('.clarify-option').forEach((b) => b.classList.remove('selected'));
+          btn.classList.add('selected');
+          const custom = section.querySelector('.clarify-custom-input');
+          if (custom) custom.value = '';
+        });
+        opts.appendChild(btn);
+      });
+      section.appendChild(opts);
+
+      if (field.allow_custom) {
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'clarify-custom-input';
+        input.placeholder = field.placeholder || '';
+        input.addEventListener('input', () => {
+          opts.querySelectorAll('.clarify-option').forEach((b) => b.classList.remove('selected'));
+        });
+        section.appendChild(input);
+      }
+
+      fieldsEl.appendChild(section);
+    });
+  }
+
+  const ft = payload.free_text || {};
+  if (freeLabel) freeLabel.textContent = ft.label || '';
+  if (freeInput) {
+    freeInput.placeholder = ft.placeholder || '';
+    freeInput.value = '';
+  }
+  if (freeWrap) freeWrap.style.display = ft.label || ft.placeholder ? '' : 'none';
+
+  if (skipBtn) skipBtn.textContent = payload.skip_label || 'Skip and run';
+  if (submitBtn) submitBtn.textContent = payload.submit_label || 'Start research';
+
+  modal.hidden = false;
+  modal.classList.add('is-open');
+  document.body.classList.add('clarify-modal-open');
+
+  const firstFocus = modal.querySelector('.clarify-custom-input, .clarify-free-input, .clarify-option');
+  if (firstFocus) firstFocus.focus();
+}
+
+function collectClarificationForm() {
+  const modal = document.getElementById('clarificationModal');
+  const selections = {};
+  if (!modal) return { selections, free_text: '' };
+
+  modal.querySelectorAll('.clarify-field').forEach((section) => {
+    const fieldId = section.dataset.fieldId;
+    if (!fieldId) return;
+    const selected = section.querySelector('.clarify-option.selected');
+    const custom = section.querySelector('.clarify-custom-input');
+    const customVal = custom?.value?.trim() || '';
+    if (customVal) {
+      selections[fieldId] = customVal;
+    } else if (selected) {
+      selections[fieldId] = selected.dataset.value || selected.textContent || '';
+    }
+  });
+
+  const freeText = modal.querySelector('.clarify-free-input')?.value?.trim() || '';
+  return { selections, free_text: freeText };
+}
+
+function buildClarificationUserLabel(skip, selections, freeText, payload) {
+  if (skip) {
+    return payload?.skip_label || '跳过，直接执行';
+  }
+  const parts = [];
+  const fields = payload?.fields || [];
+  fields.forEach((field) => {
+    const val = (selections[field.id] || '').trim();
+    if (val) parts.push(`${field.label || field.id}: ${val}`);
+  });
+  if (freeText) {
+    const noteLabel = payload?.free_text?.label || '补充';
+    parts.push(`${noteLabel}: ${freeText}`);
+  }
+  if (parts.length) return parts.join(' · ');
+  return payload?.submit_label || '开始研究';
+}
+
+function removeAssistantBubble(contentDiv) {
+  const msg = contentDiv?.closest('.message.assistant');
+  if (!msg) return;
+  if (currentThinkingTools && msg.contains(currentThinkingTools)) {
+    currentThinkingTools = null;
+    currentActivityTimeline = null;
+  }
+  msg.remove();
+}
+
+async function handleClarificationSubmit(skip) {
+  const state = pendingClarificationState;
+  if (!state || isStreaming) return;
+
+  const { selections, free_text: freeText } = skip
+    ? { selections: {}, free_text: '' }
+    : collectClarificationForm();
+
+  closeClarificationModal();
+
+  const userLabel = buildClarificationUserLabel(skip, selections, freeText, state.payload);
+  addMessage('user', userLabel);
+  chatHistory.push({ role: 'user', content: userLabel });
+
+  setSendButtonToStop();
+  const abortController = new AbortController();
+  currentAbortController = abortController;
+  pendingClarificationState = null;
+
+  const assistantContent = beginAssistantTurn();
+
+  try {
+    await executeChatRequest({
+      message: state.originalMessage,
+      assistantContent,
+      abortController,
+      clarificationResponse: skip
+        ? { skip: true, selections: {}, free_text: '' }
+        : { skip: false, selections, free_text: freeText },
+    });
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      hideContentLoading(assistantContent);
+      hideStreamingCursor(assistantContent);
+      collapseThinkingTools();
+      collapsePlanPanel();
+      assistantContent.innerHTML = '<p style="color:var(--text-muted);font-style:italic;">Generation stopped.</p>';
+      return;
+    }
+    hideContentLoading(assistantContent);
+    hideStreamingCursor(assistantContent);
+    assistantContent.innerHTML = `<p style="color:#c0392b;">Connection error: ${escapeHtml(err.message)}</p>`;
+    collapsePlanPanel();
+  } finally {
+    if (currentAbortController === abortController) currentAbortController = null;
+    setSendButtonToSend();
+    inputField.focus();
+  }
+}
+
+async function executeChatRequest({
+  message,
+  assistantContent,
+  abortController,
+  clarificationResponse = null,
+}) {
+  let fullText = '';
+  let followUps = [];
+  let clarificationPayload = null;
+
+  const body = {
+    message,
+    session_id: sessionId,
+    conversation_id: conversationId,
+    history: chatHistory.slice(-10),
+  };
+  if (clarificationResponse) {
+    body.clarification_response = clarificationResponse;
+  }
+
+  const response = await fetch(CHAT_URL, {
+    method: 'POST',
+    headers: apiHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify(body),
+    signal: abortController.signal,
+  });
+
+  const newSessionId = response.headers.get('X-Session-Id');
+  if (newSessionId) {
+    sessionId = newSessionId;
+    persistSessionForConversation(conversationId, newSessionId);
+  }
+
+  const newConvId = response.headers.get('X-Conversation-Id');
+  if (newConvId) persistConversationId(newConvId);
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+
+  await parseSseStream(response, async (currentEvent, data) => {
+    if (currentEvent === 'text') {
+      fullText += data.content;
+      renderStreamingContent(assistantContent, fullText);
+      chatArea.scrollTop = chatArea.scrollHeight;
+    } else if (currentEvent === 'phase_update') {
+      setActivityPhase(data.phase);
+      showStreamStatus(data.label || 'Working…', '');
+      const earlyPhases = ['planning', 'resolving', 'clarifying', 'retrieving_tools'];
+      if (earlyPhases.includes(data.phase) || data.phase === 'database') {
+        showContentLoading(assistantContent, data.label || 'Working…');
+      } else if (data.phase === 'literature') {
+        showContentLoading(assistantContent, data.label || 'Searching literature…');
+      } else if (data.phase === 'synthesis') {
+        showContentLoading(assistantContent, data.label || 'Generating answer…');
+      }
+    } else if (currentEvent === 'plan_created') {
+      showContentLoading(assistantContent, 'Investigating…');
+    } else if (currentEvent === 'step_started') {
+      updatePlanStep(data);
+    } else if (currentEvent === 'step_completed') {
+      updatePlanStep(data);
+    } else if (currentEvent === 'orchestrator_plan') {
+      handleOrchestratorPlan(data);
+    } else if (currentEvent === 'agent_started') {
+      handleAgentStarted(data, assistantContent);
+    } else if (currentEvent === 'agent_completed') {
+      handleAgentCompleted(data);
+    } else if (currentEvent === 'agent_handoff') {
+      handleAgentHandoff(data);
+    } else if (currentEvent === 'agent_brief') {
+      if (currentWorkflowState?.agents[data.agent]) {
+        currentWorkflowState.agents[data.agent].summary = data.preview || '';
+        logWorkflowEvent('agent', data.preview || `${data.agent} brief`, { agent: data.agent });
+        renderWorkflowPanel();
+      }
+    } else if (currentEvent === 'literature_search') {
+      handleLiteratureSearch(data);
+    } else if (currentEvent === 'tool_call') {
+      handleWorkflowToolCall(data);
+      showContentLoading(assistantContent, data.label || 'Querying…');
+      addToolIndicator(data.tool_name, data.arguments, data.kind);
+    } else if (currentEvent === 'tool_result') {
+      const indicators = currentThinkingTools?.querySelectorAll('.tool-indicator') || [];
+      const lastInd = indicators[indicators.length - 1];
+      if (lastInd) updateToolIndicator(lastInd, data.success, data.summary);
+    } else if (currentEvent === 'sources') {
+      window.__lastSources = data.citations || [];
+      const synthLabel = /[\u4e00-\u9fff]/.test(fullText || message || '')
+        ? '撰写回答中…' : 'Writing answer…';
+      showStreamStatus(synthLabel, '');
+      if (fullText) {
+        hideContentLoading(assistantContent);
+        showStreamingCursor(assistantContent);
+      } else {
+        showContentLoading(assistantContent, synthLabel);
+      }
+      renderSourcesDrawer(window.__lastSources, 'database');
+    } else if (currentEvent === 'follow_up_questions') {
+      followUps = data.questions || [];
+    } else if (currentEvent === 'clarification_request') {
+      clarificationPayload = data;
+    } else if (currentEvent === 'done') {
+      showStreamStatus('');
+      collapseThinkingTools();
+      collapsePlanPanel();
+    } else if (currentEvent === 'error') {
+      showStreamStatus('');
+      hideContentLoading(assistantContent);
+      hideStreamingCursor(assistantContent);
+      assistantContent.innerHTML = `<p style="color:#c0392b;">${escapeHtml(data.message)}</p>`;
+      collapsePlanPanel();
+    }
+  });
+
+  if (clarificationPayload) {
+    removeAssistantBubble(assistantContent);
+    pendingClarificationState = {
+      originalMessage: message,
+      payload: clarificationPayload,
+    };
+    showClarificationModal(clarificationPayload);
+    return { clarification: true };
+  }
+
+  hideContentLoading(assistantContent);
+  hideStreamingCursor(assistantContent);
+  if (fullText) {
+    const displayText = stripTrailingInvite(fullText);
+    assistantContent.innerHTML = renderMarkdown(displayText);
+    chatHistory.push({ role: 'assistant', content: fullText });
+    attachMessageActions(assistantContent, fullText);
+    const qs = followUps.length ? followUps : extractNextStepQuestions(fullText);
+    mountFollowUpPanel(assistantContent.closest('.assistant-body'), qs, detectLangFromText(fullText));
+  } else if (!assistantContent.querySelector('p[style*="c0392b"]')) {
+    assistantContent.innerHTML = '<p style="color:var(--text-muted);">No response received.</p>';
+  }
+  collapseThinkingTools();
+  collapsePlanPanel();
+  await loadConversationList();
+  if (conversationId && fullText) {
+    isStreaming = false;
+    await refreshAssistantContentFromStore(assistantContent);
+  }
+  return { clarification: false, fullText };
+}
+
 async function sendMessage() {
   const text = inputField.value.trim();
   const files = [...pendingFiles];
@@ -3782,7 +4893,7 @@ async function sendMessage() {
   }
 
   let routeCollection = files.some((f) => classifyUploadKind(f.name) !== 'unknown');
-  if (!routeCollection) {
+  if (!routeCollection && files.length) {
     try {
       const intent = await classifyIntent(text, files.map((f) => f.name));
       routeCollection = Boolean(intent.route_collection);
@@ -3805,83 +4916,13 @@ async function sendMessage() {
   chatHistory.push({ role: 'user', content: text });
 
   const assistantContent = beginAssistantTurn();
-  let fullText = '';
 
   try {
-    const response = await fetch(CHAT_URL, {
-      method: 'POST',
-      headers: apiHeaders({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify({
-        message: text,
-        session_id: sessionId,
-        conversation_id: conversationId,
-        history: chatHistory.slice(-10),
-      }),
-      signal: abortController.signal,
+    await executeChatRequest({
+      message: text,
+      assistantContent,
+      abortController,
     });
-
-    const newSessionId = response.headers.get('X-Session-Id');
-    if (newSessionId) sessionId = newSessionId;
-
-    const newConvId = response.headers.get('X-Conversation-Id');
-    if (newConvId) persistConversationId(newConvId);
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    await parseSseStream(response, async (currentEvent, data) => {
-      if (currentEvent === 'text') {
-        fullText += data.content;
-        renderStreamingContent(assistantContent, fullText);
-        chatArea.scrollTop = chatArea.scrollHeight;
-      } else if (currentEvent === 'plan_created') {
-        showContentLoading(assistantContent, 'Querying databases...');
-        addPlanPanel(data);
-      } else if (currentEvent === 'step_started') {
-        updatePlanStep(data);
-      } else if (currentEvent === 'step_completed') {
-        updatePlanStep(data);
-      } else if (currentEvent === 'tool_call') {
-        showContentLoading(assistantContent, 'Querying databases...');
-        addToolIndicator(data.tool_name, data.arguments);
-      } else if (currentEvent === 'tool_result') {
-        const indicators = currentThinkingTools?.querySelectorAll('.tool-indicator') || [];
-        const lastInd = indicators[indicators.length - 1];
-        if (lastInd) updateToolIndicator(lastInd, data.success, data.summary);
-        showContentLoading(assistantContent, 'Querying databases...');
-      } else if (currentEvent === 'sources') {
-        showContentLoading(assistantContent, 'Generating answer...');
-      } else if (currentEvent === 'done') {
-        collapseThinkingTools();
-        collapsePlanPanel();
-      } else if (currentEvent === 'error') {
-        hideContentLoading(assistantContent);
-        hideStreamingCursor(assistantContent);
-        assistantContent.innerHTML = `<p style="color:#c0392b;">${data.message}</p>`;
-        collapsePlanPanel();
-      }
-    });
-
-    hideContentLoading(assistantContent);
-    hideStreamingCursor(assistantContent);
-    if (fullText) {
-      assistantContent.innerHTML = renderMarkdown(fullText);
-      chatHistory.push({ role: 'assistant', content: fullText });
-      attachMessageActions(assistantContent, fullText);
-    } else if (!assistantContent.querySelector('p[style*="c0392b"]')) {
-      assistantContent.innerHTML = '<p style="color:var(--text-muted);">No response received.</p>';
-    }
-    collapseThinkingTools();
-    collapsePlanPanel();
-    await loadConversationList();
-    // Re-sync from persisted conversation so Next step chips match history/refresh view
-    // (covers any trailing SSE bytes the client missed).
-    if (conversationId && fullText) {
-      isStreaming = false;
-      await refreshAssistantContentFromStore(assistantContent);
-    }
-
   } catch (err) {
     if (err.name === 'AbortError') {
       hideContentLoading(assistantContent);
@@ -3893,8 +4934,8 @@ async function sendMessage() {
     }
     hideContentLoading(assistantContent);
     hideStreamingCursor(assistantContent);
-    assistantContent.innerHTML = `<p style="color:#c0392b;">Connection error: ${err.message}</p>
-      <p style="font-size:13px;color:var(--text-muted);">Make sure the qPTM Agent backend is running at ${CHAT_URL}</p>`;
+    assistantContent.innerHTML = `<p style="color:#c0392b;">Connection error: ${escapeHtml(err.message)}</p>
+      <p style="font-size:13px;color:var(--text-muted);">Make sure the qPTM Agent backend is running at ${escapeHtml(CHAT_URL)}</p>`;
     collapsePlanPanel();
   } finally {
     if (currentAbortController === abortController) currentAbortController = null;

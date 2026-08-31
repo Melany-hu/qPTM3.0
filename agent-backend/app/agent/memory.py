@@ -8,6 +8,7 @@ from typing import Any
 
 from app.agent.entities import parse_query_entities
 from app.models.schemas import ToolResult
+from app.workflow.citations import compact_tool_data
 
 
 @dataclass
@@ -148,14 +149,58 @@ class InvestigationMemory:
         )
 
 
+def _message_has_ptm_target(message: str) -> bool:
+    parsed = parse_query_entities(message or "")
+    return bool(
+        parsed.get("gene")
+        or parsed.get("position")
+        or parsed.get("uniprot_ac")
+        or parsed.get("mutation_label")
+    )
+
+
+def hydrate_from_history(
+    memory: InvestigationMemory,
+    history: list[dict[str, str]] | None,
+) -> bool:
+    """Restore gene/site from prior turns when in-memory session context was lost."""
+    if memory.has_target or not history:
+        return False
+    for msg in reversed(history):
+        if msg.get("role") != "user":
+            continue
+        content = (msg.get("content") or "").strip()
+        if not content or not _message_has_ptm_target(content):
+            continue
+        memory.update_from_message(content)
+        return True
+    return False
+
+
+def prepare_investigation_context(
+    memory: InvestigationMemory,
+    state: Any,
+    history: list[dict[str, str]] | None,
+) -> None:
+    """Merge chat history into session memory before intent classification."""
+    hydrate_from_history(memory, history)
+    if state is not None:
+        state.sync_memory_to_targets()
+
+
+_TOOL_RESULT_MAX_CHARS = 2500
+
+
 def tool_result_message(tool_call_id: str, enriched: ToolResult) -> dict[str, Any]:
     """Build an OpenAI-compatible tool result message for the LLM."""
+    raw_data = enriched.data if isinstance(enriched.data, dict) else {"value": enriched.data}
+    compact = compact_tool_data(enriched.tool, raw_data)
     payload = {
         "tool": enriched.tool,
         "database": enriched.database,
         "success": enriched.success,
         "summary": enriched.summary,
-        "data": enriched.data,
+        "data": compact,
     }
     if enriched.citations:
         payload["citations"] = [
@@ -168,10 +213,13 @@ def tool_result_message(tool_call_id: str, enriched: ToolResult) -> dict[str, An
                 "pmid": c.pmid,
                 "doi": c.doi,
             }
-            for c in enriched.citations
+            for c in enriched.citations[:12]
         ]
+    content = json.dumps(payload, ensure_ascii=False)
+    if len(content) > _TOOL_RESULT_MAX_CHARS:
+        content = content[:_TOOL_RESULT_MAX_CHARS] + "…(truncated)"
     return {
         "role": "tool",
         "tool_call_id": tool_call_id,
-        "content": json.dumps(payload, ensure_ascii=False),
+        "content": content,
     }

@@ -33,6 +33,13 @@
             </ul>
           </li>
           <li>
+            <a href="#help-curated" class="help-nav-link"><i class="ri-database-2-line mr-2"></i>Curated Data Summary</a>
+            <ul class="help-nav-sublist">
+              <li><a href="#help-datasets" class="help-nav-link">Curated datasets</a></li>
+              <li><a href="#help-literatures" class="help-nav-link">Curated literatures</a></li>
+            </ul>
+          </li>
+          <li>
             <a href="#help-usage" class="help-nav-link"><i class="ri-book-open-line mr-2"></i>Usage</a>
             <ul class="help-nav-sublist">
               <li><a href="#help-home" class="help-nav-link">Home (Quick Search)</a></li>
@@ -43,13 +50,6 @@
             </ul>
           </li>
           <li><a href="#help-reliability" class="help-nav-link"><i class="ri-star-line mr-2"></i>Reliability</a></li>
-          <li>
-            <a href="#help-curated" class="help-nav-link"><i class="ri-database-2-line mr-2"></i>Curated Data Summary</a>
-            <ul class="help-nav-sublist">
-              <li><a href="#help-datasets" class="help-nav-link">Curated datasets</a></li>
-              <li><a href="#help-literatures" class="help-nav-link">Curated literatures</a></li>
-            </ul>
-          </li>
           <li>
             <a href="#help-agent" class="help-nav-link"><i class="ri-robot-2-line mr-2"></i>PTM Agent</a>
             <ul class="help-nav-sublist">
@@ -66,8 +66,8 @@
   <div class="lp-panel help-section" id="help-about">
     <div class="lp-panel-header"><i class="ri-information-line mr-2"></i>About qPTM</div>
     <div class="lp-panel-body">
-      <p class="text-des"><strong>qPTM 3.0</strong> hosts quantitative PTM proteomics data for 6 types of post-translational modifications (acetylation, glycosylation, methylation, phosphorylation, SUMOylation, ubiquitylation) in 4 different organisms (human, mouse, rat, yeast).</p>
-      <p class="text-des">In total, <strong>14,183,172</strong> quantification events for <strong>796,337</strong> sites on <strong>73,783</strong> proteins under <strong>3,391</strong> conditions are collected and integrated. The matched proteome datasets were also integrated when available, providing a comprehensive view of PTM regulation.</p>
+      <p class="text-des"><strong>qPTM 3.0</strong> hosts quantitative PTM proteomics data for 12 types of post-translational modifications (acetylation, glycosylation, methylation, phosphorylation, SUMOylation, ubiquitylation, palmitoylation, succinylation, β-hydroxybutyrylation, crotonylation, lactylation, malonylation) in 4 different organisms (human, mouse, rat, yeast).</p>
+      <p class="text-des">In total, <strong>15,652,063</strong> quantification events for <strong>994,878</strong> sites on <strong>49,280</strong> proteins under <strong>3,989</strong> conditions are collected and integrated. The matched proteome datasets were also integrated when available, providing a comprehensive view of PTM regulation.</p>
 
       <div class="help-summary-section help-section" id="help-version">
         <h3 class="help-summary-title">Comparison between qPTM 3.0 and qPTM 2.0</h3>
@@ -85,34 +85,80 @@
             <tbody>
               <tr>
                 <td>Literatures</td>
-                <td>636</td>
-                <td>846</td>
-                <td>210</td>
+                <td>625</td>
+                <td>833</td>
+                <td>208</td>
               </tr>
               <tr>
                 <td>PTM events</td>
                 <td>11,482,553</td>
-                <td>15,896,674</td>
-                <td>4,314,121</td>
+                <td>15,652,063</td>
+                <td>4,169,510</td>
               </tr>
               <tr>
                 <td>PTM sites</td>
                 <td>660,030</td>
-                <td>959,686</td>
-                <td>299,656</td>
+                <td>994,878</td>
+                <td>334,848</td>
               </tr>
               <tr>
                 <td>Proteins</td>
                 <td>40,728</td>
-                <td>48,666</td>
-                <td>7,938</td>
+                <td>49,280</td>
+                <td>8,552</td>
               </tr>
               <tr>
                 <td>Conditions</td>
-                <td>2,596</td>
-                <td>3,730</td>
-                <td>1,134</td>
+                <td>2,708</td>
+                <td>3,989</td>
+                <td>1,281</td>
               </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="lp-panel help-section" id="help-curated">
+    <div class="lp-panel-header"><i class="ri-database-2-line mr-2"></i>Curated Data Summary</div>
+    <div class="lp-panel-body">
+      <div class="help-summary-section help-section" id="help-datasets">
+        <h3 class="help-summary-title">Summary of curated datasets</h3>
+        <div class="help-table-scroll">
+          <table class="lp-table">
+            <thead>
+              <tr>
+                <th>PMID</th>
+                <th>Number of events</th>
+                <th>Number of unique sites</th>
+                <th>Number of unique proteins</th>
+              </tr>
+            </thead>
+            <tbody id="curated-datasets-body">
+              <tr><td colspan="4" class="text-muted">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="help-summary-section help-section" id="help-literatures">
+        <h3 class="help-summary-title">Summary of curated literatures</h3>
+        <div class="help-table-scroll">
+          <table class="lp-table">
+            <thead>
+              <tr>
+                <th>PMID</th>
+                <th>PTMs</th>
+                <th>Sample</th>
+                <th>Condition</th>
+                <th>Quantification method</th>
+                <th>Enrichment method</th>
+                <th>Mass Spec</th>
+              </tr>
+            </thead>
+            <tbody id="curated-literatures-body">
+              <tr><td colspan="7" class="text-muted">Loading...</td></tr>
             </tbody>
           </table>
         </div>
@@ -203,52 +249,6 @@
         <li><strong>Occurrences in other classical PTM databases.</strong> Modified sites collected in dbPTM or PhosphoSitePlus were also given one point.</li>
       </ul>
       <p class="text-des">Taken together, the five-star scoring system assigned each PTM site a reliability score of 0&ndash;5 bright star(s) according to its recurrences of identification among datasets, and red-bordered the bright star(s) if the site had a site-level FDR &lt; 0.01 according to raw MS data-based re-identification.</p>
-    </div>
-  </div>
-
-  <div class="lp-panel help-section" id="help-curated">
-    <div class="lp-panel-header"><i class="ri-database-2-line mr-2"></i>Curated Data Summary</div>
-    <div class="lp-panel-body">
-      <div class="help-summary-section help-section" id="help-datasets">
-        <h3 class="help-summary-title">Summary of curated datasets</h3>
-        <div class="help-table-scroll">
-          <table class="lp-table">
-            <thead>
-              <tr>
-                <th>PMID</th>
-                <th>Number of events</th>
-                <th>Number of unique sites</th>
-                <th>Number of unique proteins</th>
-              </tr>
-            </thead>
-            <tbody id="curated-datasets-body">
-              <tr><td colspan="4" class="text-muted">Loading...</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <div class="help-summary-section help-section" id="help-literatures">
-        <h3 class="help-summary-title">Summary of curated literatures</h3>
-        <div class="help-table-scroll">
-          <table class="lp-table">
-            <thead>
-              <tr>
-                <th>PMID</th>
-                <th>Sample</th>
-                <th>PTMs</th>
-                <th>Quantification method</th>
-                <th>Condition</th>
-                <th>Enrichment method</th>
-                <th>Mass Spec</th>
-              </tr>
-            </thead>
-            <tbody id="curated-literatures-body">
-              <tr><td colspan="7" class="text-muted">Loading...</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
     </div>
   </div>
 

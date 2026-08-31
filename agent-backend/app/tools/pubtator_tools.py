@@ -128,6 +128,106 @@ def pubtator_literature_search(
     }
 
 
+def _ncbi_params() -> dict[str, str]:
+    params: dict[str, str] = {"tool": "qptm-agent", "email": settings.ncbi_email or "qptm@localhost"}
+    if settings.ncbi_api_key:
+        params["api_key"] = settings.ncbi_api_key
+    return params
+
+
+def _parse_efetch_xml(xml_text: str) -> list[dict[str, Any]]:
+    import xml.etree.ElementTree as ET
+
+    abstracts: list[dict[str, Any]] = []
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError:
+        return abstracts
+
+    for article in root.findall(".//PubmedArticle"):
+        pmid_el = article.find(".//PMID")
+        pmid = (pmid_el.text or "").strip() if pmid_el is not None else ""
+        if not pmid.isdigit():
+            continue
+        title_el = article.find(".//ArticleTitle")
+        title = _strip_html(title_el.text if title_el is not None else "")
+        abstract_parts: list[str] = []
+        for ab in article.findall(".//AbstractText"):
+            label = ab.get("Label") or ""
+            text = _strip_html("".join(ab.itertext()))
+            if text:
+                abstract_parts.append(f"{label}: {text}" if label else text)
+        journal_el = article.find(".//Journal/Title")
+        journal = _strip_html(journal_el.text if journal_el is not None else "")
+        year_el = article.find(".//PubDate/Year")
+        year = (year_el.text or "")[:4] if year_el is not None else ""
+        abstract = " ".join(abstract_parts).strip()
+        abstracts.append({
+            "pmid": pmid,
+            "title": title,
+            "abstract": abstract,
+            "journal": journal,
+            "year": year,
+            "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
+        })
+    return abstracts
+
+
+def pubmed_fetch_abstracts(
+    pmids: list[str] | str,
+    *,
+    max_chars: int = 2000,
+) -> dict[str, Any]:
+    """Fetch PubMed abstracts via NCBI eutils efetch."""
+    if isinstance(pmids, str):
+        raw = [p.strip() for p in re.split(r"[\s,;]+", pmids) if p.strip()]
+    else:
+        raw = [str(p).strip() for p in pmids]
+    ids = []
+    for p in raw:
+        if p.isdigit() and len(p) >= 7:
+            ids.append(p)
+    ids = list(dict.fromkeys(ids))[:10]
+    if not ids:
+        return {"error": "At least one valid PMID is required"}
+
+    params = {
+        **_ncbi_params(),
+        "db": "pubmed",
+        "id": ",".join(ids),
+        "retmode": "xml",
+    }
+    url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
+
+    try:
+        with _client() as client:
+            resp = client.get(url, params=params)
+            resp.raise_for_status()
+            xml_text = resp.text
+    except httpx.HTTPError as exc:
+        logger.warning("PubMed efetch failed: %s", exc)
+        return {"error": f"PubMed efetch failed: {exc}"}
+
+    rows = _parse_efetch_xml(xml_text)
+    cap = max(400, int(max_chars or 2000))
+    for row in rows:
+        ab = row.get("abstract") or ""
+        if len(ab) > cap:
+            row["abstract"] = ab[: cap - 3] + "..."
+
+    summary = (
+        f"Fetched {len(rows)} PubMed abstract(s) for PMIDs: {', '.join(ids[:5])}"
+        + ("…" if len(ids) > 5 else "")
+    )
+    return {
+        "summary": summary,
+        "pmids": ids,
+        "abstracts": rows,
+        "papers": rows,
+        "homepage": "https://pubmed.ncbi.nlm.nih.gov/",
+    }
+
+
 def register_pubtator_tools() -> None:
     registry.register(
         name="pubtator_literature_search",
@@ -161,4 +261,28 @@ def register_pubtator_tools() -> None:
             "required": ["query"],
         },
         handler=pubtator_literature_search,
+    )
+    registry.register(
+        name="pubmed_fetch_abstracts",
+        description=(
+            "Fetch PubMed article abstracts by PMID list. Use after identifying relevant "
+            "papers from database hit PMIDs or PubTator search."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "pmids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of PubMed IDs (7–8 digits)",
+                },
+                "max_chars": {
+                    "type": "integer",
+                    "description": "Max characters per abstract (default 2000)",
+                    "default": 2000,
+                },
+            },
+            "required": ["pmids"],
+        },
+        handler=pubmed_fetch_abstracts,
     )

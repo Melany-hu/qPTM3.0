@@ -73,13 +73,15 @@
   }
 
   function renderLiteratureRows(rows) {
+    // Data file: PMID, Sample, PTMs, Quantification, Condition, Enrichment, Mass Spec
+    // Display:   PMID, PTMs, Sample, Condition, Quantification, Enrichment, Mass Spec
     return rows.map(function (row) {
       return '<tr>' +
         '<td>' + pmidLink(row[0]) + '</td>' +
-        '<td>' + escapeHtml(row[1]) + '</td>' +
         '<td>' + escapeHtml(row[2]) + '</td>' +
-        '<td>' + escapeHtml(row[3]) + '</td>' +
+        '<td>' + escapeHtml(row[1]) + '</td>' +
         '<td>' + escapeHtml(row[4]) + '</td>' +
+        '<td>' + escapeHtml(row[3]) + '</td>' +
         '<td>' + escapeHtml(row[5]) + '</td>' +
         '<td>' + escapeHtml(row[6]) + '</td>' +
         '</tr>';

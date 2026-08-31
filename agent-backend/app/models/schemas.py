@@ -170,11 +170,19 @@ class ChatMessage(BaseModel):
     content: str
 
 
+class ClarificationResponse(BaseModel):
+    """User answers from the clarification modal, or skip to run without supplement."""
+    skip: bool = False
+    selections: dict[str, str] = Field(default_factory=dict)
+    free_text: str = ""
+
+
 class ChatRequest(BaseModel):
     message: str
     session_id: str | None = None
     conversation_id: str | None = None
     history: list[ChatMessage] = Field(default_factory=list)
+    clarification_response: ClarificationResponse | None = None
 
 
 class PdfExportRequest(BaseModel):
