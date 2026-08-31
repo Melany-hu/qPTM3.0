@@ -502,49 +502,112 @@ function displayFuncDes($funcDes){
 	return $funcDes;
 }
 
-/*------ Display UniProt PTM information in a table------*/
-function displayPTM($PTMQueryRes){
-	$dbid2link = array('UniProt'=>'http://www.uniprot.org/uniprot/','dbPAF'=>'http://www.dbpaf.biocuckoo.org/view.php?id=','PLMD'=>'http://plmd.biocuckoo.org/view.php?id=0000452');
-	if(!isset($PTMQueryRes->num_rows)){
-		$queryResNum = 0;
+/*------ Parse PTMs_other_resource from proinfo ------*/
+function parsePtmsOtherResource($raw){
+	$raw = trim((string)$raw);
+	if($raw === ''){
+		return array();
 	}
-	else{
-		$queryResNum = $PTMQueryRes->num_rows;
-	}
-	if($queryResNum == 0){
-		return '-';
-	}else{
-		$returnPTMInfos = "<div class='detail-table-scroll hide-more'><table class='table table-bordered hide-table'><thead class='thead-dark'><tr><th style='width:15%'>Position</th><th style='width:20%'>Peptide</th><th style='width:50%'>Modification</th><th style='width:15%'>Source</th></tr></thead><tbody>";
-		for($i = 0;$i<$queryResNum;$i++){
-			$row = $PTMQueryRes->fetch_assoc();
-			$returnPTMInfos = $returnPTMInfos."<tr><td>".$row['pos']."</td><td><span class='couriernew'>".$row['pep']."</span></td><td>".$row['mods']."</td><td><a href='".$dbid2link[$row['dbfrom']].$row['dbid']."' target='_blank'>".$row['dbfrom']."</a></td></tr>";
+	$rows = array();
+	$parts = explode(';', $raw);
+	foreach($parts as $part){
+		$part = trim($part);
+		if($part === ''){
+			continue;
 		}
-		$returnPTMInfos = $returnPTMInfos."</tbody></table></div>";
-		return $returnPTMInfos;
+		if(!preg_match('/^(.+?):([\d,]+)\(([^)]+)\)$/', $part, $matches)){
+			continue;
+		}
+		$mod = trim($matches[1]);
+		$source = trim($matches[3]);
+		$positions = explode(',', $matches[2]);
+		foreach($positions as $pos){
+			$pos = trim($pos);
+			if($pos === '' || !ctype_digit($pos)){
+				continue;
+			}
+			$rows[] = array(
+				'mods' => $mod,
+				'pos' => $pos,
+				'source' => $source
+			);
+		}
 	}
+	usort($rows, function($a, $b){
+		$posCmp = (int)$a['pos'] - (int)$b['pos'];
+		if($posCmp !== 0){
+			return $posCmp;
+		}
+		$modCmp = strcmp($a['mods'], $b['mods']);
+		if($modCmp !== 0){
+			return $modCmp;
+		}
+		return strcmp($a['source'], $b['source']);
+	});
+	return $rows;
+}
+
+/*------ Display external PTM resources in a table ------*/
+function displayPTM($ptmRows){
+	if(!is_array($ptmRows) || count($ptmRows) === 0){
+		return '-';
+	}
+	$returnPTMInfos = "<div class='detail-table-scroll hide-more'><table class='table table-bordered hide-table'><thead class='thead-dark'><tr><th style='width:45%'>Modification</th><th style='width:20%'>Position</th><th style='width:35%'>Source</th></tr></thead><tbody>";
+	foreach($ptmRows as $row){
+		$returnPTMInfos = $returnPTMInfos."<tr><td>".htmlspecialchars($row['mods'])."</td><td>".htmlspecialchars($row['pos'])."</td><td>".htmlspecialchars($row['source'])."</td></tr>";
+	}
+	$returnPTMInfos = $returnPTMInfos."</tbody></table></div>";
+	return $returnPTMInfos;
 }
 
 
 /*------ Display PTMD information in a table------*/
-function displayPTMD($PTMDQueryRes){
-
-	if(!isset($PTMDQueryRes->num_rows)){
-		$queryResNum = 0;
-	}
-	else{
-		$queryResNum = $PTMDQueryRes->num_rows;
-	}
-	if($queryResNum == 0){
+function formatPtmdSource($source){
+	$source = trim((string)$source);
+	if($source === ''){
 		return '-';
-	}else{
-		$returnPTMDInfos = "<div class='detail-table-scroll hide-more'><table class='table table-bordered hide-table'><thead class='thead-dark'><tr><th style='width:45%'>Disease</th><th style='width:20%'>Modification</th><th style='width:20%'>Influence</th><th style='width:15%'>PMID</th></tr></thead><tbody>";
-		for($i = 0;$i<$queryResNum;$i++){
-			$row = $PTMDQueryRes->fetch_assoc();
-			$returnPTMDInfos = $returnPTMDInfos."<tr><td>".$row['disease']."</td><td>".$row['mods']."</td><td>".$row['influ']."</td><td>".($row['pmid'] == ''?"-":ID2links('https://pubmed.ncbi.nlm.nih.gov/', explode(';', $row['pmid'])))."</td></tr>";
-		}
-		$returnPTMDInfos = $returnPTMDInfos."</tbody></table></div>";
-		return $returnPTMDInfos;
 	}
+	$parts = preg_split('/[;,]/', $source);
+	$links = array();
+	foreach($parts as $part){
+		$part = trim($part);
+		if($part === ''){
+			continue;
+		}
+		if(preg_match('/^\d+$/', $part)){
+			$links[] = "<a href='https://pubmed.ncbi.nlm.nih.gov/".$part."/' target='_blank' rel='noopener'>".$part."</a>";
+		}elseif(strcasecmp($part, 'ActiveDriverDB') === 0){
+			$links[] = "<a href='https://activedriverdb.org/' target='_blank' rel='noopener'>".htmlspecialchars($part)."</a>";
+		}elseif(strcasecmp($part, 'PTMD') === 0){
+			$links[] = "<a href='https://ptmd.biocuckoo.cn/' target='_blank' rel='noopener'>".htmlspecialchars($part)."</a>";
+		}else{
+			$links[] = htmlspecialchars($part);
+		}
+	}
+	return $links ? implode(', ', $links) : '-';
+}
+
+function fetchPtmdRows($ptmdQueryRes){
+	$rows = array();
+	if(!$ptmdQueryRes || !isset($ptmdQueryRes->num_rows) || $ptmdQueryRes->num_rows == 0){
+		return $rows;
+	}
+	while($row = $ptmdQueryRes->fetch_assoc()){
+		$rows[] = $row;
+	}
+	return $rows;
+}
+
+function displayPTMD($ptmdRows){
+	if(!is_array($ptmdRows) || count($ptmdRows) === 0){
+		return '-';
+	}
+	$returnPTMDInfos = "<div class='detail-table-scroll hide-more'><table class='table table-bordered hide-table'><thead class='thead-dark'><tr><th style='width:20%'>Modification</th><th style='width:12%'>Position</th><th style='width:18%'>Influence</th><th style='width:28%'>Disease</th><th style='width:22%'>Source</th></tr></thead><tbody>";
+	foreach($ptmdRows as $row){
+		$returnPTMDInfos = $returnPTMDInfos."<tr><td>".htmlspecialchars($row['mods'])."</td><td>".htmlspecialchars($row['pos'])."</td><td>".htmlspecialchars($row['influ'])."</td><td>".htmlspecialchars($row['disease'])."</td><td>".formatPtmdSource($row['pmid'])."</td></tr>";
+	}
+	$returnPTMDInfos = $returnPTMDInfos."</tbody></table></div>";
+	return $returnPTMDInfos;
 }
 
 /*------ Display protein sequence------*/
@@ -565,8 +628,11 @@ function displaySequence($sequence){
 			$returnSeqInfos = $returnSeqInfos."<tr>";
 		}
 
-		$seqPos = $seqStart + 1;
-		$returnSeqInfos = $returnSeqInfos."<td><p class='seq-pos'>".$seqPos."</p><p class='seq-pep couriernew'>".substr($sequence, $seqStart, $seqLength)."</p></td>";
+		$chunkLen = min($seqLength, strlen($sequence) - $seqStart);
+		$chunkText = substr($sequence, $seqStart, $chunkLen);
+		$seqPos = $seqStart + $chunkLen;
+		$posLabel = ($seqPos % 10 === 0) ? (string)$seqPos : '&nbsp;';
+		$returnSeqInfos = $returnSeqInfos."<td class='seq-chunk' style='width:".$chunkLen."ch'><p class='seq-pos'>".$posLabel."</p><p class='seq-pep couriernew'>".$chunkText."</p></td>";
 
 		if($rowCount ==$rowNum){
 			$returnSeqInfos = $returnSeqInfos."</tr>";
@@ -878,6 +944,71 @@ function htmlAttr($value){
 	return htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
 }
 
+/*------ Known localization (SwissBioPics) from proinfo Localization ------*/
+function parseLocalizationNames($localization){
+	$localization = trim((string)$localization);
+	if($localization === ''){
+		return array();
+	}
+	$parts = preg_split('/\s*;\s*/', $localization);
+	$names = array();
+	$seen = array();
+	foreach($parts as $part){
+		$name = trim($part);
+		if($name === ''){
+			continue;
+		}
+		$key = strtolower($name);
+		if(isset($seen[$key])){
+			continue;
+		}
+		$seen[$key] = true;
+		$names[] = $name;
+	}
+	return $names;
+}
+
+function buildKnownLocalizationHtml($localization, $taxid, $lineId){
+	$names = parseLocalizationNames($localization);
+	if(count($names) === 0){
+		return '-';
+	}
+	$taxid = preg_replace('/\D+/', '', (string)$taxid);
+	if($taxid === ''){
+		$taxid = '9606';
+	}
+	$locAttr = htmlAttr(implode('; ', $names));
+	return "<div class='known-localization' id='known-loc-".$lineId."' data-locations='".$locAttr."' data-taxid='".htmlAttr($taxid)."' data-rendered='0'>"
+		."<div class='subcellular-known-visual'>"
+		."<div class='cell-figure' aria-label='Subcellular localization map'></div>"
+		."<div class='cell-location-list'></div>"
+		."</div>"
+		."</div>";
+}
+
+function buildProteinStructureHtml($uniprot, $sitePos, $lineId, $hasSequence){
+	if(!$hasSequence){
+		return '-';
+	}
+	$uniprot = trim((string)$uniprot);
+	if($uniprot === ''){
+		return '-';
+	}
+	$sitePos = preg_replace('/\D+/', '', (string)$sitePos);
+	return "<div class='protein-structure-panel' id='protein-structure-".$lineId."' data-uniprot='".htmlAttr($uniprot)."' data-site-pos='".htmlAttr($sitePos)."' data-line='".htmlAttr($lineId)."' data-rendered='0'>"
+		."<div class='protein-structure-viewer-box'>"
+		."<div class='protein-structure-viewer-stage'>"
+		."<div class='structure-box-plot' id='structure-box-plot-".$lineId."'></div>"
+		."<div class='structure-viewer-status' id='structure-viewer-status-".$lineId."' hidden></div>"
+		."</div>"
+		."<div class='protein-pdb-choose'>"
+		."<span class='protein-pdb-label'>Select PDB:</span>"
+		."<select class='protein-pdb-select' id='pdb-select-".$lineId."'></select>"
+		."</div>"
+		."</div>"
+		."</div>";
+}
+
 function displayDash($value){
 	if($value === null){
 		return '-';
@@ -925,29 +1056,23 @@ function addDetailDivInfo($rawdata){
 	$conQueryRes = $db->query("select * from contable where pmid='{$pmid}' and con = '{$con}'");
 	$samQueryRes = $db->query("select * from samtable where sam = '{$sample}'");
 	$expQueryRes = $db->query("select * from exptable where pmid='{$pmid}' and mods = '{$mod}'");
-	$ptmQueryRes = $db->query("select * from ptmtable where up='{$uniprot}' order by pos");
-	$ptmdQueryRes = $db->query("select * from ptmdtable where up='{$uniprot}' and mods = '{$mod}' and pos = '{$psite}'");
+	$uniprotEsc = $db->real_escape_string($uniprot);
+	$ptmdQueryRes = $db->query("select * from ptmdtable where up='{$uniprotEsc}' order by pos, mods, disease");
 	$scoreQueryRes = $db->query("select * from scoretable where scoreid = '".$organism.'#'.$pmid.'#'.$uniprot.'#'.$psite.'#'.$mod."' ");
 
-	if(!isset($ptmQueryRes->num_rows)){
-		$PTMqueryResNum = 0;
-	}
-	else{
-		$PTMqueryResNum = $ptmQueryRes->num_rows;
-	}
+	// Buffer PTMD rows before closing DB (mysqli result is invalid after close)
+	$ptmdRows = fetchPtmdRows($ptmdQueryRes);
+	$PTMDqueryResNum = count($ptmdRows);
 
-	if(!isset($ptmdQueryRes->num_rows)){
-		$PTMDqueryResNum = 0;
-	}
-	else{
-		$PTMDqueryResNum = $ptmdQueryRes->num_rows;
-	}
-
-	$coi = $conQueryRes->fetch_assoc();
-	$sai = $samQueryRes->fetch_assoc();
-	$exi = $expQueryRes->fetch_assoc();
-	$sci = $scoreQueryRes->fetch_assoc();
+	$coi = ($conQueryRes && $conQueryRes->num_rows) ? $conQueryRes->fetch_assoc() : null;
+	$sai = ($samQueryRes && $samQueryRes->num_rows) ? $samQueryRes->fetch_assoc() : null;
+	$exi = ($expQueryRes && $expQueryRes->num_rows) ? $expQueryRes->fetch_assoc() : null;
+	$sci = ($scoreQueryRes && $scoreQueryRes->num_rows) ? $scoreQueryRes->fetch_assoc() : null;
 	$db->close();
+
+	if(!is_array($coi)){ $coi = array('condetail' => '-'); }
+	if(!is_array($sai)){ $sai = array('sampleurl' => '', 'samtype' => ''); }
+	if(!is_array($exi)){ $exi = array('tit' => '-', 'labelmethod' => '-', 'enrichmethod' => '-', 'msmethod' => '-'); }
 
 	$probDisplay = displayDash($sci ? str_replace('#', ': ', $sci['prob']) : '');
 	$ispspDisplay = displayDash($sci ? $sci['ispsp'] : '');
@@ -967,10 +1092,12 @@ function addDetailDivInfo($rawdata){
 	if(!isset($upi['PTM_qPTM']) || $upi['PTM_qPTM'] === ''){
 		$upi['PTM_qPTM'] = buildQptmPtminfo($uniprot);
 	}
+	$ptmRows = parsePtmsOtherResource(isset($upi['PTMs_other_resource']) ? $upi['PTMs_other_resource'] : '');
+	$PTMqueryResNum = count($ptmRows);
 	$hasStructureData = isset($upi['Sequence']) && $upi['Sequence'] !== '';
 
 //Detail information about experiment
-	$buttonGroup = "<div class='detail-tabs' role='tablist'><button type='button' class='detail-tab active' role='tab' id='exp-".$line."'>About experiment</button><button type='button' class='detail-tab' role='tab' id='pro-".$line."'>About protein</button>";
+	$buttonGroup = "<div class='detail-tabs' role='tablist'><button type='button' class='detail-tab active' role='tab' id='exp-".$line."'>Experiment information</button><button type='button' class='detail-tab' role='tab' id='pro-".$line."'>Protein information</button>";
 	
 	if($mod == 'Phosphorylation'){
 		$buttonGroup = $buttonGroup."<button type='button' class='detail-tab' role='tab' id='enz-".$line."'>Potential kinases and their inhibitors</button>";
@@ -978,13 +1105,13 @@ function addDetailDivInfo($rawdata){
 	elseif($mod == 'Acetylation'){
 		$buttonGroup = $buttonGroup."<button type='button' class='detail-tab' role='tab' id='enz-".$line."'>Potential HATs/HDACs and their inhibitors</button>";
 	}
-	$buttonGroup = $buttonGroup."<button type='button' class='detail-tab show-str' role='tab' id='str-".$line."'>Sequence and Structure</button></div>";
+	$buttonGroup = $buttonGroup."<button type='button' class='detail-tab show-str' role='tab' id='str-".$line."'>Protein properties</button></div>";
 
 	$divGroup = "<div class='more-info detail-section' id='div-exp-".$line."'>
 		<table class='detail-table'>
 		<tbody>
 			<tr><td>Resource</td><td colspan='6'>".$exi['tit']." (PMID: <a href='https://pubmed.ncbi.nlm.nih.gov/".$pmid."/' target='_blank' rel='noopener'>".$pmid."</a>)"."</td></tr>
-			<tr><td>Condition detail</td><td colspan='6'>".$coi['condetail']."</td></tr>
+			<tr><td>Detail condition</td><td colspan='6'>".$coi['condetail']."</td></tr>
 			".($timetype=='0'?'':"<tr><td>Time course change</td><td colspan='6'><span style='display:none' id='timeCourseData-".$line."'>".showTimeCourse($uniprot,$psite,$mod,$pmid,$timefile,$timetype,$con)."</span><div class='timeCourseShow detail-chart' id='timeCourseShow-".$line."'></div></td></tr>")."
 			<tr><td>Sample (type)</td><td colspan='6'>".sample2link($sample,$sai['sampleurl']).($sai['samtype']==''?'':" (".$sai['samtype'].")")."</td></tr>
 			<tr><td>Label method</td><td colspan='6'>".$exi['labelmethod']."</td></tr>
@@ -1004,16 +1131,15 @@ function addDetailDivInfo($rawdata){
 		<table class='detail-table detail-table-actions'>
 		<tbody>
 			<tr><td>Uniprot accession</td><td>".($upi['UniProtID'] == ''?"-":ID2links('http://www.uniprot.org/uniprot/', explode(',', $upi['UniProtID'])))."</td><td class='detail-action'></td></tr>
-			<tr><td>Entrez ID</td><td>".($upi['EntrezID'] == ''?"-":ID2links('http://www.ncbi.nlm.nih.gov/gene/', explode(',', $upi['EntrezID'])))."</td><td class='detail-action'></td></tr>
-			<tr><td>Genbank protein ID</td><td>".($upi['GenbankProteinID'] ==''?"-":ID2links('http://www.ncbi.nlm.nih.gov/protein/', explode(',', $upi['GenbankProteinID'])))."</td><td class='detail-action'></td></tr>
-			<tr><td>Genbank nucleotide ID</td><td>".($upi['GenbankNucleotideID'] == ''?"-":ID2links('http://www.ncbi.nlm.nih.gov/protein/', explode(',', $upi['GenbankNucleotideID'])))."</td><td class='detail-action'></td></tr>
 			<tr><td>Protein name</td><td>".str_replace(',',', ',$upi['ProteinName'])."</td><td class='detail-action'></td></tr>
 			<tr><td>Gene name</td><td>".($upi['GeneName'] == ''?"-" : str_replace(',',', ',$upi['GeneName']))."</td><td class='detail-action'></td></tr>
 			<tr><td>Organism</td><td><em>".$upi['Organism']."</em> NCBI Taxa ID=".ID2links('http://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?lvl=0&id=', array($upi['Taxonomy']))."</td><td class='detail-action'></td></tr>
-			<tr><td>Functional description</td><td class='detail-rich'><span class='hide-text text-less'>".($upi['Function'] == ''?"-":displayFuncDes($upi['Function']))."</span></td><td class='detail-action'><button type='button' class='detail-expand-btn show-text' aria-label='Expand text'><i class='ri-arrow-down-circle-fill'></i></button></td></tr>
-			<tr><td>PTMs for protein<br><span class='detail-count'>(Count: ".$PTMqueryResNum.")</span></td><td class='detail-rich'>".displayPTM($ptmQueryRes)."</td><td class='detail-action'><button type='button' class='detail-expand-btn show-table' aria-label='Expand table'><i class='ri-arrow-down-circle-fill'></i></button></td></tr>
-			<tr><td>PTMDs for site<br><span class='detail-count'>(Count: ".$PTMDqueryResNum.")</span></td><td class='detail-rich'>".displayPTMD($ptmdQueryRes)."</td><td class='detail-action'><button type='button' class='detail-expand-btn show-table' aria-label='Expand table'><i class='ri-arrow-down-circle-fill'></i></button></td></tr>
-			<tr><td>Sequence<br><span class='detail-count'>(Length: ".strlen($upi['Sequence']).")</span></td><td class='detail-rich'>".($upi['Sequence'] == ''?"-":displaySequence($upi['Sequence']))."</td><td class='detail-action'><button type='button' class='detail-expand-btn show-table' aria-label='Expand table'><i class='ri-arrow-down-circle-fill'></i></button></td></tr>
+			<tr><td>Function</td><td class='detail-rich'><span class='hide-text text-less'>".($upi['Function'] == ''?"-":displayFuncDes($upi['Function']))."</span></td><td class='detail-action'><button type='button' class='detail-toggle show-text' aria-label='Expand text'><i class='ri-add-circle-fill'></i></button></td></tr>
+			<tr class='known-localization-row'><td>Subcellular localization</td><td class='detail-rich detail-localization'>".buildKnownLocalizationHtml(isset($upi['Localization']) ? $upi['Localization'] : (isset($upi['Subcellular Location']) ? $upi['Subcellular Location'] : ''), isset($upi['Taxonomy']) ? $upi['Taxonomy'] : '9606', $line)."</td><td class='detail-action'></td></tr>
+			<tr><td>PTMs for protein<br><span class='detail-count'>(Count: ".$PTMqueryResNum.")</span></td><td class='detail-rich'>".displayPTM($ptmRows)."</td><td class='detail-action'><button type='button' class='detail-toggle show-table' aria-label='Expand table'><i class='ri-add-circle-fill'></i></button></td></tr>
+			<tr><td>PTMDs for protein<br><span class='detail-count'>(Count: ".$PTMDqueryResNum.")</span></td><td class='detail-rich'>".displayPTMD($ptmdRows)."</td><td class='detail-action'><button type='button' class='detail-toggle show-table' aria-label='Expand table'><i class='ri-add-circle-fill'></i></button></td></tr>
+			<tr><td>Sequence<br><span class='detail-count'>(Length: ".strlen($upi['Sequence']).")</span></td><td class='detail-rich'>".($upi['Sequence'] == ''?"-":displaySequence($upi['Sequence']))."</td><td class='detail-action'><button type='button' class='detail-toggle show-table' aria-label='Expand table'><i class='ri-add-circle-fill'></i></button></td></tr>
+			<tr class='protein-structure-row'><td>3D structure</td><td class='detail-rich detail-structure'>".buildProteinStructureHtml($uniprot, $psite, $line, $hasStructureData)."</td><td class='detail-action'></td></tr>
 		</tbody>
 		</table>
 	</div>";
@@ -1041,9 +1167,9 @@ function addDetailDivInfo($rawdata){
 		$divGroup = $divGroup."<div class='more-info detail-section' id='div-enz-".$line."' style='display:none'>
 		<table class='detail-table detail-table-actions'>
 		<tbody>
-			<tr><td>Exp.</td><td class='detail-rich'>".($enzi['exp']==''?'-':displayEnzyme($enzi['exp'],'Kinase'))."</td><td class='detail-action'><button type='button' class='detail-expand-btn show-table' aria-label='Expand table'><i class='ri-arrow-down-circle-fill'></i></button></td></tr>
-			<tr><td>GPS</td><td class='detail-rich'>".($enzi['gps']==''?'-':displayEnzyme($enzi['gps'],'Kinase'))."</td><td class='detail-action'><button type='button' class='detail-expand-btn show-table' aria-label='Expand table'><i class='ri-arrow-down-circle-fill'></i></button></td></tr>
-			<tr><td>iGPS</td><td class='detail-rich'>".($enzi['igps']==''?'-':displayEnzyme($enzi['igps'],'Kinase'))."</td><td class='detail-action'><button type='button' class='detail-expand-btn show-table' aria-label='Expand table'><i class='ri-arrow-down-circle-fill'></i></button></td></tr>
+			<tr><td>Exp.</td><td class='detail-rich'>".($enzi['exp']==''?'-':displayEnzyme($enzi['exp'],'Kinase'))."</td><td class='detail-action'><button type='button' class='detail-toggle show-table' aria-label='Expand table'><i class='ri-add-circle-fill'></i></button></td></tr>
+			<tr><td>GPS</td><td class='detail-rich'>".($enzi['gps']==''?'-':displayEnzyme($enzi['gps'],'Kinase'))."</td><td class='detail-action'><button type='button' class='detail-toggle show-table' aria-label='Expand table'><i class='ri-add-circle-fill'></i></button></td></tr>
+			<tr><td>iGPS</td><td class='detail-rich'>".($enzi['igps']==''?'-':displayEnzyme($enzi['igps'],'Kinase'))."</td><td class='detail-action'><button type='button' class='detail-toggle show-table' aria-label='Expand table'><i class='ri-add-circle-fill'></i></button></td></tr>
 		</tbody>
 		</table>
 	</div>";
@@ -1069,8 +1195,8 @@ function addDetailDivInfo($rawdata){
 		$divGroup = $divGroup."<div class='more-info detail-section' id='div-enz-".$line."' style='display:none'>
 		<table class='detail-table detail-table-actions'>
 		<tbody>
-			<tr><td>Exp.</td><td class='detail-rich'>".($enzi['exp']==''?'-':displayEnzyme($enzi['exp'],'HATs/HDACs'))."</td><td class='detail-action'><button type='button' class='detail-expand-btn show-table' aria-label='Expand table'><i class='ri-arrow-down-circle-fill'></i></button></td></tr>
-			<tr><td>Deep-PLA</td><td class='detail-rich'>".($enzi['pla']==''?'-':displayEnzyme($enzi['pla'],'HATs/HDACs'))."</td><td class='detail-action'><button type='button' class='detail-expand-btn show-table' aria-label='Expand table'><i class='ri-arrow-down-circle-fill'></i></button></td></tr>
+			<tr><td>Exp.</td><td class='detail-rich'>".($enzi['exp']==''?'-':displayEnzyme($enzi['exp'],'HATs/HDACs'))."</td><td class='detail-action'><button type='button' class='detail-toggle show-table' aria-label='Expand table'><i class='ri-add-circle-fill'></i></button></td></tr>
+			<tr><td>Deep-PLA</td><td class='detail-rich'>".($enzi['pla']==''?'-':displayEnzyme($enzi['pla'],'HATs/HDACs'))."</td><td class='detail-action'><button type='button' class='detail-toggle show-table' aria-label='Expand table'><i class='ri-add-circle-fill'></i></button></td></tr>
 		</tbody>
 		</table>
 	</div>";
@@ -1116,7 +1242,7 @@ function addDetailDivInfo($rawdata){
 		</div>
 	</div>";
 
-	return "<div class='detail-panel'>".$buttonGroup.$divGroup."</div>";
+	return "<div class='detail-wrap'>".$buttonGroup."<div class='detail-panel'><span class='detail-panel-caret' aria-hidden='true'></span>".$divGroup."</div></div>";
 }
 
 /*------ Browse table show ------*/

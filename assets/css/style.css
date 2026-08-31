@@ -1288,55 +1288,87 @@ select.form-control { cursor: pointer; }
   padding: 0;
 }
 
+.detail-wrap {
+  margin: 12px 15px 18px;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
 .detail-panel {
+  position: relative;
   background: var(--bg-white);
   border: none;
   border-radius: 8px;
-  margin: 15px;
-  overflow: hidden;
+  margin: 0;
+  overflow: visible;
   border: 1px solid var(--border);
   max-width: 100%;
   box-sizing: border-box;
 }
 
-/* Tab bar */
+/* Speech-bubble caret pointing to the active module tab */
+.detail-panel-caret {
+  position: absolute;
+  top: -8px;
+  left: 24px;
+  width: 14px;
+  height: 14px;
+  background: var(--bg-white);
+  border-left: 1px solid var(--border);
+  border-top: 1px solid var(--border);
+  transform: translateX(-50%) rotate(45deg);
+  z-index: 1;
+  pointer-events: none;
+  transition: left 0.18s ease;
+}
+
+/* Tab bar — outside detail-panel so modules are obviously clickable */
 .detail-tabs {
+  position: relative;
+  z-index: 3;
   display: flex;
   flex-wrap: wrap;
-  gap: 20px;
-  margin: 15px 20px 0 20px;
-  padding-bottom: 15px;
+  gap: 10px;
+  margin: 0 0 10px 0;
+  padding: 0;
   background: transparent;
-  border-bottom: 1px solid rgba(212, 225, 245, 0.85);
+  border-bottom: none;
 }
 .detail-tab {
+  position: relative;
+  z-index: 3;
   flex: 1 1 150px;
-  padding: 10px 10px;
+  padding: 11px 12px;
   border: 1px solid var(--primary-medium);
-  border-radius: 6px;
-  background: var(--primary-light);
-  color: var(--text-light);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--primary-dark);
   font-size: var(--font-size-sm);
   font-weight: 600;
   line-height: 1.35;
   text-align: center;
   cursor: pointer;
+  box-shadow: 0 1px 2px rgba(14, 116, 211, 0.06);
   transition: background 0.15s, color 0.15s, border-color 0.15s, box-shadow 0.15s;
 }
 .detail-tab:hover {
-  background: var(--border-dark);
+  background: var(--primary-light);
   color: var(--primary);
+  border-color: var(--primary);
+  box-shadow: 0 2px 8px rgba(14, 116, 211, 0.12);
 }
 .detail-tab.active {
   background: var(--primary);
-  border-color: var(--border);
+  border-color: var(--primary);
   color: var(--bg-white);
-  box-shadow: 0 2px 8px rgba(14, 116, 211, 0.12);
+  box-shadow: 0 2px 8px rgba(14, 116, 211, 0.18);
 }
 
 /* Section card */
 .detail-panel .detail-section {
   animation: detailFadeIn 0.22s ease;
+  overflow: hidden;
+  border-radius: 8px;
 }
 @keyframes detailFadeIn {
   from { opacity: 0; transform: translateY(6px); }
@@ -1407,6 +1439,9 @@ select.form-control { cursor: pointer; }
   align-self: flex-start;
   background: transparent !important;
   border: none !important;
+}
+.detail-table.detail-table-actions .detail-action .detail-toggle {
+  flex-shrink: 0;
 }
 .detail-table.detail-table-actions .detail-action:empty {
   display: none;
@@ -1637,10 +1672,17 @@ select.form-control { cursor: pointer; }
 .detail-panel .table-borderless.hide-table {
   border: none;
 }
-.detail-panel .seq-table {
-  table-layout: auto;
-  width: auto;
-  max-width: 100%;
+.detail-panel .seq-table,
+.detail-panel .hide-table.seq-table,
+.detail-panel .hide-table.seq-table:not(.hide-more) {
+  table-layout: auto !important;
+  width: max-content !important;
+  max-width: none;
+  margin: 0 !important;
+  border: none !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  overflow: visible !important;
 }
 .detail-panel .seq-table.hide-more tbody tr:nth-child(n+2) {
   display: none;
@@ -1649,26 +1691,54 @@ select.form-control { cursor: pointer; }
   display: table !important;
 }
 .detail-panel .seq-table thead th {
-  padding: 0 6px;
-  border: none;
-  background: transparent;
-  font-weight: 400;
-  white-space: nowrap;
-}
-.detail-panel .seq-table td {
+  padding: 0 6px !important;
   border: none !important;
   background: transparent !important;
-  padding: 4px 6px !important;
+  font-weight: 400;
   white-space: nowrap;
+  color: inherit;
+}
+.detail-panel .seq-table td,
+.detail-panel .hide-table.seq-table tbody td {
+  display: table-cell !important;
+  border: none !important;
+  background: transparent !important;
+  padding: 4px 3px !important;
+  white-space: nowrap;
+  word-break: normal;
+  vertical-align: top;
+}
+.detail-panel .seq-table td.seq-chunk {
+  vertical-align: top;
+  min-width: 0;
+  box-sizing: content-box;
 }
 .detail-panel .seq-pos {
+  display: block;
+  width: 100%;
   font-size: 10px;
+  font-family: var(--font-mono);
   color: var(--text-muted);
-  margin-bottom: 2px;
+  margin: 0 0 2px 0;
+  text-align: right;
+  line-height: 1.2;
+  min-height: 1.2em;
+  /* Nudge left so the label sits over the last residue, not past it */
+  padding-right: 1.45ch;
+  box-sizing: border-box;
 }
 .detail-panel .seq-pep {
+  display: block;
+  width: 100%;
   font-family: var(--font-mono);
   font-size: 12px;
+  letter-spacing: 0;
+  line-height: 1.3;
+  text-align: left;
+}
+.detail-table .detail-rich:has(.seq-table) {
+  overflow-x: auto;
+  max-width: 100%;
 }
 
 /* Charts */
@@ -1696,7 +1766,7 @@ select.form-control { cursor: pointer; }
   height: 40px;
 }
 .detail-panel .viewer .ptmshow {
-  height: 100px;
+  height: 150px;
 }
 .detail-panel .viewer .disordershow,
 .detail-panel .viewer .exposeshow,
@@ -2451,4 +2521,197 @@ body.adv-search-open {
   white-space: pre;
   overflow-wrap: normal;
   word-break: normal;
+}
+
+/*-- Subcellular localization (SwissBioPics) --*/
+sib-swissbiopics-sl {
+  width: 100% !important;
+  height: auto !important;
+  max-width: 280px;
+  display: block;
+}
+.detail-table > tbody > tr.known-localization-row > td.detail-localization {
+  padding-top: 10px;
+  padding-bottom: 10px;
+  vertical-align: top;
+}
+.known-localization {
+  width: 100%;
+  max-width: 540px;
+}
+.subcellular-known-visual {
+  display: flex;
+  flex-direction: row;
+  gap: 12px;
+  align-items: flex-start;
+  width: 100%;
+  max-width: 540px;
+}
+.subcellular-known-visual .cell-figure {
+  flex: 0 0 280px;
+  width: 280px;
+  min-width: 0;
+  max-width: 280px;
+  margin: 0;
+}
+.subcellular-known-visual .cell-location-list {
+  flex: 1 1 auto;
+  min-width: 100px;
+  max-width: none;
+  padding-top: 2px;
+}
+.cell-location-list .location-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  line-height: 1.6;
+  padding: 3px 0;
+  color: var(--text);
+}
+.cell-location-list .location-item:hover .location-item-label {
+  color: var(--primary);
+}
+.cell-location-list .location-item-icon {
+  display: inline-flex;
+  color: var(--primary);
+  flex: 0 0 auto;
+}
+.cell-location-list .location-item-label {
+  font-size: var(--font-size-sm);
+  color: var(--text);
+  line-height: 1.55;
+}
+.known-localization-empty {
+  color: var(--text-light);
+}
+@media (max-width: 768px) {
+  .subcellular-known-visual {
+    flex-direction: column;
+    max-width: 320px;
+  }
+  .subcellular-known-visual .cell-figure {
+    flex: none;
+    width: 260px;
+    max-width: 260px;
+  }
+  .subcellular-known-visual .cell-location-list {
+    flex: none;
+    width: 100%;
+    max-width: 100%;
+  }
+}
+
+/*-- 3D protein structure (PDBe Molstar) --*/
+.detail-table > tbody > tr.protein-structure-row > td.detail-structure {
+  padding-top: 10px;
+  padding-bottom: 10px;
+  vertical-align: top;
+}
+.detail-panel .protein-structure-panel {
+  width: 100%;
+  max-width: 640px;
+}
+.detail-panel .protein-structure-viewer-box {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 320px;
+  border: 1px solid var(--primary-medium);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--primary-light);
+}
+.detail-panel .protein-structure-viewer-stage {
+  position: relative;
+  flex: 1 1 auto;
+  width: 100%;
+  height: 320px;
+  min-height: 320px;
+}
+.detail-panel .structure-box-plot {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+}
+.detail-panel .structure-viewer-status {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--primary-light);
+  pointer-events: auto;
+}
+.detail-panel .structure-viewer-status[hidden] {
+  display: none !important;
+  pointer-events: none;
+}
+.detail-panel .structure-viewer-error,
+.detail-panel .structure-viewer-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  height: 100%;
+  padding: 24px;
+  color: var(--text-light);
+  font-size: var(--font-size-sm);
+  font-style: italic;
+  text-align: center;
+}
+.detail-panel .structure-viewer-loading {
+  font-style: normal;
+}
+.detail-panel .structure-viewer-error i {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+.detail-panel .structure-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--primary-medium);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: structure-spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes structure-spin {
+  to { transform: rotate(360deg); }
+}
+.detail-panel .protein-pdb-choose {
+  position: relative;
+  align-self: flex-end;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 12px 12px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(14, 35, 60, 0.78);
+  color: #fff;
+  font-size: var(--font-size-sm);
+  z-index: 10;
+}
+.detail-panel .protein-pdb-select {
+  min-width: 110px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.95);
+  color: var(--text);
+  font-size: var(--font-size-sm);
+  padding: 2px 8px;
+  cursor: pointer;
+}
+.detail-panel .protein-pdb-label {
+  white-space: nowrap;
+}
+@media (max-width: 768px) {
+  .detail-panel .protein-structure-viewer-stage {
+    min-height: 260px;
+    height: 260px;
+  }
 }

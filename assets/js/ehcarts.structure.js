@@ -8,7 +8,7 @@ function listLength(sequence){
 }
 
 function showPTM(sequence,ptminfo){
-  var mod_color ={'Hydroxyisobutyrylation':'#fda7ec','Acetylation':'#8fc3fb','Butyrylation':'#38e04d','Crotonylation':'#58a9f0','Methylation':'#f9c3c5','Phosphorylation':'#f0b952','Succinylation':'#d2a871','SUMOylation':'#d5d953','Ubiquitination':'#86d986','Ubiquitylation':'#86d986','Glycosylation':'#74d6ec'};
+  var mod_color ={'β-Hydroxybutyrylation':'#fda7ec','Acetylation':'#8fc3fb','Malonylation':'#38e04d','Crotonylation':'#58a9f0','Methylation':'#f9c3c5','Phosphorylation':'#f0b952','Succinylation':'#d2a871','SUMOylation':'#d5d953','Ubiquitination':'#86d986','Ubiquitylation':'#86d986','Glycosylation':'#74d6ec'};
   var PTMreturn = [];
   var singlePTMs = ptminfo.split(';');
   for(var i=0;i<singlePTMs.length;i++){
@@ -161,8 +161,9 @@ function compactTitle(text){
     top: 10,
     left: 40,
     textStyle: {
-      color: '#1a2330',
-      fontSize: 14
+      color: '#0d57d6',
+      fontSize: 14,
+      fontWeight: 600
     }
   };
 }
@@ -174,7 +175,24 @@ function compactLegend(data){
     right: 50,
     textStyle: {
       color: '#90979c',
-      fontSize: 12
+      fontSize: 14
+    }
+  };
+}
+
+function ptmLegend(data){
+  return {
+    data: data || [],
+    top: 10,
+    right: 50,
+    itemWidth: 12,
+    itemHeight: 12,
+    itemGap: 10,
+    padding: 0,
+    textStyle: {
+      color: '#90979c',
+      fontSize: 14,
+      lineHeight: 14
     }
   };
 }
@@ -189,12 +207,16 @@ function compactGrid(){
   };
 }
 
-function ptmGrid(){
+function ptmGrid(legendCount){
+  var rows = 1;
+  if (legendCount && legendCount > 5) {
+    rows = Math.ceil(legendCount / 5);
+  }
   return {
     left: 50,
     right: 50,
-    bottom: 18,
-    top: 40,
+    bottom: 20,
+    top: 40 + Math.max(0, rows - 1) * 18,
     containLabel: false
   };
 }
@@ -461,6 +483,7 @@ function get_mordetail(line){
   if (!ptminfo) {
     $('#ptmshow-'+line).html('<div class="structure-empty">No PTM annotation available.</div>');
   } else {
+  var ptmLegends = showLegand(ptminfo);
   var option0 = {
     title: compactTitle('PTMs'),
     tooltip : {
@@ -476,8 +499,8 @@ function get_mordetail(line){
           return tipinfo;
         }
     },
-    legend: compactLegend(showLegand(ptminfo)),
-    grid: ptmGrid(),
+    legend: ptmLegend(ptmLegends),
+    grid: ptmGrid(ptmLegends.length),
     xAxis : [
         {
           type : 'category',

@@ -100,10 +100,27 @@
   <div id="site-footer"></div>
 
   <a href="#" class="back-to-top"><i class="ri-arrow-up-line"></i></a>
+  <template id="sibSwissBioPicsStyle">
+    <style>
+      text.subcell_description, text.subcell_name { display: none !important; visibility: hidden !important; opacity: 0 !important; }
+      svg text[property="description"], svg text[property="name"] { display: none !important; visibility: hidden !important; opacity: 0 !important; }
+    </style>
+  </template>
+  <template id="sibSwissBioPicsSlLiItem">
+    <li class="subcellular_location" style="display:none;width:0;height:0;padding:0;margin:0;border:0;">
+      <a class="subcell_name" style="display:none;width:0;height:0;padding:0;margin:0;border:0;"></a>
+      <span class="subcell_description" style="display:none;width:0;height:0;padding:0;margin:0;border:0;"></span>
+    </li>
+  </template>
+
   <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script type="module" src="https://www.swissbiopics.org/static/swissbiopics.js"></script>
   <script src="assets/js/echarts.min.js"></script>
   <script src="assets/js/ehcarts.structure.js"></script>
+  <script src="assets/js/swissbiopics-sls-map.js"></script>
+  <script src="assets/js/swissbiopics-loc.js"></script>
+  <script src="assets/js/protein-structure.js"></script>
   <script src="assets/js/result.js"></script>
 </body>
 </html>
