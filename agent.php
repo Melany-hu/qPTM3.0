@@ -18,7 +18,7 @@ if ($envUrl) {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>qPTM | Agent</title>
 <script src="assets/js/include.js"></script>
-<link rel="stylesheet" href="assets/css/agent.css?v=20260830-mech-lit">
+<link rel="stylesheet" href="assets/css/agent.css?v=20260831-ts-agent">
 
 </head>
 <body class="agent-page">
@@ -59,7 +59,7 @@ if ($envUrl) {
               <img class="welcome-logo" src="assets/img/logo.png" alt="qPTM">
               <div class="welcome-badge"><i class="ri-chat-smile-2-line"></i> AI-Powered PTM Explorer</div>
             </div>
-            <p class="welcome-tagline">Ask about PTM sites — quantitative data, regulators, context, and literature — with evidence from qPTM and integrated databases.</p>
+            <p class="welcome-tagline">生物学问答助手 — 翻译后修饰、激酶底物、定量数据与文献。点击 <strong>Deep Research</strong> 进行深度调研。</p>
           </div>
           <div class="example-cards">
             <button type="button" class="example-card" onclick="sendExample('Which kinases phosphorylate AKT1 S473?')">
@@ -76,6 +76,11 @@ if ($envUrl) {
               <i class="ri-heart-pulse-line"></i>
               <span class="example-card-title">Function &amp; disease</span>
               <span class="example-card-desc">STAT3 Y705 in cancer signaling</span>
+            </button>
+            <button type="button" class="example-card" onclick="sendExample('Comprehensive deep research on TP53 S15 phosphorylation', 'deep_research')">
+              <i class="ri-telescope-line"></i>
+              <span class="example-card-title">Deep Research</span>
+              <span class="example-card-desc">Full investigation on TP53 S15</span>
             </button>
             <button type="button" class="example-card" onclick="sendExample('Collect quantitative PTM data from PMID 39732660')">
               <i class="ri-file-paper-2-line"></i>
@@ -99,6 +104,10 @@ if ($envUrl) {
           <button class="attach-btn" type="button" id="attachBtn" title="Attach PDF/XML or supplementary tables" onclick="document.getElementById('fileInput').click()">
             <i class="ri-attachment-2"></i>
           </button>
+          <button class="dr-toggle-btn" type="button" id="deepResearchBtn" title="Deep Research — comprehensive PTM investigation" aria-pressed="false">
+            <i class="ri-telescope-line"></i>
+            <span class="dr-toggle-label">Deep Research</span>
+          </button>
           <button class="send-btn" id="sendBtn" onclick="sendMessage()">
             <i class="ri-send-plane-fill"></i>
           </button>
@@ -120,8 +129,8 @@ if ($envUrl) {
       <div class="workflow-sidebar-body" id="workflowSidebarBody">
         <div class="workflow-sidebar-empty">
           <i class="ri-git-branch-line"></i>
-          <p>多 Agent 工作流将在此展示调度与数据流动。</p>
-          <p class="workflow-sidebar-empty-hint">发起研究类问题后，点击消息中的「Agent Studio」或顶部按钮可打开本面板。</p>
+          <p>单 Agent 调研活动将在此展示（计划、工具调用、文献检索）。</p>
+          <p class="workflow-sidebar-empty-hint">发起问题后，点击消息中的「Agent Studio」或顶部按钮可打开本面板。</p>
         </div>
       </div>
     </aside>
@@ -152,6 +161,6 @@ window.QPTM_AGENT_CONFIG = {
   chatUrl: <?php echo json_encode($BACKEND_URL, JSON_UNESCAPED_SLASHES); ?>
 };
 </script>
-<script src="assets/js/agent.js?v=20260830-mech-lit"></script>
+<script src="assets/js/agent.js?v=20260831-ts-agent"></script>
 </body>
 </html>

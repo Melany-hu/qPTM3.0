@@ -24,7 +24,7 @@ license: See https://gps.biocuckoo.cn
 notes: >
   Source dump: GPS_Human.csv (organism, UniProt, position, residue, GPS, GPS_Score).
   Expanded to one kinase–site row per prediction in tables/predictions.tsv.
-  Evidence level: experimental.
+  Evidence level: Predicted.
   Build: `python -m app.sources.build_index gps6`
 
 tools:

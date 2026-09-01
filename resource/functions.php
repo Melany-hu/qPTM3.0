@@ -1,6 +1,6 @@
 <?php
 /**
- * @author Qingfeng Zhang
+ * @author Jiamin Hu
  * @version 1.0
  **/
 
@@ -1103,7 +1103,7 @@ function addDetailDivInfo($rawdata){
 		$buttonGroup = $buttonGroup."<button type='button' class='detail-tab' role='tab' id='enz-".$line."'>Potential kinases and their inhibitors</button>";
 	}
 	elseif($mod == 'Acetylation'){
-		$buttonGroup = $buttonGroup."<button type='button' class='detail-tab' role='tab' id='enz-".$line."'>Potential HATs/HDACs and their inhibitors</button>";
+		$buttonGroup = $buttonGroup."<button type='button' class='detail-tab' role='tab' id='enz-".$line."'>Acetylation regulators and inhibitors</button>";
 	}
 	$buttonGroup = $buttonGroup."<button type='button' class='detail-tab show-str' role='tab' id='str-".$line."'>Protein properties</button></div>";
 

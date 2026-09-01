@@ -1,0 +1,7 @@
+import { InvestigationMemory } from "../context/memory.js";
+import { ArtifactStore } from "../context/artifacts.js";
+export interface FollowUpQuestion {
+    text: string;
+    intent: "qa" | "deep_research";
+}
+export declare function generateFollowUps(question: string, answer: string, memory: InvestigationMemory, artifacts: ArtifactStore, mode: "qa" | "deep_research", toolsUsed: string[]): Promise<FollowUpQuestion[]>;

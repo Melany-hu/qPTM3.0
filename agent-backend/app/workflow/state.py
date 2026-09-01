@@ -71,12 +71,8 @@ class ConversationState:
     current_step_index: int = 0
     plan_entities: dict[str, Any] = field(default_factory=dict)
 
-    # ReAct agent session memory
+    # Investigation memory (entity tracking across tool calls)
     investigation_memory: Any | None = None
-    evidence_graph: Any | None = None
-
-    # Pending interactive clarification (original question before user fills modal)
-    pending_clarification: dict[str, Any] | None = None
 
     def get_memory(self):
         """Per-session investigation memory for ReAct."""
@@ -89,12 +85,6 @@ class ConversationState:
                 ptm_type=self.target_ptm_type or "phosphorylation",
             )
         return self.investigation_memory
-
-    def get_evidence_graph(self):
-        from app.agent.evidence_graph import PTMEvidenceGraph
-        if self.evidence_graph is None:
-            self.evidence_graph = PTMEvidenceGraph()
-        return self.evidence_graph
 
     def sync_memory_to_targets(self) -> None:
         mem = self.get_memory()

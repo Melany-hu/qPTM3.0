@@ -1,0 +1,24 @@
+[Unit]
+Description=qPTM Agent Runtime (TypeScript — Q&A + Deep Research)
+After=network.target qptm-agent.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/var/www/html/qPTM2026/agent-runtime
+Environment=NODE_ENV=production
+Environment=PORT=8101
+Environment=PATH=/opt/node22/bin:/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=-/var/www/html/qPTM2026/agent-backend/.env
+EnvironmentFile=-/var/www/html/qPTM2026/agent-runtime/.env
+ExecStart=/opt/node22/bin/node dist/index.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=qptm-agent-runtime
+
+[Install]
+WantedBy=multi-user.target

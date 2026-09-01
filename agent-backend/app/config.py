@@ -120,22 +120,11 @@ class Settings(BaseSettings):
     # LLM stream/response read idle timeout (seconds). Prevents forever "Generating answer..."
     llm_read_timeout_seconds: int = 120
 
-    # Agent orchestration (orchestrator primary; react/planner fallback)
-    agent_mode: str = "orchestrator"  # orchestrator | react | planner
-    use_llm_tool_retriever: bool = True
-    max_tool_rounds: int = 5
-    bfs_round_budget: int = 2
-    evidence_graph_enabled: bool = True
+    # Literature enrichment (used by app.agent.literature for tool evidence)
     literature_enrichment_enabled: bool = True
-    literature_enrichment_mode: str = "auto"  # auto | always | never
     literature_abstract_limit: int = 5
     literature_auto_fetch_api_pmids: bool = True
     literature_max_abstract_chars: int = 2000
-    literature_iterative_max_rounds: int = 3
-    literature_iterative_timeout_s: float = 45.0
-    clarification_enabled: bool = True
-    orchestrator_plan_timeout: int = 30
-    subagent_interpret_enabled: bool = True
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

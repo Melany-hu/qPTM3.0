@@ -1,0 +1,35 @@
+import OpenAI from "openai";
+export type LlmStreamEvent = {
+    type: "text";
+    content: string;
+} | {
+    type: "tool_call";
+    id: string;
+    name: string;
+    arguments: Record<string, unknown>;
+} | {
+    type: "done";
+};
+export declare class LlmClient {
+    private clients;
+    private clientFor;
+    modelChain(): string[];
+    chatCompletion(messages: OpenAI.Chat.ChatCompletionMessageParam[], options?: {
+        tools?: OpenAI.Chat.ChatCompletionTool[];
+        temperature?: number;
+        maxTokens?: number;
+    }): Promise<{
+        content: string;
+        toolCalls: Array<{
+            id: string;
+            name: string;
+            arguments: Record<string, unknown>;
+        }>;
+    }>;
+    chatCompletionStream(messages: OpenAI.Chat.ChatCompletionMessageParam[], options?: {
+        tools?: OpenAI.Chat.ChatCompletionTool[];
+        temperature?: number;
+        maxTokens?: number;
+    }): AsyncGenerator<LlmStreamEvent>;
+}
+export declare function getLlm(): LlmClient;

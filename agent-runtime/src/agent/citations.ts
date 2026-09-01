@@ -1,0 +1,39 @@
+const DB_NAMES: Record<string, string> = {
+  qptm_search: "qPTM",
+  qptm_site_conditions: "qPTM",
+  qptm_kinases: "qPTM",
+  iptmnet_enzymes: "iPTMnet",
+  psp_kinase_substrate: "PhosphoSitePlus",
+  gps6_kinases: "GPS 6.0",
+  pubtator_literature_search: "PubTator3",
+  pubmed_fetch_abstracts: "PubMed",
+};
+
+export interface Citation {
+  id: string;
+  database: string;
+  label: string;
+  url?: string;
+}
+
+export function toolDatabase(tool: string): string {
+  return DB_NAMES[tool] || tool;
+}
+
+export function mergeCitation(
+  citations: Citation[],
+  tool: string,
+  url?: string,
+): Citation[] {
+  const db = toolDatabase(tool);
+  const existing = citations.find((c) => c.database === db);
+  if (existing) return citations;
+  const id = `S${citations.length + 1}`;
+  citations.push({
+    id,
+    database: db,
+    label: db,
+    url: url || undefined,
+  });
+  return citations;
+}

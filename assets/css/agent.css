@@ -1168,6 +1168,39 @@ body.clarify-modal-open {
   gap: 8px;
   padding-top: 2px;
 }
+.dr-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  height: 40px;
+  padding: 0 12px;
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  transition: color 0.2s, border-color 0.2s, background 0.2s;
+}
+.dr-toggle-btn i { font-size: 16px; }
+.dr-toggle-btn:hover {
+  color: var(--primary);
+  border-color: var(--primary);
+}
+.dr-toggle-btn.active {
+  background: rgba(14, 116, 211, 0.12);
+  color: var(--primary);
+  border-color: var(--primary);
+}
+.dr-toggle-label { line-height: 1; }
+.follow-up-item .dr-badge {
+  margin-left: 6px;
+  color: var(--primary);
+  font-size: 14px;
+  vertical-align: middle;
+}
 .send-btn {
   display: inline-flex;
   align-items: center;

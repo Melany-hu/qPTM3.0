@@ -1,0 +1,21 @@
+export declare const cfg: {
+    port: number;
+    host: string;
+    deepseekApiKey: string;
+    deepseekBaseUrl: string;
+    deepseekZenBaseUrl: string;
+    deepseekModel: string;
+    deepseekFallbackModels: string[];
+    conversationsDataDir: string;
+    qptmMcpCommand: string;
+    qptmMcpArgs: string[];
+    qptmMcpCwd: string;
+    biomcpCommand: string;
+    biomcpArgs: string[];
+    tavilyApiKey: string;
+    webSearchTimeoutMs: number;
+    skillsDir: string;
+    qaMaxRounds: number;
+    drMaxPlanSteps: number;
+    corsOrigins: string[];
+};

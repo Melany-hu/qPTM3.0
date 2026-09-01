@@ -1,0 +1,70 @@
+export type AgentEventType =
+  | "text"
+  | "tool_call"
+  | "tool_result"
+  | "phase_update"
+  | "sources"
+  | "follow_up_questions"
+  | "clarification_request"
+  | "plan_created"
+  | "done"
+  | "error"
+  | "literature_search";
+
+export interface AgentEvent {
+  type: AgentEventType | string;
+  [key: string]: unknown;
+}
+
+export function sseFormat(event: string, data: Record<string, unknown>): string {
+  return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+}
+
+export function agentEventToSse(event: AgentEvent): string | null {
+  const t = event.type;
+  if (t.startsWith("_")) return null;
+
+  switch (t) {
+    case "text":
+      return sseFormat("text", { content: event.content || "" });
+    case "tool_call":
+      return sseFormat("tool_call", {
+        tool_name: event.tool_name,
+        arguments: event.arguments || {},
+        kind: event.kind || "database",
+      });
+    case "tool_result":
+      return sseFormat("tool_result", {
+        ...(event.payload as Record<string, unknown>),
+        kind: event.kind || "database",
+      });
+    case "phase_update":
+      return sseFormat("phase_update", {
+        phase: event.phase || "",
+        label: event.label || "",
+      });
+    case "sources":
+      return sseFormat("sources", { citations: event.citations || [] });
+    case "follow_up_questions":
+      return sseFormat("follow_up_questions", { questions: event.questions || [] });
+    case "clarification_request": {
+      const { type: _, ...rest } = event;
+      return sseFormat("clarification_request", rest);
+    }
+    case "plan_created":
+      return sseFormat("plan_created", (event.plan as Record<string, unknown>) || {});
+    case "done":
+      return sseFormat("done", {});
+    case "error":
+      return sseFormat("error", { message: event.message || "Unknown error" });
+    case "literature_search":
+      return sseFormat("literature_search", {
+        round: event.round,
+        query: event.query || "",
+        papers_found: event.papers_found || 0,
+        elapsed_s: event.elapsed_s || 0,
+      });
+    default:
+      return null;
+  }
+}

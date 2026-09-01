@@ -1,0 +1,7 @@
+import { ParsedEntities } from "../context/memory.js";
+export type QueryMode = "greeting" | "help" | "capability" | "off_topic" | "concept" | "research" | "literature" | "pmid_lookup" | "collection" | "compare" | "followup";
+export declare function detectLang(text: string): "zh" | "en";
+export declare function classifyQueryMode(message: string, entities: ParsedEntities): QueryMode;
+export declare function gateReply(mode: QueryMode, lang: "zh" | "en"): string | null;
+export declare function needsLiterature(message: string): boolean;
+export declare function needsWebSearch(message: string): boolean;

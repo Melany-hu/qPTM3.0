@@ -6,6 +6,8 @@ const COLLECTION_URL = CHAT_URL.replace(/\/chat\/?$/, '/collection');
 const CONV_STORAGE_KEY = 'qptm_agent_conversation_id';
 const DEVICE_STORAGE_KEY = 'qptm_agent_device_id';
 const SESSION_STORAGE_PREFIX = 'qptm_agent_session_';
+/** Current chat mode: qa (default) or deep_research */
+let agentChatMode = 'qa';
 
 function sessionStorageKey(conversationId) {
   return conversationId ? `${SESSION_STORAGE_PREFIX}${conversationId}` : null;
@@ -2977,6 +2979,8 @@ async function downloadMessage(btn) {
 
 document.addEventListener('DOMContentLoaded', async () => {
   initWorkflowSidebarUi();
+  const drBtn = document.getElementById('deepResearchBtn');
+  if (drBtn) drBtn.addEventListener('click', toggleDeepResearchMode);
   await loadConversationList();
   if (conversationId && conversationList.some((c) => c.id === conversationId)) {
     await loadConversation(conversationId, { force: true });
@@ -2990,7 +2994,8 @@ chatArea.addEventListener('click', (e) => {
   const btn = e.target.closest('.next-step-chip, .follow-up-item');
   if (!btn || isStreaming) return;
   const q = btn.getAttribute('data-question');
-  if (q) sendExample(q);
+  const intent = btn.getAttribute('data-intent') || 'qa';
+  if (q) sendExample(q, intent);
 });
 
 // ── Scroll-to-bottom button ─────────────────────────────
@@ -3051,9 +3056,23 @@ function handleKey(e) {
   }
 }
 
-function sendExample(text) {
+function sendExample(text, mode = 'qa') {
   inputField.value = text;
+  setAgentChatMode(mode);
   sendMessage();
+}
+
+function setAgentChatMode(mode) {
+  agentChatMode = mode === 'deep_research' ? 'deep_research' : 'qa';
+  const btn = document.getElementById('deepResearchBtn');
+  if (btn) {
+    btn.classList.toggle('active', agentChatMode === 'deep_research');
+    btn.setAttribute('aria-pressed', agentChatMode === 'deep_research' ? 'true' : 'false');
+  }
+}
+
+function toggleDeepResearchMode() {
+  setAgentChatMode(agentChatMode === 'deep_research' ? 'qa' : 'deep_research');
 }
 
 function htmlDecode(text) {
@@ -3150,9 +3169,29 @@ function followUpPanelTitle(lang) {
   return lang === 'zh' ? '后续问题' : 'Follow-up questions';
 }
 
+function normalizeFollowUpItem(item) {
+  if (typeof item === 'string') {
+    return { text: item, intent: 'qa' };
+  }
+  if (item && typeof item === 'object' && item.text) {
+    return {
+      text: String(item.text),
+      intent: item.intent === 'deep_research' ? 'deep_research' : 'qa',
+    };
+  }
+  return null;
+}
+
+function followUpDisplayText(item) {
+  const norm = normalizeFollowUpItem(item);
+  return norm ? norm.text : '';
+}
+
 function createFollowUpPanel(questions, langHint) {
   if (!questions?.length) return null;
-  const lang = langHint || detectLangFromText(questions.join(' '));
+  const normalized = questions.map(normalizeFollowUpItem).filter(Boolean);
+  if (!normalized.length) return null;
+  const lang = langHint || detectLangFromText(normalized.map((q) => q.text).join(' '));
   const panel = document.createElement('div');
   panel.className = 'follow-up-panel';
   panel.innerHTML = `
@@ -3164,12 +3203,16 @@ function createFollowUpPanel(questions, langHint) {
     <div class="follow-up-list"></div>
   `;
   const list = panel.querySelector('.follow-up-list');
-  questions.forEach((q) => {
+  normalized.forEach((q) => {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'follow-up-item';
-    btn.dataset.question = q;
-    btn.innerHTML = `<i class="ri-arrow-right-s-line" aria-hidden="true"></i><span>${escapeHtml(q)}</span>`;
+    btn.dataset.question = q.text;
+    btn.dataset.intent = q.intent;
+    const drIcon = q.intent === 'deep_research'
+      ? '<i class="ri-telescope-line dr-badge" title="Deep Research" aria-hidden="true"></i>'
+      : '';
+    btn.innerHTML = `<i class="ri-arrow-right-s-line" aria-hidden="true"></i><span>${escapeHtml(q.text)}</span>${drIcon}`;
     list.appendChild(btn);
   });
   panel.querySelector('.follow-up-header').addEventListener('click', () => {
@@ -3633,6 +3676,7 @@ const AGENT_LABELS = {
   database: { en: 'Database', zh: '数据库' },
   literature: { en: 'Literature', zh: '文献' },
   writer: { en: 'Writer', zh: '撰写' },
+  research: { en: 'Research Agent', zh: '调研 Agent' },
 };
 
 const AGENT_ICONS = {
@@ -3640,6 +3684,7 @@ const AGENT_ICONS = {
   database: 'ri-database-2-line',
   literature: 'ri-book-open-line',
   writer: 'ri-quill-pen-line',
+  research: 'ri-microscope-line',
 };
 
 function initWorkflowSidebarUi() {
@@ -3976,7 +4021,7 @@ function syncWorkflowSidebar() {
     const zh = workflowLang() === 'zh';
     body.innerHTML = `<div class="workflow-sidebar-empty">
       <i class="ri-git-branch-line"></i>
-      <p>${zh ? '多 Agent 工作流将在此展示调度与数据流动。' : 'Multi-agent workflow and data flow appear here.'}</p>
+      <p>${zh ? '单 Agent 调研活动将在此展示（计划、工具、文献）。' : 'Single-agent research activity (plan, tools, literature) appears here.'}</p>
       <p class="workflow-sidebar-empty-hint">${zh ? '发起研究类问题后，点击消息中的「Agent Studio」打开本面板。' : 'Ask a research question, then click Agent Studio in the message.'}</p>
     </div>`;
     if (titleEl) titleEl.textContent = zh ? 'Agent 工作室' : 'Agent Studio';
@@ -3988,7 +4033,9 @@ function syncWorkflowSidebar() {
 
   const allEvents = currentWorkflowState.events || [];
   const orch = currentWorkflowState.orchestrator;
-  const order = ['database', 'literature', 'writer'];
+  const order = currentWorkflowState.agents.research
+    ? ['research']
+    : ['database', 'literature', 'writer'];
   let pipeline = '';
 
   const orchStatus = orch.status || 'done';
@@ -4094,65 +4141,37 @@ function renderWorkflowPanel() {
   syncWorkflowSidebar();
 }
 
-function handleOrchestratorPlan(data) {
+function handlePlanCreated(data) {
   if (!currentWorkflowState) initWorkflowState();
   currentWorkflowState.orchestrator = {
-    status: 'done',
-    goal: data.user_goal || '',
-    reasoning: data.reasoning || '',
-    tasks: data.tasks || [],
+    status: 'running',
+    goal: data.intent_summary || '',
+    reasoning: '',
+    tasks: (data.steps || []).map((s) => ({
+      agent: 'research',
+      focus: s.title || s.description || '',
+      enabled: true,
+    })),
   };
-  (data.tasks || []).forEach((t) => {
-    if (!t.enabled) return;
-    currentWorkflowState.agents[t.agent] = currentWorkflowState.agents[t.agent] || {
-      status: 'pending', tools: [], focus: t.focus || '',
-    };
-    if (t.focus) currentWorkflowState.agents[t.agent].focus = t.focus;
-  });
-  logWorkflowEvent('plan', data.user_goal || data.reasoning || 'Orchestrator plan', { agent: 'orchestrator' });
-  renderWorkflowPanel();
-}
-
-function handleAgentStarted(data, contentEl) {
-  if (!currentWorkflowState) initWorkflowState();
-  const id = data.agent;
-  if (id === 'orchestrator') {
-    currentWorkflowState.orchestrator.status = 'running';
-  } else {
-    currentWorkflowState.agents[id] = {
-      ...(currentWorkflowState.agents[id] || {}),
-      status: 'running',
-      label: data.label || '',
-      focus: data.focus || '',
-      tools: currentWorkflowState.agents[id]?.tools || [],
-    };
-  }
-  logWorkflowEvent('agent', data.label || `${id} started`, { agent: id });
-  renderWorkflowPanel();
-  if (id === 'writer') return;
-  const target = contentEl || document.querySelector('.msg-content.is-loading');
-  if (target) showContentLoading(target, data.label || 'Working…');
-}
-
-function handleAgentCompleted(data) {
-  if (!currentWorkflowState) return;
-  const id = data.agent;
-  if (currentWorkflowState.agents[id]) {
-    currentWorkflowState.agents[id].status = 'done';
-    currentWorkflowState.agents[id].summary = data.summary || '';
-  }
-  logWorkflowEvent('agent', data.summary || `${id} completed`, { agent: id });
+  currentWorkflowState.agents.research = {
+    status: 'running',
+    focus: data.intent_summary || '',
+    tools: [],
+    label: workflowLang() === 'zh' ? '调研 Agent' : 'Research Agent',
+  };
+  logWorkflowEvent('plan', data.intent_summary || 'Research plan', { agent: 'orchestrator' });
   renderWorkflowPanel();
 }
 
 function handleLiteratureSearch(data) {
   if (!currentWorkflowState) initWorkflowState();
-  currentWorkflowState.agents.literature = {
-    ...(currentWorkflowState.agents.literature || {}),
-    status: currentWorkflowState.agents.literature?.status || 'running',
-    tools: currentWorkflowState.agents.literature?.tools || [],
+  const litAgent = currentWorkflowState.agents.research ? 'research' : 'literature';
+  currentWorkflowState.agents[litAgent] = {
+    ...(currentWorkflowState.agents[litAgent] || {}),
+    status: currentWorkflowState.agents[litAgent]?.status || 'running',
+    tools: currentWorkflowState.agents[litAgent]?.tools || [],
     searchTraces: [
-      ...(currentWorkflowState.agents.literature?.searchTraces || []),
+      ...(currentWorkflowState.agents[litAgent]?.searchTraces || []),
       {
         round: data.round,
         query: data.query,
@@ -4165,30 +4184,14 @@ function handleLiteratureSearch(data) {
   const msg = zh
     ? `检索 ${data.round}: ${data.query} (${data.papers_found} 篇, ${data.elapsed_s}s)`
     : `Search ${data.round}: ${data.query} (${data.papers_found} papers, ${data.elapsed_s}s)`;
-  logWorkflowEvent('literature', msg, { agent: 'literature' });
-  renderWorkflowPanel();
-}
-
-function handleAgentHandoff(data) {
-  if (!currentWorkflowState) initWorkflowState();
-  currentWorkflowState.handoffs.push(data);
-  if (!currentWorkflowState.agents.literature) {
-    currentWorkflowState.agents.literature = { status: 'pending', tools: [] };
-  }
-  const n = data.pmid_count || (data.clues || []).length;
-  const zh = workflowLang() === 'zh';
-  logWorkflowEvent(
-    'handoff',
-    zh ? `${n} 条线索: ${data.from_agent || 'database'} → ${data.to_agent || 'literature'}`
-      : `${n} clue(s): ${data.from_agent || 'database'} → ${data.to_agent || 'literature'}`,
-    { agent: 'handoff' },
-  );
+  logWorkflowEvent('literature', msg, { agent: litAgent });
   renderWorkflowPanel();
 }
 
 function handleWorkflowToolCall(data) {
   if (!currentWorkflowState) return;
-  const parent = data.parent_agent || 'database';
+  const parent = data.parent_agent
+    || (currentWorkflowState.agents.research ? 'research' : 'database');
   if (!currentWorkflowState.agents[parent]) {
     currentWorkflowState.agents[parent] = { status: 'running', tools: [] };
   }
@@ -4730,6 +4733,7 @@ async function executeChatRequest({
 
   const body = {
     message,
+    mode: agentChatMode,
     session_id: sessionId,
     conversation_id: conversationId,
     history: chatHistory.slice(-10),
@@ -4776,24 +4780,11 @@ async function executeChatRequest({
       }
     } else if (currentEvent === 'plan_created') {
       showContentLoading(assistantContent, 'Investigating…');
+      handlePlanCreated(data);
     } else if (currentEvent === 'step_started') {
       updatePlanStep(data);
     } else if (currentEvent === 'step_completed') {
       updatePlanStep(data);
-    } else if (currentEvent === 'orchestrator_plan') {
-      handleOrchestratorPlan(data);
-    } else if (currentEvent === 'agent_started') {
-      handleAgentStarted(data, assistantContent);
-    } else if (currentEvent === 'agent_completed') {
-      handleAgentCompleted(data);
-    } else if (currentEvent === 'agent_handoff') {
-      handleAgentHandoff(data);
-    } else if (currentEvent === 'agent_brief') {
-      if (currentWorkflowState?.agents[data.agent]) {
-        currentWorkflowState.agents[data.agent].summary = data.preview || '';
-        logWorkflowEvent('agent', data.preview || `${data.agent} brief`, { agent: data.agent });
-        renderWorkflowPanel();
-      }
     } else if (currentEvent === 'literature_search') {
       handleLiteratureSearch(data);
     } else if (currentEvent === 'tool_call') {

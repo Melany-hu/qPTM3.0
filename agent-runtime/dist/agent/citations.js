@@ -1,0 +1,27 @@
+const DB_NAMES = {
+    qptm_search: "qPTM",
+    qptm_site_conditions: "qPTM",
+    qptm_kinases: "qPTM",
+    iptmnet_enzymes: "iPTMnet",
+    psp_kinase_substrate: "PhosphoSitePlus",
+    gps6_kinases: "GPS 6.0",
+    pubtator_literature_search: "PubTator3",
+    pubmed_fetch_abstracts: "PubMed",
+};
+export function toolDatabase(tool) {
+    return DB_NAMES[tool] || tool;
+}
+export function mergeCitation(citations, tool, url) {
+    const db = toolDatabase(tool);
+    const existing = citations.find((c) => c.database === db);
+    if (existing)
+        return citations;
+    const id = `S${citations.length + 1}`;
+    citations.push({
+        id,
+        database: db,
+        label: db,
+        url: url || undefined,
+    });
+    return citations;
+}
