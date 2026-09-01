@@ -8,7 +8,21 @@ function listLength(sequence){
 }
 
 function showPTM(sequence,ptminfo){
-  var mod_color ={'β-Hydroxybutyrylation':'#fda7ec','Acetylation':'#8fc3fb','Malonylation':'#38e04d','Crotonylation':'#58a9f0','Methylation':'#f9c3c5','Phosphorylation':'#f0b952','Succinylation':'#d2a871','SUMOylation':'#d5d953','Ubiquitination':'#86d986','Ubiquitylation':'#86d986','Glycosylation':'#74d6ec'};
+  // Alphabetical by name; colors warm → cool (more cool tones)
+  var mod_color = {
+    'Acetylation': '#e66f86',
+    'Crotonylation': '#eb9260',
+    'Glycosylation': '#efb56a',
+    'Lactylation': '#d4e05c',
+    'Malonylation': '#85d878',
+    'Methylation': '#5ed0a8',
+    'Palmitoylation': '#5fc4c0',
+    'Phosphorylation': '#7ad4e6',
+    'SUMOylation': '#6eb4ef',
+    'Succinylation': '#5b8fe0',
+    'Ubiquitylation': '#5a7fd4',
+    'β-Hydroxybutyrylation': '#6b6fc8'
+  };
   var PTMreturn = [];
   var singlePTMs = ptminfo.split(';');
   for(var i=0;i<singlePTMs.length;i++){
@@ -183,7 +197,7 @@ function compactLegend(data){
 function ptmLegend(data){
   return {
     data: data || [],
-    top: 10,
+    top: 40,
     right: 50,
     itemWidth: 12,
     itemHeight: 12,
@@ -212,11 +226,13 @@ function ptmGrid(legendCount){
   if (legendCount && legendCount > 5) {
     rows = Math.ceil(legendCount / 5);
   }
+  var legendTop = 32;
+  var legendRowHeight = 20;
   return {
     left: 50,
     right: 50,
     bottom: 20,
-    top: 40 + Math.max(0, rows - 1) * 18,
+    top: legendTop + rows * legendRowHeight + 10,
     containLabel: false
   };
 }
@@ -676,8 +692,8 @@ function drawTimeCourse(drawDivID){
   var $dataEl = $('#timeCourseData-'+thisLine);
   var $chartEl = $('#'+drawDivID);
 
-  if($dataEl.text() === '-'){
-    $chartEl.html('<span class="structure-empty">Time course data is not available.</span>');
+  if($.trim($dataEl.text()) === '-'){
+    $chartEl.addClass('is-empty').text('-');
     return;
   }
 

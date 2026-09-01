@@ -1443,6 +1443,14 @@ select.form-control { cursor: pointer; }
 .detail-table.detail-table-actions .detail-action .detail-toggle {
   flex-shrink: 0;
 }
+.detail-table.detail-table-actions .detail-action-spacer {
+  display: inline-block;
+  width: 28px;
+  height: 28px;
+  visibility: hidden;
+  pointer-events: none;
+  flex-shrink: 0;
+}
 .detail-table.detail-table-actions .detail-action:empty {
   display: none;
 }
@@ -1565,19 +1573,15 @@ select.form-control { cursor: pointer; }
   border: 1px solid var(--border);
   border-radius: 6px;
   background: #fafbfd;
-  overflow: hidden;
-}
-.detail-panel .detail-table-scroll:not(.hide-more) {
   max-height: 560px;
   overflow-x: auto;
   overflow-y: auto;
   scrollbar-gutter: stable;
 }
+/* Collapsed: keep scrollbar gutter + allow scrolling all rows without expand */
 .detail-panel .detail-table-scroll.hide-more {
   display: block;
-}
-.detail-panel .detail-table-scroll.hide-more .hide-table tbody tr:nth-child(n+2) {
-  display: none;
+  max-height: 6.9rem; /* roughly header + one data row */
 }
 .detail-panel .detail-table-scroll .hide-table {
   display: table;
@@ -1594,8 +1598,6 @@ select.form-control { cursor: pointer; }
 }
 .detail-panel .detail-table-scroll .hide-table thead th {
   padding: 12px 14px;
-}
-.detail-panel .detail-table-scroll:not(.hide-more) .hide-table thead th {
   position: sticky;
   top: 0;
   z-index: 1;
@@ -1683,11 +1685,6 @@ select.form-control { cursor: pointer; }
   border-radius: 0 !important;
   background: transparent !important;
   overflow: visible !important;
-}
-.detail-panel .seq-table.hide-more tbody tr:nth-child(n+2) {
-  display: none;
-}
-.detail-panel .hide-table.seq-table.hide-more {
   display: table !important;
 }
 .detail-panel .seq-table thead th {
@@ -1736,8 +1733,16 @@ select.form-control { cursor: pointer; }
   line-height: 1.3;
   text-align: left;
 }
-.detail-table .detail-rich:has(.seq-table) {
+.detail-panel .sequence-scroll {
+  max-height: 280px;
   overflow-x: auto;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  padding-right: 4px;
+}
+.detail-table .detail-rich:has(.sequence-scroll),
+.detail-table .detail-rich:has(.seq-table) {
+  overflow: visible;
   max-width: 100%;
 }
 
@@ -1766,7 +1771,7 @@ select.form-control { cursor: pointer; }
   height: 40px;
 }
 .detail-panel .viewer .ptmshow {
-  height: 150px;
+  height: 180px;
 }
 .detail-panel .viewer .disordershow,
 .detail-panel .viewer .exposeshow,
@@ -1782,6 +1787,177 @@ select.form-control { cursor: pointer; }
 .detail-panel .viewer .hydropathyshow {
   margin-bottom: 16px;
 }
+.detail-sequence-properties .detail-viewer {
+  padding: 0;
+}
+.sequence-properties-block {
+  margin-top: 8px;
+  padding: 12px 20px 16px;
+  border-top: 1px solid rgba(212, 225, 245, 0.85);
+}
+.sequence-properties-title {
+  margin: 0 0 10px;
+  padding-left: 12px;
+  color: var(--primary-dark);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.65;
+}
+.sequence-properties-block .detail-viewer {
+  padding: 0;
+  width: 100%;
+}
+.sequence-properties-block .site-context {
+  margin: 0 0 12px;
+  padding: 0 50px;
+}
+.sequence-properties-block .structure-zoom,
+.sequence-properties-block .detail-chart {
+  width: 100% !important;
+  min-width: 0;
+}
+.site-context {
+  display: grid;
+  gap: 10px;
+  font-size: 14px;
+}
+.site-context-pos {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.site-context-pos-label {
+  color: #64748b;
+  font-size: 14px;
+  font-weight: 600;
+}
+.site-context-pos-value {
+  color: var(--primary-dark);
+  font-size: 14px;
+  font-weight: 700;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  letter-spacing: 0.02em;
+}
+.site-context-line,
+.site-context-feat {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 8px 12px;
+  align-items: baseline;
+}
+.site-context-features {
+  display: grid;
+  gap: 6px 14px;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(212, 225, 245, 0.95);
+}
+.site-context-features.site-context-row-4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.site-context-features + .site-context-features {
+  border-top: none;
+  padding-top: 0;
+}
+@media (max-width: 900px) {
+  .site-context-features.site-context-row-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.site-context-k {
+  color: #64748b;
+  font-size: 14px;
+  font-weight: 600;
+  border-left: 2px solid var(--primary-medium);
+  padding-left: 8px;
+  white-space: nowrap;
+}
+.site-context-v {
+  color: #0f172a;
+  font-size: 14px;
+  word-break: break-word;
+}
+.site-context-window {
+  letter-spacing: 0.04em;
+}
+.site-context-res {
+  display: inline-block;
+  padding: 0 2px;
+  margin: 0 1px;
+  border-radius: 3px;
+  background: #fee2e2;
+  color: #b91c1c;
+  font-weight: 700;
+}
+.site-context-meta {
+  margin-left: 8px;
+  color: #64748b;
+  font-size: 12px;
+}
+.enzyme-annot-table {
+  font-size: 13px;
+}
+.enzyme-annot-table .drug-name {
+  color: #64748b;
+  font-weight: 400;
+}
+.clinical-badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+.clinical-badge-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+.clinical-approved {
+  background: #dcfce7;
+  color: #166534;
+}
+.clinical-investigational {
+  background: #e0f2fe;
+  color: #075985;
+}
+.clinical-experimental {
+  background: #fef3c7;
+  color: #92400e;
+}
+.clinical-withdrawn {
+  background: #fee2e2;
+  color: #991b1b;
+}
+.clinical-other {
+  background: #f1f5f9;
+  color: #475569;
+}
+.ekpi-quant-block {
+  min-height: 1.5em;
+}
+.ekpi-quant-status {
+  color: #64748b;
+  font-size: 13px;
+}
+.ekpi-quant-note {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #64748b;
+}
+.ekpi-quant-note a {
+  color: #0f766e;
+  text-decoration: none;
+}
+.ekpi-quant-note a:hover {
+  text-decoration: underline;
+}
+.ekpi-quant-table-wrap .detail-table-scroll {
+  margin: 0;
+}
 .detail-panel .timeCourseShow {
   width: 100%;
   height: 300px;
@@ -1791,6 +1967,14 @@ select.form-control { cursor: pointer; }
   border: none;
   border-radius: 8px;
   background: linear-gradient(180deg, #fafcff 0%, #fff 100%);
+}
+.detail-panel .timeCourseShow.is-empty {
+  height: auto;
+  min-height: 0;
+  margin-top: 0;
+  padding: 0;
+  border-radius: 0;
+  background: none;
 }
 
 .drug-structure-thumb {
@@ -2602,6 +2786,70 @@ sib-swissbiopics-sl {
   }
 }
 
+/*-- Sequence + 3D structure side-by-side --*/
+.detail-panel .sequence-structure-grid {
+  --sequence-structure-height: 340px; /* stage 280px + PDB chooser */
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: stretch;
+  width: 100%;
+  height: var(--sequence-structure-height);
+  max-height: var(--sequence-structure-height);
+}
+.detail-panel .sequence-structure-3d,
+.detail-panel .sequence-structure-seq {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  max-height: 100%;
+  overflow: hidden;
+}
+.detail-panel .sequence-structure-3d {
+  display: flex;
+  flex-direction: column;
+}
+.detail-panel .sequence-structure-3d .protein-structure-panel,
+.detail-panel .sequence-structure-3d .protein-structure-viewer-box {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+.detail-panel .sequence-structure-seq {
+  display: flex;
+  flex-direction: column;
+}
+.detail-panel .sequence-structure-seq .sequence-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  max-height: 100%;
+  overflow-x: auto;
+  overflow-y: auto;
+}
+.detail-panel .sequence-structure-row > td {
+  vertical-align: top;
+}
+@media (max-width: 900px) {
+  .detail-panel .sequence-structure-grid {
+    grid-template-columns: 1fr;
+    height: auto;
+    max-height: none;
+  }
+  .detail-panel .sequence-structure-3d,
+  .detail-panel .sequence-structure-seq {
+    height: var(--sequence-structure-height);
+    max-height: var(--sequence-structure-height);
+  }
+}
+@media (max-width: 768px) {
+  .detail-panel .sequence-structure-grid {
+    --sequence-structure-height: 300px; /* stage 240px + PDB chooser */
+  }
+}
+
 /*-- 3D protein structure (PDBe Molstar) --*/
 .detail-table > tbody > tr.protein-structure-row > td.detail-structure {
   padding-top: 10px;
@@ -2610,13 +2858,14 @@ sib-swissbiopics-sl {
 }
 .detail-panel .protein-structure-panel {
   width: 100%;
-  max-width: 640px;
+  max-width: 100%;
+  padding-left: 0;
 }
 .detail-panel .protein-structure-viewer-box {
   position: relative;
   display: flex;
   flex-direction: column;
-  min-height: 320px;
+  min-height: 280px;
   border: 1px solid var(--primary-medium);
   border-radius: 8px;
   overflow: hidden;
@@ -2626,8 +2875,8 @@ sib-swissbiopics-sl {
   position: relative;
   flex: 1 1 auto;
   width: 100%;
-  height: 320px;
-  min-height: 320px;
+  height: 280px;
+  min-height: 280px;
 }
 .detail-panel .structure-box-plot {
   width: 100%;
@@ -2711,7 +2960,7 @@ sib-swissbiopics-sl {
 }
 @media (max-width: 768px) {
   .detail-panel .protein-structure-viewer-stage {
-    min-height: 260px;
-    height: 260px;
+    min-height: 240px;
+    height: 240px;
   }
 }

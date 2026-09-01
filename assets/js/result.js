@@ -126,8 +126,11 @@
       html += '<div class="rf-select-search"><input type="search" class="form-control form-control-sm" placeholder="Search..."></div>';
       html += '<div class="rf-select-options" role="listbox">';
       values.forEach(function(value) {
-        var label = config.formatLabel ? config.formatLabel(value) : value;
-        html += '<button type="button" class="rf-option" data-value="' + escapeHtml(value) + '">';
+        var rawValue = (value && typeof value === 'object') ? value.value : value;
+        var label = (value && typeof value === 'object' && value.label)
+          ? value.label
+          : (config.formatLabel ? config.formatLabel(value) : value);
+        html += '<button type="button" class="rf-option" data-value="' + escapeHtml(rawValue) + '">';
         html += '<span class="rf-checkbox"><i class="ri-check-line"></i></span>';
         html += '<span class="rf-option-label">' + escapeHtml(label) + '</span>';
         html += '</button>';
@@ -581,23 +584,97 @@
 
       updateDetailPanelCaret($wrap);
 
-      if (clickBtn.indexOf('str-') === 0) {
-        renderStructureCharts(clickBtn.split('-')[1]);
+      if (clickBtn.indexOf('pro-') === 0) {
+        var lineId = clickBtn.split('-')[1];
+        var $proPanel = $('#div-' + clickBtn);
+        // Wait until the panel is visible and laid out, then render charts.
+        window.setTimeout(function() {
+          renderStructureCharts(lineId);
+          if (window.initKnownLocalizations) {
+            window.initKnownLocalizations($proPanel);
+          }
+          if (window.initProteinStructurePanels) {
+            window.initProteinStructurePanels($proPanel);
+          }
+        }, 40);
       }
-      if (clickBtn.indexOf('pro-') === 0 && window.initKnownLocalizations) {
-        window.initKnownLocalizations($('#div-' + clickBtn));
-      }
-      if (clickBtn.indexOf('pro-') === 0 && window.initProteinStructurePanels) {
-        window.initProteinStructurePanels($('#div-' + clickBtn));
+
+      if (clickBtn.indexOf('enz-') === 0) {
+        var $enzPanel = $('#div-' + clickBtn);
+        loadEkpiQuantitative($enzPanel);
       }
     });
 
+    function loadEkpiQuantitative($panel) {
+      var $block = $panel.find('.ekpi-quant-block').first();
+      if (!$block.length || $block.attr('data-loaded') === '1') {
+        return;
+      }
+      var up = $block.attr('data-up') || '';
+      var pos = $block.attr('data-pos') || '';
+      if (!up || !pos) {
+        return;
+      }
+      $block.attr('data-loaded', '1');
+      var $status = $block.find('.ekpi-quant-status');
+      var $wrap = $block.find('.ekpi-quant-table-wrap');
+      $status.text('Loading inferred correlations…');
+      var url = 'api/enzyme_ekpi.php?uniprot_ac=' + encodeURIComponent(up) + '&position=' + encodeURIComponent(pos) + '&limit=10';
+      fetch(url, { credentials: 'same-origin' })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          var rows = (data && data.correlations) ? data.correlations : [];
+          if (!rows.length) {
+            $status.text('-');
+            return;
+          }
+          var html = "<div class='detail-table-scroll hide-more'><table class='table table-bordered hide-table enzyme-annot-table'><thead class='thead-dark'><tr>"
+            + "<th>Kinase</th><th>Feature</th><th>Correlation (ρ)</th><th>P value</th><th>Cancer</th><th>PMID</th>"
+            + "</tr></thead><tbody>";
+          rows.forEach(function(row) {
+            var pmid = row.pmid
+              ? '<a href="https://pubmed.ncbi.nlm.nih.gov/' + row.pmid + '/" target="_blank" rel="noopener">' + row.pmid + '</a>'
+              : '-';
+            var cancer = row.cancer_type || '';
+            if (row.n != null && row.n !== '') {
+              cancer = cancer
+                ? (cancer + ' (n=' + row.n + ')')
+                : ('(n=' + row.n + ')');
+            }
+            if (!cancer) {
+              cancer = '-';
+            }
+            html += '<tr>'
+              + '<td>' + (row.kinase || '-') + '</td>'
+              + '<td>' + (row.feature || '-') + '</td>'
+              + '<td>' + (row.rho != null ? Number(row.rho).toFixed(3) : '-') + '</td>'
+              + '<td>' + (row.pvalue != null ? Number(row.pvalue).toExponential(2) : '-') + '</td>'
+              + '<td>' + cancer + '</td>'
+              + '<td>' + pmid + '</td>'
+              + '</tr>';
+          });
+          html += '</tbody></table></div>';
+          $status.hide();
+          $wrap.html(html);
+        })
+        .catch(function() {
+          $block.attr('data-loaded', '0');
+          $status.text('Failed to load inferred evidence');
+        });
+    }
     $(document).on('click', RESULT_ROOT + ' .detail-panel .show-table', function(e) {
       e.preventDefault();
       e.stopPropagation();
       var $btn = $(this);
       var $icon = $btn.find('i').length ? $btn.find('i') : $btn;
-      var $target = $btn.closest('tr').find('.detail-rich').children('.detail-table-scroll, .hide-table');
+      var $rich = $btn.closest('tr').find('.detail-rich');
+      var $target = $rich.find('.detail-table-scroll').first();
+      if (!$target.length) {
+        $target = $rich.find('.seq-table').first();
+      }
+      if (!$target.length) {
+        $target = $rich.children('.hide-table');
+      }
       if (!isExpandIconOpen($icon)) {
         setExpandIconOpen($icon, true);
         $target.removeClass('hide-more');
