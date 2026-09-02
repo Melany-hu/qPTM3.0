@@ -1,4 +1,7 @@
-"""Minimal stdio MCP server for qPTM tools (Python 3.9+)."""
+"""Minimal stdio MCP server for qPTM tools (Python 3.9+).
+
+Uses newline-delimited JSON-RPC (MCP stdio transport), not Content-Length framing.
+"""
 
 from __future__ import annotations
 
@@ -9,7 +12,7 @@ from typing import Any
 
 from app.sources.catalog import get_catalog
 from app.tools.register_all import register_all_tools
-from mcp_tools import qptm_get, qptm_invoke, qptm_search
+from mcp_tools import qptm_get, qptm_invoke, qptm_resolve, qptm_search
 
 logger = logging.getLogger(__name__)
 
@@ -17,28 +20,23 @@ PROTO_VERSION = "2024-11-05"
 
 
 def _send(msg: dict[str, Any]) -> None:
-    body = json.dumps(msg, ensure_ascii=False)
-    sys.stdout.write(f"Content-Length: {len(body.encode('utf-8'))}\r\n\r\n{body}")
+    sys.stdout.write(json.dumps(msg, ensure_ascii=False) + "\n")
     sys.stdout.flush()
 
 
 def _read_message() -> dict[str, Any] | None:
-    headers: dict[str, str] = {}
-    while True:
-        line = sys.stdin.readline()
-        if not line:
-            return None
-        line = line.strip()
-        if not line:
-            break
-        if ":" in line:
-            k, v = line.split(":", 1)
-            headers[k.strip().lower()] = v.strip()
-    length = int(headers.get("content-length", "0"))
-    if length <= 0:
+    line = sys.stdin.readline()
+    if not line:
         return None
-    raw = sys.stdin.read(length)
-    return json.loads(raw)
+    line = line.strip()
+    if not line:
+        return _read_message()
+    try:
+        data = json.loads(line)
+    except json.JSONDecodeError:
+        logger.warning("invalid JSON-RPC line: %s", line[:200])
+        return _read_message()
+    return data if isinstance(data, dict) else None
 
 
 def _tool_definitions() -> list[dict[str, Any]]:
@@ -73,7 +71,7 @@ def _tool_definitions() -> list[dict[str, Any]]:
         },
         {
             "name": "qptm_invoke",
-            "description": "Direct invoke of a registered tool by name.",
+            "description": "Direct invoke of a registered tool by name. Resolves gene→UniProt before calling.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -83,6 +81,20 @@ def _tool_definitions() -> list[dict[str, Any]]:
                 "required": ["tool_name"],
             },
         },
+        {
+            "name": "qptm_resolve",
+            "description": "Resolve gene/site to UniProt accession for downstream tool calls.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string"},
+                    "gene": {"type": "string"},
+                    "position": {"type": "integer"},
+                    "uniprot_ac": {"type": "string"},
+                    "ptm_type": {"type": "string"},
+                },
+            },
+        },
     ]
 
 
@@ -90,6 +102,10 @@ def _handle(msg: dict[str, Any]) -> None:
     method = msg.get("method")
     req_id = msg.get("id")
     params = msg.get("params") or {}
+
+    # Notifications have no id — never reply.
+    if req_id is None and isinstance(method, str) and method.startswith("notifications/"):
+        return
 
     if method == "initialize":
         _send(
@@ -105,7 +121,8 @@ def _handle(msg: dict[str, Any]) -> None:
         )
         return
 
-    if method == "notifications/initialized":
+    if method == "ping":
+        _send({"jsonrpc": "2.0", "id": req_id, "result": {}})
         return
 
     if method == "tools/list":
@@ -158,6 +175,14 @@ def _handle(msg: dict[str, Any]) -> None:
                 text = qptm_get(args.get("entity", ""), args.get("id", ""), args.get("section", ""))
             elif name == "qptm_invoke":
                 text = qptm_invoke(args.get("tool_name", ""), args.get("arguments_json", "{}"))
+            elif name == "qptm_resolve":
+                text = qptm_resolve(
+                    args.get("query", ""),
+                    args.get("gene", ""),
+                    int(args.get("position") or 0),
+                    args.get("uniprot_ac", ""),
+                    args.get("ptm_type", ""),
+                )
             else:
                 text = json.dumps({"success": False, "summary": f"Unknown tool {name}"})
             _send(
@@ -168,6 +193,7 @@ def _handle(msg: dict[str, Any]) -> None:
                 }
             )
         except Exception as exc:
+            logger.exception("tools/call failed: %s", name)
             _send(
                 {
                     "jsonrpc": "2.0",
@@ -181,17 +207,27 @@ def _handle(msg: dict[str, Any]) -> None:
         return
 
     if req_id is not None:
-        _send({"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": f"Unknown method {method}"}})
+        _send(
+            {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "error": {"code": -32601, "message": f"Unknown method {method}"},
+            }
+        )
 
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, stream=sys.stderr)
     register_all_tools()
+    logger.info("qPTM MCP stdio server ready (NDJSON)")
     while True:
         msg = _read_message()
         if msg is None:
             break
-        _handle(msg)
+        try:
+            _handle(msg)
+        except Exception:
+            logger.exception("unhandled MCP message: %s", msg.get("method"))
 
 
 if __name__ == "__main__":

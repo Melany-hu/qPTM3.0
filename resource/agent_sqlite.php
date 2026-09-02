@@ -479,3 +479,268 @@ function simplifyDrugClinicalStatus($groups){
 	}
 	return implode(', ', $labels);
 }
+
+/**
+ * Normalize UniProt accession (strip isoform suffix) for index lookups.
+ */
+function agentUniprotBase($uniprot){
+	$uniprot = trim((string)$uniprot);
+	if($uniprot === ''){
+		return '';
+	}
+	return preg_replace('/-\d+$/', '', $uniprot);
+}
+
+/**
+ * PhosphoSitePlus Regulatory_sites for a UniProt + position.
+ */
+function lookupPspRegulatory($uniprot, $position, $limit = 20){
+	$out = array();
+	$base = agentUniprotBase($uniprot);
+	$pos = (int)$position;
+	if($base === '' || $pos <= 0){
+		return $out;
+	}
+	$db = openAgentSqlite('regulation/PhosphoSitePlus/indexes/regulatory.sqlite');
+	if(!$db){
+		return $out;
+	}
+	$stmt = $db->prepare(
+		'SELECT gene, protein, uniprot, organism, mod_rsd, domain,
+		        on_function, on_process, on_prot_interact, on_other_interact, pmids, notes, position
+		 FROM records
+		 WHERE (uniprot = :u OR uniprot = :b OR uniprot LIKE :like)
+		   AND CAST(position AS INTEGER) = :pos
+		 LIMIT :lim'
+	);
+	if(!$stmt){
+		$db->close();
+		return $out;
+	}
+	$stmt->bindValue(':u', trim((string)$uniprot), SQLITE3_TEXT);
+	$stmt->bindValue(':b', $base, SQLITE3_TEXT);
+	$stmt->bindValue(':like', $base.'-%', SQLITE3_TEXT);
+	$stmt->bindValue(':pos', $pos, SQLITE3_INTEGER);
+	$stmt->bindValue(':lim', max(1, (int)$limit), SQLITE3_INTEGER);
+	$res = $stmt->execute();
+	while($res && ($row = $res->fetchArray(SQLITE3_ASSOC))){
+		$out[] = $row;
+	}
+	$db->close();
+	return $out;
+}
+
+/**
+ * Funcscore phosphosite functional score (0–1), or null if missing.
+ */
+function lookupFuncscore($uniprot, $position){
+	$base = agentUniprotBase($uniprot);
+	$pos = (int)$position;
+	if($base === '' || $pos <= 0){
+		return null;
+	}
+	$db = openAgentSqlite('regulation/Funcscore/indexes/functional_score.sqlite');
+	if(!$db){
+		return null;
+	}
+	$stmt = $db->prepare(
+		'SELECT functional_score FROM records
+		 WHERE (uniprot = :u OR uniprot = :b)
+		   AND CAST(position AS INTEGER) = :pos
+		 LIMIT 1'
+	);
+	if(!$stmt){
+		$db->close();
+		return null;
+	}
+	$stmt->bindValue(':u', trim((string)$uniprot), SQLITE3_TEXT);
+	$stmt->bindValue(':b', $base, SQLITE3_TEXT);
+	$stmt->bindValue(':pos', $pos, SQLITE3_INTEGER);
+	$res = $stmt->execute();
+	$row = $res ? $res->fetchArray(SQLITE3_ASSOC) : false;
+	$db->close();
+	if(!$row || !isset($row['functional_score']) || $row['functional_score'] === ''){
+		return null;
+	}
+	return (float)$row['functional_score'];
+}
+
+/**
+ * PTMint curated PTM–PPI regulation evidence.
+ */
+function lookupPtmintPpi($uniprot, $position, $limit = 50){
+	$out = array();
+	$base = agentUniprotBase($uniprot);
+	$pos = (int)$position;
+	if($base === '' || $pos <= 0){
+		return $out;
+	}
+	$db = openAgentSqlite('interactions/PTMint/indexes/experimental.sqlite');
+	if(!$db){
+		return $out;
+	}
+	$stmt = $db->prepare(
+		'SELECT organism, gene, uniprot, ptm, site, aa, int_uniprot, int_gene,
+		        effect, method, disease, co_localized, pmid
+		 FROM records
+		 WHERE (uniprot = :u OR uniprot = :b OR uniprot LIKE :like)
+		   AND CAST(site AS INTEGER) = :pos
+		 ORDER BY effect COLLATE NOCASE, int_gene COLLATE NOCASE
+		 LIMIT :lim'
+	);
+	if(!$stmt){
+		$db->close();
+		return $out;
+	}
+	$stmt->bindValue(':u', trim((string)$uniprot), SQLITE3_TEXT);
+	$stmt->bindValue(':b', $base, SQLITE3_TEXT);
+	$stmt->bindValue(':like', $base.'-%', SQLITE3_TEXT);
+	$stmt->bindValue(':pos', $pos, SQLITE3_INTEGER);
+	$stmt->bindValue(':lim', max(1, (int)$limit), SQLITE3_INTEGER);
+	$res = $stmt->execute();
+	$seen = array();
+	while($res && ($row = $res->fetchArray(SQLITE3_ASSOC))){
+		$key = strtoupper(
+			($row['int_gene'] ?? '').'|'.($row['int_uniprot'] ?? '').'|'.
+			($row['effect'] ?? '').'|'.($row['pmid'] ?? '').'|'.($row['method'] ?? '')
+		);
+		if(isset($seen[$key])){
+			continue;
+		}
+		$seen[$key] = true;
+		$out[] = $row;
+	}
+	$db->close();
+	return $out;
+}
+
+/**
+ * PTMPhaSe experimental LLPS regulation evidence.
+ */
+function lookupPtmphaseLlps($uniprot, $position, $limit = 30){
+	$out = array();
+	$base = agentUniprotBase($uniprot);
+	$pos = (int)$position;
+	if($base === '' || $pos <= 0){
+		return $out;
+	}
+	$db = openAgentSqlite('phase_separation/ptmphase/indexes/experimental.sqlite');
+	if(!$db){
+		return $out;
+	}
+	$stmt = $db->prepare(
+		'SELECT organism, enzymes, ptm, gene, uniprot, site, aa, effect,
+		        llps_regions, llps_partners, mlos, methods, diseases, pmid
+		 FROM records
+		 WHERE (uniprot = :u OR uniprot = :b OR uniprot LIKE :like)
+		   AND CAST(site AS INTEGER) = :pos
+		 ORDER BY effect COLLATE NOCASE
+		 LIMIT :lim'
+	);
+	if(!$stmt){
+		$db->close();
+		return $out;
+	}
+	$stmt->bindValue(':u', trim((string)$uniprot), SQLITE3_TEXT);
+	$stmt->bindValue(':b', $base, SQLITE3_TEXT);
+	$stmt->bindValue(':like', $base.'-%', SQLITE3_TEXT);
+	$stmt->bindValue(':pos', $pos, SQLITE3_INTEGER);
+	$stmt->bindValue(':lim', max(1, (int)$limit), SQLITE3_INTEGER);
+	$res = $stmt->execute();
+	while($res && ($row = $res->fetchArray(SQLITE3_ASSOC))){
+		$out[] = $row;
+	}
+	$db->close();
+	return $out;
+}
+
+/**
+ * Primary gene symbol for PTMcode lookups (first token of GeneName).
+ */
+function primaryGeneSymbol($geneName){
+	$geneName = trim((string)$geneName);
+	if($geneName === ''){
+		return '';
+	}
+	$parts = preg_split('/[\s,;\/]+/', $geneName);
+	return isset($parts[0]) ? trim($parts[0]) : '';
+}
+
+/**
+ * PTMcode2 within-protein associations involving a site.
+ */
+function lookupPtmcodeWithin($gene, $position, $limit = 40){
+	$out = array();
+	$gene = trim((string)$gene);
+	$pos = (int)$position;
+	if($gene === '' || $pos <= 0){
+		return $out;
+	}
+	$db = openAgentSqlite('interactions/PTMcode2/indexes/within.sqlite');
+	if(!$db){
+		return $out;
+	}
+	$stmt = $db->prepare(
+		'SELECT organism, gene, ptm1, residue1, position1, ptm2, residue2, position2,
+		        coevolution, same_residue, manual, structure
+		 FROM records
+		 WHERE UPPER(gene) = :g
+		   AND (CAST(position1 AS INTEGER) = :pos OR CAST(position2 AS INTEGER) = :pos)
+		 ORDER BY manual DESC, structure DESC, same_residue DESC, position1, position2
+		 LIMIT :lim'
+	);
+	if(!$stmt){
+		$db->close();
+		return $out;
+	}
+	$stmt->bindValue(':g', strtoupper($gene), SQLITE3_TEXT);
+	$stmt->bindValue(':pos', $pos, SQLITE3_INTEGER);
+	$stmt->bindValue(':lim', max(1, (int)$limit), SQLITE3_INTEGER);
+	$res = $stmt->execute();
+	while($res && ($row = $res->fetchArray(SQLITE3_ASSOC))){
+		$row['_scope'] = 'within';
+		$out[] = $row;
+	}
+	$db->close();
+	return $out;
+}
+
+/**
+ * PTMcode2 between-protein associations involving a site on gene1 or gene2.
+ */
+function lookupPtmcodeBetween($gene, $position, $limit = 40){
+	$out = array();
+	$gene = trim((string)$gene);
+	$pos = (int)$position;
+	if($gene === '' || $pos <= 0){
+		return $out;
+	}
+	$db = openAgentSqlite('interactions/PTMcode2/indexes/between.sqlite');
+	if(!$db){
+		return $out;
+	}
+	$stmt = $db->prepare(
+		'SELECT organism, gene1, gene2, ptm1, residue1, position1, ptm2, residue2, position2,
+		        coevolution, manual, structure
+		 FROM records
+		 WHERE (UPPER(gene1) = :g AND CAST(position1 AS INTEGER) = :pos)
+		    OR (UPPER(gene2) = :g AND CAST(position2 AS INTEGER) = :pos)
+		 ORDER BY manual DESC, structure DESC, gene1, gene2
+		 LIMIT :lim'
+	);
+	if(!$stmt){
+		$db->close();
+		return $out;
+	}
+	$stmt->bindValue(':g', strtoupper($gene), SQLITE3_TEXT);
+	$stmt->bindValue(':pos', $pos, SQLITE3_INTEGER);
+	$stmt->bindValue(':lim', max(1, (int)$limit), SQLITE3_INTEGER);
+	$res = $stmt->execute();
+	while($res && ($row = $res->fetchArray(SQLITE3_ASSOC))){
+		$row['same_residue'] = '0';
+		$row['_scope'] = 'between';
+		$out[] = $row;
+	}
+	$db->close();
+	return $out;
+}

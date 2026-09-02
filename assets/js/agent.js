@@ -24,6 +24,7 @@ function restoreSessionForConversation(conversationId) {
 }
 
 const TOOL_DISPLAY = {
+  qptm_resolve: { name: 'UniProt', desc: 'Resolve gene → accession', kind: 'database' },
   qptm_search: { name: 'qPTM', desc: 'PTM search', kind: 'database' },
   qptm_kinases: { name: 'qPTM', desc: 'Kinase associations', kind: 'database' },
   qptm_site_conditions: { name: 'qPTM', desc: 'Site conditions', kind: 'database' },
@@ -3130,10 +3131,16 @@ function stripNextStepSection(text) {
   ).trim();
 }
 
-/** Remove trailing "e.g. ask TP53 S15…" invites — follow-ups live in the panel. */
+/** Remove trailing invite / next-step copy — follow-ups live in the panel.
+ *  Do NOT strip markdown thematic breaks (`---`); deep-research reports use them
+ *  as section dividers and a greedy cut would delete most of the answer. */
 function stripTrailingInvite(text) {
   let s = stripNextStepSection(text);
-  s = s.replace(/\n+---\s*\n[\s\S]*$/m, '').trim();
+  // Only drop a trailing --- block when it clearly looks like an invite, not a section HR.
+  s = s.replace(
+    /\n+---\s*\n(?:[^\n]*\n){0,8}(?:如果您想了解|如果您想查|若想了解|如需查询|如果只是想了解|Next step|后续问题|下一步|If you want to|To look up)[\s\S]*$/iu,
+    '',
+  ).trim();
   s = s.replace(
     /\n+(如果您想了解|如果您想查|若想了解|如需查询|如果只是想了解)[^\n]{0,200}[？?]?\s*$/u,
     '',
@@ -3565,8 +3572,10 @@ function createThinkingToolsEl(tools, collapsed = false) {
 
   tools.forEach((t) => {
     const success = t.success !== false;
+    const kind = t.error_kind || '';
+    const st = t.status || (success ? (kind === 'empty_result' ? 'empty' : 'done') : 'error');
     const ind = document.createElement('div');
-    ind.className = 'tool-indicator ' + (success ? 'success' : 'error');
+    ind.className = 'tool-indicator ' + (st === 'done' ? 'success' : st);
     ind.innerHTML = `
       <i class="ri-tools-line tool-icon"></i>
       <div class="tool-indicator-body">
@@ -3574,7 +3583,7 @@ function createThinkingToolsEl(tools, collapsed = false) {
         <span class="tool-args">${escapeHtml(formatArgs(t.arguments || {}))}</span>
         <span class="tool-summary">${escapeHtml((t.summary || '').substring(0, 120))}</span>
       </div>
-      <span class="tool-status">${success ? '✓ Done' : '✗ Error'}</span>
+      <span class="tool-status">${escapeHtml(toolStatusLabel(st, kind))}</span>
     `;
     el.appendChild(ind);
   });
@@ -3671,21 +3680,23 @@ let currentWorkflowState = null;
 let workflowSidebarOpen = false;
 const workflowPanelMeta = new WeakMap();
 
-const AGENT_LABELS = {
-  orchestrator: { en: 'Orchestrator', zh: '调度员' },
-  database: { en: 'Database', zh: '数据库' },
-  literature: { en: 'Literature', zh: '文献' },
-  writer: { en: 'Writer', zh: '撰写' },
-  research: { en: 'Research Agent', zh: '调研 Agent' },
+const PHASE_META = {
+  planning: { en: 'Planning', zh: '规划', icon: 'ri-compass-3-line' },
+  resolving: { en: 'Resolving', zh: '解析实体', icon: 'ri-focus-3-line' },
+  clarifying: { en: 'Clarifying', zh: '澄清需求', icon: 'ri-question-answer-line' },
+  retrieving_tools: { en: 'Preparing tools', zh: '准备工具', icon: 'ri-tools-line' },
+  database: { en: 'Database', zh: '数据库查询', icon: 'ri-database-2-line' },
+  literature: { en: 'Literature', zh: '文献检索', icon: 'ri-book-open-line' },
+  synthesis: { en: 'Writing', zh: '撰写回答', icon: 'ri-quill-pen-line' },
+  reply: { en: 'Reply', zh: '回复', icon: 'ri-chat-3-line' },
 };
 
-const AGENT_ICONS = {
-  orchestrator: 'ri-compass-3-line',
-  database: 'ri-database-2-line',
-  literature: 'ri-book-open-line',
-  writer: 'ri-quill-pen-line',
-  research: 'ri-microscope-line',
-};
+function phaseLabel(phaseId, fallback) {
+  const zh = workflowLang() === 'zh';
+  const meta = PHASE_META[phaseId];
+  if (!meta) return fallback || phaseId || '';
+  return zh ? meta.zh : meta.en;
+}
 
 function initWorkflowSidebarUi() {
   document.getElementById('workflowSidebarClose')?.addEventListener('click', closeWorkflowSidebar);
@@ -3742,30 +3753,45 @@ function closeWorkflowSidebar() {
 }
 
 function workflowLang() {
-  const sample = currentWorkflowState?.orchestrator?.goal
+  const sample = currentWorkflowState?.goal
+    || currentWorkflowState?.plan?.summary
     || document.querySelector('.message.user:last-of-type')?.textContent
     || '';
   return /[\u4e00-\u9fff]/.test(sample) ? 'zh' : 'en';
 }
 
-function agentLabel(id) {
-  const zh = workflowLang() === 'zh';
-  return (zh ? AGENT_LABELS[id]?.zh : AGENT_LABELS[id]?.en) || id;
+function toolResultStatus(data) {
+  if (data.success === false) {
+    if (data.error_kind === 'missing_params') return 'missing';
+    return 'error';
+  }
+  if (data.error_kind === 'empty_result') return 'empty';
+  return 'done';
 }
 
-function statusBadgeLabel(status) {
+function toolStatusLabel(status, errorKind) {
   const zh = workflowLang() === 'zh';
-  if (status === 'running') return zh ? '运行中' : 'Running';
+  if (status === 'running') return zh ? '进行中' : 'Running';
+  if (status === 'empty') return zh ? '无结果' : 'Empty';
+  if (status === 'missing' || errorKind === 'missing_params') return zh ? '缺参' : 'Missing';
+  if (status === 'error') {
+    if (errorKind === 'call_bug') return zh ? '调用失败' : 'Failed';
+    return zh ? '失败' : 'Error';
+  }
   if (status === 'done') return zh ? '完成' : 'Done';
   return zh ? '等待' : 'Pending';
+}
+
+function statusBadgeLabel(status, errorKind) {
+  return toolStatusLabel(status, errorKind);
 }
 
 function logWorkflowEvent(kind, message, extra = {}) {
   if (!currentWorkflowState) return;
   if (!currentWorkflowState.events) currentWorkflowState.events = [];
   currentWorkflowState.events.push({ ts: Date.now(), kind, message, ...extra });
-  if (currentWorkflowState.events.length > 48) {
-    currentWorkflowState.events = currentWorkflowState.events.slice(-48);
+  if (currentWorkflowState.events.length > 80) {
+    currentWorkflowState.events = currentWorkflowState.events.slice(-80);
   }
 }
 
@@ -3775,46 +3801,6 @@ function formatFlowTime(ts) {
   } catch (_) {
     return '';
   }
-}
-
-function synthesizeEventsFromMeta(state) {
-  const events = [];
-  if (state.orchestrator?.goal) {
-    events.push({
-      ts: Date.now() - 60000,
-      kind: 'plan',
-      message: state.orchestrator.goal,
-    });
-  }
-  ['database', 'literature', 'writer'].forEach((id) => {
-    const a = state.agents?.[id];
-    if (!a) return;
-    (a.tools || []).forEach((t) => {
-      events.push({
-        ts: Date.now() - 30000,
-        kind: 'tool',
-        message: t.tool_name || '',
-        agent: id,
-      });
-    });
-    if (a.summary) {
-      events.push({
-        ts: Date.now() - 10000,
-        kind: 'agent',
-        message: a.summary,
-        agent: id,
-      });
-    }
-  });
-  (state.handoffs || []).forEach((h) => {
-    const n = h.pmid_count || (h.clues || []).length;
-    events.push({
-      ts: Date.now() - 20000,
-      kind: 'handoff',
-      message: `${h.from_agent || 'database'} → ${h.to_agent || 'literature'} (${n} clues)`,
-    });
-  });
-  return events;
 }
 
 function createActivityTimelineEl({ initState = true } = {}) {
@@ -3849,29 +3835,50 @@ function createActivityTimelineEl({ initState = true } = {}) {
   return el;
 }
 
+/** Normalize persisted meta (new single-agent or legacy multi-agent). */
 function workflowStateFromMeta(wf) {
-  const orch = wf?.orchestrator || {};
-  const agents = {};
-  Object.entries(wf?.agents || {}).forEach(([id, a]) => {
-    agents[id] = { ...a, tools: a.tools || [] };
-  });
-  const state = {
-    orchestrator: {
-      status: 'done',
-      goal: orch.goal || '',
-      reasoning: orch.reasoning || '',
-      tasks: orch.tasks || [],
-    },
-    agents,
-    handoffs: (wf?.handoffs || []).map((h) => ({
-      from_agent: h.from,
-      to_agent: h.to,
-      pmid_count: h.pmid_count,
-      clues: h.clues || [],
+  if (!wf || typeof wf !== 'object') return initWorkflowStateObject();
+  if (wf.phases || wf.plan || wf.tools || Array.isArray(wf.events)) {
+    return {
+      ...initWorkflowStateObject(),
+      ...wf,
+      phases: Array.isArray(wf.phases) ? wf.phases : [],
+      plan: wf.plan || { summary: '', steps: [] },
+      tools: Array.isArray(wf.tools) ? wf.tools : [],
+      literature: Array.isArray(wf.literature) ? wf.literature : [],
+      events: Array.isArray(wf.events) ? wf.events : [],
+      status: wf.status || 'done',
+    };
+  }
+
+  // Legacy multi-agent meta → single-agent timeline
+  const state = initWorkflowStateObject();
+  const orch = wf.orchestrator || {};
+  state.goal = orch.goal || '';
+  state.plan = {
+    summary: orch.goal || orch.reasoning || '',
+    steps: (orch.tasks || []).map((t, i) => ({
+      step: i + 1,
+      title: t.focus || t.agent || `Step ${i + 1}`,
+      description: '',
+      database: t.agent || '',
+      status: t.enabled === false ? 'pending' : 'done',
     })),
-    events: wf?.events || [],
   };
-  if (!state.events.length) state.events = synthesizeEventsFromMeta(state);
+  Object.values(wf.agents || {}).forEach((a) => {
+    (a.tools || []).forEach((t) => {
+      state.tools.push({
+        tool_name: t.tool_name || t.name || 'tool',
+        kind: t.kind || 'database',
+        status: 'done',
+        summary: '',
+        ts: Date.now(),
+      });
+    });
+    (a.searchTraces || []).forEach((tr) => state.literature.push({ ...tr, ts: Date.now() }));
+  });
+  state.events = Array.isArray(wf.events) ? wf.events : [];
+  state.status = 'done';
   return state;
 }
 
@@ -3889,73 +3896,112 @@ function mountWorkflowPanel(wfMeta) {
   return activity;
 }
 
-function initWorkflowState() {
-  currentWorkflowState = {
-    orchestrator: { status: 'pending', goal: '', reasoning: '', tasks: [] },
-    agents: {},
-    handoffs: [],
+function initWorkflowStateObject() {
+  return {
+    goal: '',
+    currentPhase: '',
+    status: 'pending',
+    phases: [],
+    plan: { summary: '', steps: [] },
+    tools: [],
+    literature: [],
     events: [],
   };
+}
+
+function initWorkflowState() {
+  currentWorkflowState = initWorkflowStateObject();
   if (currentActivityTimeline) {
     workflowPanelMeta.set(currentActivityTimeline, currentWorkflowState);
   }
 }
 
-function studioConnector() {
-  return `<div class="studio-connector" aria-hidden="true">
-    <div class="studio-connector-line"></div>
-    <i class="ri-arrow-down-s-line studio-connector-arrow"></i>
-  </div>`;
+function studioHasData(state) {
+  if (!state) return false;
+  return Boolean(
+    state.goal
+    || state.currentPhase
+    || state.phases?.length
+    || state.plan?.summary
+    || state.plan?.steps?.length
+    || state.tools?.length
+    || state.literature?.length
+    || state.events?.length,
+  );
 }
 
-function workflowEventsForAgent(agentId, events, tools = []) {
-  const list = events || [];
-  const matched = list.filter((ev) => {
-    if (agentId === 'orchestrator') {
-      return ev.kind === 'plan' || ev.agent === 'orchestrator';
-    }
-    if (ev.kind === 'handoff') return agentId === 'literature';
-    return ev.agent === agentId;
-  });
-  const hasToolEvents = matched.some((ev) => ev.kind === 'tool');
-  if (!hasToolEvents && tools?.length) {
-    tools.forEach((t) => {
-      matched.push({
-        kind: 'tool',
-        message: t.tool_name || '',
-        agent: agentId,
-        ts: 0,
-      });
-    });
-  }
-  return matched.sort((a, b) => (a.ts || 0) - (b.ts || 0));
-}
-
-function flowTickIcon(kind, agentId) {
-  if (kind === 'handoff') return 'ri-arrow-right-circle-line';
-  if (kind === 'plan') return 'ri-compass-3-line';
-  if (kind === 'literature') return 'ri-search-line';
-  if (kind === 'tool') {
-    return agentId === 'literature' ? 'ri-book-open-line' : 'ri-database-2-line';
-  }
+function flowTickIcon(kind) {
+  if (kind === 'plan') return 'ri-list-check-3';
+  if (kind === 'phase') return 'ri-flashlight-line';
+  if (kind === 'literature') return 'ri-book-open-line';
+  if (kind === 'tool') return 'ri-database-2-line';
+  if (kind === 'tool_result') return 'ri-checkbox-circle-line';
+  if (kind === 'synthesis') return 'ri-quill-pen-line';
   return 'ri-record-circle-line';
 }
 
-function renderStageFlowTicks(events, isLive) {
-  if (!events?.length) return '';
-  const shown = events.slice(-8);
-  const ticks = shown.map((ev, i) => {
-    const isLatest = isLive && i === shown.length - 1;
-    const kind = ev.kind || 'agent';
-    return `<div class="studio-flow-tick kind-${escapeHtml(kind)}${isLatest ? ' is-live' : ''}">
-      <i class="${flowTickIcon(kind, ev.agent)}"></i>
-      <span>${escapeHtml(ev.message || '')}</span>
-    </div>`;
-  }).join('');
-  return `<div class="studio-stage-ticker">${ticks}</div>`;
+function renderStudioSection(title, icon, bodyHtml) {
+  if (!bodyHtml) return '';
+  return `<section class="studio-section">
+    <div class="studio-section-title"><i class="${icon}"></i> ${escapeHtml(title)}</div>
+    ${bodyHtml}
+  </section>`;
 }
 
-function renderLiteratureTraces(traces) {
+function renderPhasesBlock(phases, currentPhase) {
+  if (!phases?.length) return '';
+  const items = phases.map((p) => {
+    const st = p.status || (p.id === currentPhase ? 'running' : 'done');
+    const icon = PHASE_META[p.id]?.icon || 'ri-circle-line';
+    return `<div class="studio-phase-item status-${st}">
+      <i class="${icon}"></i>
+      <div class="studio-phase-body">
+        <div class="studio-phase-name">${escapeHtml(p.label || phaseLabel(p.id))}</div>
+        ${p.ts ? `<time>${escapeHtml(formatFlowTime(p.ts))}</time>` : ''}
+      </div>
+      <span class="studio-stage-badge ${st}">${statusBadgeLabel(st)}</span>
+    </div>`;
+  }).join('');
+  return `<div class="studio-phase-list">${items}</div>`;
+}
+
+function renderPlanBlock(plan) {
+  if (!plan?.summary && !plan?.steps?.length) return '';
+  const zh = workflowLang() === 'zh';
+  const steps = (plan.steps || []).map((s, i) => {
+    const st = s.status || 'pending';
+    return `<div class="studio-plan-step status-${st}">
+      <div class="studio-plan-step-idx">${escapeHtml(String(s.step || i + 1))}</div>
+      <div class="studio-plan-step-body">
+        <div class="studio-plan-step-title">${escapeHtml(s.title || '')}</div>
+        ${s.description ? `<div class="studio-plan-step-desc">${escapeHtml(s.description)}</div>` : ''}
+        ${s.database ? `<div class="studio-plan-step-meta">${escapeHtml(s.database)}</div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+  return `<div class="studio-plan-card">
+    ${plan.summary ? `<div class="studio-plan-summary">${escapeHtml(plan.summary)}</div>` : ''}
+    ${steps ? `<div class="studio-plan-steps">${steps}</div>` : `<div class="studio-stage-summary">${zh ? '暂无分步计划' : 'No step plan'}</div>`}
+  </div>`;
+}
+
+function renderToolsBlock(tools) {
+  if (!tools?.length) return '';
+  return `<div class="studio-tool-rows">${tools.map((t) => {
+    const st = t.status || 'done';
+    const icon = t.kind === 'literature' ? 'ri-book-open-line' : 'ri-database-2-line';
+    return `<div class="studio-tool-row kind-${escapeHtml(t.kind || 'database')} status-${st}">
+      <i class="${icon}"></i>
+      <div class="studio-tool-body">
+        <div class="studio-tool-name">${escapeHtml(t.tool_name || 'tool')}</div>
+        ${t.summary ? `<div class="studio-tool-summary">${escapeHtml(t.summary)}</div>` : ''}
+      </div>
+      <span class="studio-stage-badge ${st}">${statusBadgeLabel(st, t.error_kind)}</span>
+    </div>`;
+  }).join('')}</div>`;
+}
+
+function renderLiteratureBlock(traces) {
   if (!traces?.length) return '';
   const zh = workflowLang() === 'zh';
   const items = traces.map((t) => (
@@ -3966,45 +4012,29 @@ function renderLiteratureTraces(traces) {
     </div>`
   )).join('');
   return `<details class="studio-lit-traces" open>
-    <summary>${zh ? '文献检索轨迹' : 'Literature search traces'}</summary>
+    <summary>${zh ? `文献检索 · ${traces.length} 轮` : `Literature · ${traces.length} round(s)`}</summary>
     ${items}
   </details>`;
 }
 
-function renderStudioStage(id, { status, focus, summary, tools, flowEvents, searchTraces }) {
-  const st = status || 'pending';
-  const icon = AGENT_ICONS[id] || 'ri-robot-2-line';
-  const isLive = st === 'running';
-  const ticks = renderStageFlowTicks(flowEvents, isLive);
-  const litTraces = id === 'literature' ? renderLiteratureTraces(searchTraces) : '';
-  return `<div class="studio-stage status-${st}" data-agent="${escapeHtml(id)}">
-    <div class="studio-stage-head">
-      <div class="studio-stage-name"><i class="${icon}"></i> ${agentLabel(id)}</div>
-      <span class="studio-stage-badge ${st}">${statusBadgeLabel(st)}</span>
-    </div>
-    ${focus ? `<div class="studio-stage-focus">${escapeHtml(focus)}</div>` : ''}
-    ${summary ? `<div class="studio-stage-summary">${escapeHtml(summary)}</div>` : ''}
-    ${litTraces}
-    ${ticks}
-  </div>`;
-}
-
-function renderHandoffBlock(h) {
+function renderEventsBlock(events) {
+  if (!events?.length) return '';
   const zh = workflowLang() === 'zh';
-  const n = h.pmid_count || (h.clues || []).length;
-  const from = agentLabel(h.from_agent || 'database');
-  const to = agentLabel(h.to_agent || 'literature');
-  const clues = (h.clues || []).slice(0, 6).map((c) => {
-    const pmid = c.pmid || c;
-    return `<a class="workflow-clue-chip" href="https://pubmed.ncbi.nlm.nih.gov/${escapeHtml(pmid)}/" target="_blank" rel="noopener">PMID:${escapeHtml(pmid)}</a>`;
+  const shown = events.slice(-24);
+  const items = shown.map((ev, i) => {
+    const isLatest = i === shown.length - 1 && currentWorkflowState?.status === 'running';
+    return `<li class="studio-flow-item kind-${escapeHtml(ev.kind || 'phase')}${isLatest ? ' is-live' : ''}">
+      <i class="${flowTickIcon(ev.kind)}"></i>
+      <div>
+        <span>${escapeHtml(ev.message || '')}</span>
+        ${ev.ts ? `<time>${escapeHtml(formatFlowTime(ev.ts))}</time>` : ''}
+      </div>
+    </li>`;
   }).join('');
-  return `<div class="studio-handoff-block">
-    <div class="studio-handoff-label"><i class="ri-arrow-right-circle-line"></i>
-      ${zh ? `${from} → ${to}` : `${from} → ${to}`}
-    </div>
-    <div class="studio-handoff-meta">${zh ? `传递 ${n} 条文献/数据线索` : `${n} data clue(s) handed off`}</div>
-    ${clues ? `<div class="studio-handoff-clues">${clues}</div>` : ''}
-  </div>`;
+  return `<details class="studio-activity-log">
+    <summary>${zh ? `活动日志 · ${events.length} 条` : `Activity log · ${events.length}`}</summary>
+    <ul class="studio-flow-log">${items}</ul>
+  </details>`;
 }
 
 function syncWorkflowSidebar() {
@@ -4012,80 +4042,38 @@ function syncWorkflowSidebar() {
   const titleEl = document.getElementById('workflowSidebarTitle');
   if (!body) return;
 
-  const hasData = currentWorkflowState && (
-    currentWorkflowState.orchestrator?.goal
-    || Object.keys(currentWorkflowState.agents || {}).length
-  );
-
-  if (!hasData) {
-    const zh = workflowLang() === 'zh';
-    body.innerHTML = `<div class="workflow-sidebar-empty">
-      <i class="ri-git-branch-line"></i>
-      <p>${zh ? '单 Agent 调研活动将在此展示（计划、工具、文献）。' : 'Single-agent research activity (plan, tools, literature) appears here.'}</p>
-      <p class="workflow-sidebar-empty-hint">${zh ? '发起研究类问题后，点击消息中的「Agent Studio」打开本面板。' : 'Ask a research question, then click Agent Studio in the message.'}</p>
-    </div>`;
-    if (titleEl) titleEl.textContent = zh ? 'Agent 工作室' : 'Agent Studio';
-    return;
-  }
-
   const zh = workflowLang() === 'zh';
   if (titleEl) titleEl.textContent = zh ? 'Agent 工作室' : 'Agent Studio';
 
-  const allEvents = currentWorkflowState.events || [];
-  const orch = currentWorkflowState.orchestrator;
-  const order = currentWorkflowState.agents.research
-    ? ['research']
-    : ['database', 'literature', 'writer'];
-  let pipeline = '';
+  if (!studioHasData(currentWorkflowState)) {
+    body.innerHTML = `<div class="workflow-sidebar-empty">
+      <i class="ri-git-branch-line"></i>
+      <p>${zh ? '此处展示 Agent 的思考、计划与工作流（阶段、工具、文献）。' : 'Thinking, plan, and workflow (phases, tools, literature) appear here.'}</p>
+      <p class="workflow-sidebar-empty-hint">${zh ? '发起问题后，点击消息中的「Agent Studio」打开本面板。' : 'Ask a question, then open Agent Studio from the message.'}</p>
+    </div>`;
+    return;
+  }
 
-  const orchStatus = orch.status || 'done';
-  pipeline += renderStudioStage('orchestrator', {
-    status: orchStatus,
-    focus: orch.goal || '',
-    summary: orch.reasoning || '',
-    flowEvents: workflowEventsForAgent('orchestrator', allEvents),
-  });
+  const st = currentWorkflowState;
+  const header = `<div class="studio-stage status-${st.status || 'running'}">
+    <div class="studio-stage-head">
+      <div class="studio-stage-name"><i class="ri-robot-2-line"></i> ${zh ? 'Agent 工作流' : 'Agent workflow'}</div>
+      <span class="studio-stage-badge ${st.status || 'running'}">${statusBadgeLabel(st.status || 'running')}</span>
+    </div>
+    ${st.goal ? `<div class="studio-stage-focus">${escapeHtml(st.goal)}</div>` : ''}
+    ${st.currentPhase ? `<div class="studio-stage-summary">${zh ? '当前阶段：' : 'Current phase: '}${escapeHtml(phaseLabel(st.currentPhase))}</div>` : ''}
+  </div>`;
 
-  let handoffIdx = 0;
-  order.forEach((id) => {
-    const agent = currentWorkflowState.agents[id];
-    if (!agent && id !== 'writer') return;
-    if (!agent && id === 'writer' && orchStatus !== 'running' && !currentWorkflowState.agents.database) return;
+  const html = [
+    header,
+    renderStudioSection(zh ? '思考阶段' : 'Thinking phases', 'ri-brain-line', renderPhasesBlock(st.phases, st.currentPhase)),
+    renderStudioSection(zh ? '研究计划' : 'Research plan', 'ri-list-check-3', renderPlanBlock(st.plan)),
+    renderStudioSection(zh ? '工具调用' : 'Tool calls', 'ri-database-2-line', renderToolsBlock(st.tools)),
+    renderStudioSection(zh ? '文献检索' : 'Literature', 'ri-book-open-line', renderLiteratureBlock(st.literature)),
+    renderEventsBlock(st.events),
+  ].filter(Boolean).join('');
 
-    pipeline += studioConnector();
-
-    const handoffsBefore = (currentWorkflowState.handoffs || []).filter(
-      (h) => (h.to_agent || 'literature') === id || (id === 'literature' && h.to_agent === 'literature'),
-    );
-    if (id === 'literature' && handoffIdx < (currentWorkflowState.handoffs || []).length) {
-      const h = currentWorkflowState.handoffs[handoffIdx];
-      if (h && (h.from_agent === 'database' || !h.from_agent)) {
-        pipeline += renderHandoffBlock(h);
-        pipeline += studioConnector();
-        handoffIdx += 1;
-      }
-    }
-
-    if (agent) {
-      pipeline += renderStudioStage(id, {
-        status: agent.status || 'pending',
-        focus: agent.focus || agent.label || '',
-        summary: agent.summary || '',
-        tools: agent.tools || [],
-        flowEvents: workflowEventsForAgent(id, allEvents, agent.tools || []),
-        searchTraces: id === 'literature' ? (agent.searchTraces || []) : [],
-      });
-    } else if (id === 'writer') {
-      pipeline += renderStudioStage(id, {
-        status: 'pending',
-        focus: '',
-        summary: '',
-        flowEvents: workflowEventsForAgent(id, allEvents),
-      });
-    }
-  });
-
-  body.innerHTML = `<div class="studio-pipeline">${pipeline}</div>`;
+  body.innerHTML = `<div class="studio-pipeline studio-single-agent">${html}</div>`;
 
   if (workflowSidebarOpen) {
     body.scrollTop = body.scrollHeight;
@@ -4098,23 +4086,18 @@ function renderWorkflowPanel() {
   const summaryEl = currentActivityTimeline.querySelector('.activity-summary-text');
   const hintEl = currentActivityTimeline.querySelector('.workflow-open-hint');
   const zh = workflowLang() === 'zh';
-
-  const agentCount = Object.keys(currentWorkflowState.agents || {}).length;
-  const handoffCount = (currentWorkflowState.handoffs || []).length;
-  const runningId = Object.keys(currentWorkflowState.agents || {}).find(
-    (k) => currentWorkflowState.agents[k]?.status === 'running',
-  );
-  const running = runningId ? currentWorkflowState.agents[runningId] : null;
+  const st = currentWorkflowState;
 
   if (summaryEl) {
-    if (runningId) {
+    if (st.status === 'running' && st.currentPhase) {
       summaryEl.textContent = zh
-        ? `Agent Studio · ${agentLabel(runningId)} 运行中`
-        : `Agent Studio · ${agentLabel(runningId)} running`;
-    } else if (agentCount) {
+        ? `Agent Studio · ${phaseLabel(st.currentPhase)}`
+        : `Agent Studio · ${phaseLabel(st.currentPhase)}`;
+    } else if (st.tools?.length || st.plan?.steps?.length) {
+      const n = st.tools?.length || 0;
       summaryEl.textContent = zh
-        ? `Agent Studio · ${agentCount} 个 Agent${handoffCount ? ` · ${handoffCount} 次传递` : ''}`
-        : `Agent Studio · ${agentCount} agent(s)${handoffCount ? ` · ${handoffCount} handoff(s)` : ''}`;
+        ? `Agent Studio · ${n ? `${n} 个工具` : '已规划'}`
+        : `Agent Studio · ${n ? `${n} tool(s)` : 'planned'}`;
     } else {
       summaryEl.textContent = 'Agent Studio';
     }
@@ -4122,12 +4105,11 @@ function renderWorkflowPanel() {
   if (hintEl) hintEl.textContent = zh ? '点击查看' : 'View panel';
 
   if (root) {
-    const orch = currentWorkflowState.orchestrator;
     const chips = [];
-    if (orch.goal) chips.push(orch.goal.slice(0, 48) + (orch.goal.length > 48 ? '…' : ''));
-    Object.entries(currentWorkflowState.agents).forEach(([id, a]) => {
-      if (a.status === 'done') chips.push(`${agentLabel(id)} ✓`);
-      else if (a.status === 'running') chips.push(`${agentLabel(id)} …`);
+    if (st.goal) chips.push(st.goal.slice(0, 48) + (st.goal.length > 48 ? '…' : ''));
+    else if (st.currentPhase) chips.push(phaseLabel(st.currentPhase));
+    (st.phases || []).slice(-3).forEach((p) => {
+      if (p.status === 'done') chips.push(`${phaseLabel(p.id, p.label)} ✓`);
     });
     root.innerHTML = chips.length
       ? `<div class="workflow-node-meta" style="padding:4px 12px 10px;font-size:12px">${escapeHtml(chips.join(' · '))}</div>`
@@ -4141,69 +4123,123 @@ function renderWorkflowPanel() {
   syncWorkflowSidebar();
 }
 
+function handlePhaseUpdate(phase, label) {
+  if (!currentWorkflowState) initWorkflowState();
+  const st = currentWorkflowState;
+  st.status = 'running';
+  const prev = st.currentPhase;
+  if (prev && prev !== phase) {
+    const prevItem = st.phases.find((p) => p.id === prev);
+    if (prevItem && prevItem.status === 'running') prevItem.status = 'done';
+  }
+  st.currentPhase = phase || '';
+  let item = st.phases.find((p) => p.id === phase);
+  if (!item) {
+    item = {
+      id: phase,
+      label: label || phaseLabel(phase),
+      status: 'running',
+      ts: Date.now(),
+    };
+    st.phases.push(item);
+  } else {
+    item.status = 'running';
+    item.label = label || item.label || phaseLabel(phase);
+    item.ts = Date.now();
+  }
+  logWorkflowEvent('phase', label || phaseLabel(phase), { phase });
+  renderWorkflowPanel();
+}
+
 function handlePlanCreated(data) {
   if (!currentWorkflowState) initWorkflowState();
-  currentWorkflowState.orchestrator = {
-    status: 'running',
-    goal: data.intent_summary || '',
-    reasoning: '',
-    tasks: (data.steps || []).map((s) => ({
-      agent: 'research',
-      focus: s.title || s.description || '',
-      enabled: true,
+  const summary = data.intent_summary || data.summary || '';
+  currentWorkflowState.goal = summary || currentWorkflowState.goal;
+  currentWorkflowState.status = 'running';
+  currentWorkflowState.plan = {
+    summary,
+    steps: (data.steps || []).map((s, i) => ({
+      step: s.step || i + 1,
+      title: s.title || s.description || `Step ${i + 1}`,
+      description: s.description || '',
+      database: s.database || s.entity || '',
+      status: s.status || 'pending',
     })),
   };
-  currentWorkflowState.agents.research = {
-    status: 'running',
-    focus: data.intent_summary || '',
-    tools: [],
-    label: workflowLang() === 'zh' ? '调研 Agent' : 'Research Agent',
-  };
-  logWorkflowEvent('plan', data.intent_summary || 'Research plan', { agent: 'orchestrator' });
+  logWorkflowEvent('plan', summary || (workflowLang() === 'zh' ? '研究计划已生成' : 'Research plan created'));
   renderWorkflowPanel();
 }
 
 function handleLiteratureSearch(data) {
   if (!currentWorkflowState) initWorkflowState();
-  const litAgent = currentWorkflowState.agents.research ? 'research' : 'literature';
-  currentWorkflowState.agents[litAgent] = {
-    ...(currentWorkflowState.agents[litAgent] || {}),
-    status: currentWorkflowState.agents[litAgent]?.status || 'running',
-    tools: currentWorkflowState.agents[litAgent]?.tools || [],
-    searchTraces: [
-      ...(currentWorkflowState.agents[litAgent]?.searchTraces || []),
-      {
-        round: data.round,
-        query: data.query,
-        papers_found: data.papers_found,
-        elapsed_s: data.elapsed_s,
-      },
-    ],
-  };
+  currentWorkflowState.literature.push({
+    round: data.round,
+    query: data.query,
+    papers_found: data.papers_found,
+    elapsed_s: data.elapsed_s,
+    ts: Date.now(),
+  });
   const zh = workflowLang() === 'zh';
   const msg = zh
-    ? `检索 ${data.round}: ${data.query} (${data.papers_found} 篇, ${data.elapsed_s}s)`
-    : `Search ${data.round}: ${data.query} (${data.papers_found} papers, ${data.elapsed_s}s)`;
-  logWorkflowEvent('literature', msg, { agent: litAgent });
+    ? `文献检索 #${data.round}: ${data.query} (${data.papers_found} 篇, ${data.elapsed_s}s)`
+    : `Literature #${data.round}: ${data.query} (${data.papers_found} papers, ${data.elapsed_s}s)`;
+  logWorkflowEvent('literature', msg);
   renderWorkflowPanel();
 }
 
 function handleWorkflowToolCall(data) {
-  if (!currentWorkflowState) return;
-  const parent = data.parent_agent
-    || (currentWorkflowState.agents.research ? 'research' : 'database');
-  if (!currentWorkflowState.agents[parent]) {
-    currentWorkflowState.agents[parent] = { status: 'running', tools: [] };
-  }
-  currentWorkflowState.agents[parent].tools.push({
+  if (!currentWorkflowState) initWorkflowState();
+  currentWorkflowState.tools.push({
     tool_name: data.tool_name,
-    kind: data.kind,
+    kind: data.kind || 'database',
+    status: 'running',
+    summary: '',
+    ts: Date.now(),
   });
-  logWorkflowEvent('tool', data.tool_name || 'tool', { agent: parent });
+  logWorkflowEvent('tool', data.tool_name || 'tool', { kind: data.kind });
+  renderWorkflowPanel();
+}
+
+function handleWorkflowToolResult(data) {
+  if (!currentWorkflowState) return;
+  const tools = currentWorkflowState.tools || [];
+  let target = null;
+  for (let i = tools.length - 1; i >= 0; i -= 1) {
+    if (tools[i].tool_name === data.tool_name || tools[i].status === 'running') {
+      target = tools[i];
+      break;
+    }
+  }
+  if (target) {
+    target.status = toolResultStatus(data);
+    target.summary = data.summary || target.summary || '';
+    target.error_kind = data.error_kind || '';
+  }
+  if (data.summary) {
+    logWorkflowEvent('tool_result', `${data.tool_name || 'tool'}: ${data.summary}`);
+  }
+  renderWorkflowPanel();
+}
+
+function markWorkflowDone() {
+  if (!currentWorkflowState) return;
+  if (currentWorkflowState.status !== 'error') {
+    currentWorkflowState.status = 'done';
+  }
+  currentWorkflowState.phases.forEach((p) => {
+    if (p.status === 'running') p.status = 'done';
+  });
+  currentWorkflowState.tools.forEach((t) => {
+    if (t.status === 'running') t.status = 'done';
+  });
+  (currentWorkflowState.plan?.steps || []).forEach((s) => {
+    if (s.status === 'pending' || s.status === 'running') s.status = 'done';
+  });
   renderWorkflowPanel();
 }
 
 function setActivityPhase(phase) {
+  // Kept for compatibility with any residual phase-pill UI.
   if (!currentActivityTimeline) return;
   currentActivityTimeline.querySelectorAll('.phase-pill').forEach((pill) => {
     const p = pill.dataset.phase;
@@ -4360,11 +4396,12 @@ function formatArgs(args) {
   return parts.join(', ');
 }
 
-function updateToolIndicator(ind, success, summary) {
-  ind.classList.remove('success', 'error');
-  ind.classList.add(success ? 'success' : 'error');
+function updateToolIndicator(ind, success, summary, errorKind) {
+  const st = toolResultStatus({ success, error_kind: errorKind });
+  ind.classList.remove('success', 'error', 'empty', 'missing');
+  ind.classList.add(st === 'done' ? 'success' : st);
   const status = ind.querySelector('.tool-status');
-  status.textContent = success ? '✓ Done' : '✗ Error';
+  status.textContent = toolStatusLabel(st, errorKind);
   if (summary) {
     const summaryEl = ind.querySelector('.tool-summary');
     if (summaryEl) summaryEl.textContent = summary.substring(0, 120);
@@ -4508,138 +4545,196 @@ async function sendCollectionGuidance(jobId, text, panel) {
 let pendingClarificationState = null;
 
 function initClarificationModal() {
-  const modal = document.getElementById('clarificationModal');
-  if (!modal || modal.dataset.bound === '1') return;
-  modal.dataset.bound = '1';
-
-  modal.querySelector('.clarify-submit-btn')?.addEventListener('click', () => {
-    handleClarificationSubmit(false);
-  });
-  modal.querySelector('.clarify-skip-btn')?.addEventListener('click', () => {
-    handleClarificationSubmit(true);
-  });
-  modal.querySelector('[data-clarify-dismiss]')?.addEventListener('click', () => {
-    pendingClarificationState = null;
-    closeClarificationModal();
-  });
-  modal.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeClarificationModal();
-  });
+  // Clarification is rendered inline in chat (Biomni-style); no modal binding.
 }
 
-function closeClarificationModal() {
-  const modal = document.getElementById('clarificationModal');
-  if (!modal) return;
-  modal.hidden = true;
-  modal.classList.remove('is-open');
-  document.body.classList.remove('clarify-modal-open');
+function normalizeClarifyOptions(rawOptions) {
+  return (rawOptions || []).map((opt) => {
+    if (typeof opt === 'string') return { label: opt, description: '' };
+    return {
+      label: opt.label || opt.value || '',
+      description: opt.description || '',
+      value: opt.value || opt.label || '',
+    };
+  }).filter((o) => o.label);
 }
 
-function showClarificationModal(payload) {
-  const modal = document.getElementById('clarificationModal');
-  if (!modal) return;
+function showInlineClarification(contentDiv, payload) {
+  if (!contentDiv) return;
+  hideContentLoading(contentDiv);
+  hideStreamingCursor(contentDiv);
+  contentDiv.classList.remove('is-loading', 'is-streaming');
 
-  const introEl = modal.querySelector('.clarify-intro');
-  const fieldsEl = modal.querySelector('.clarify-fields');
-  const freeWrap = modal.querySelector('.clarify-free-text');
-  const freeLabel = modal.querySelector('.clarify-free-label');
-  const freeInput = modal.querySelector('.clarify-free-input');
-  const skipBtn = modal.querySelector('.clarify-skip-btn');
-  const submitBtn = modal.querySelector('.clarify-submit-btn');
-  const titleEl = modal.querySelector('.clarify-title');
+  const card = document.createElement('div');
+  card.className = 'clarify-inline-card';
+  card.setAttribute('role', 'form');
+  card.setAttribute('aria-label', 'Research clarification');
 
-  if (introEl) introEl.textContent = payload.intro || '';
-  if (titleEl) {
-    titleEl.textContent = /[\u4e00-\u9fff]/.test(payload.intro || '')
-      ? '补充研究信息'
-      : 'Refine your research';
-  }
-  if (fieldsEl) {
-    fieldsEl.innerHTML = '';
-    (payload.fields || []).forEach((field) => {
-      const section = document.createElement('div');
-      section.className = 'clarify-field';
-      section.dataset.fieldId = field.id;
+  const intro = document.createElement('p');
+  intro.className = 'clarify-inline-intro';
+  intro.textContent = payload.intro || '';
+  card.appendChild(intro);
 
-      const label = document.createElement('div');
-      label.className = 'clarify-field-label';
-      label.textContent = field.label || field.id;
-      section.appendChild(label);
+  const fieldsWrap = document.createElement('div');
+  fieldsWrap.className = 'clarify-inline-fields';
 
-      const opts = document.createElement('div');
-      opts.className = 'clarify-options';
-      const labels = field.options || [];
-      const values = field.option_values || labels;
+  (payload.fields || []).forEach((field, fieldIdx) => {
+    const section = document.createElement('section');
+    section.className = 'clarify-inline-field';
+    section.dataset.fieldId = field.id;
 
-      labels.forEach((optLabel, idx) => {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'clarify-option';
-        btn.textContent = optLabel;
-        btn.dataset.value = values[idx] != null ? values[idx] : optLabel;
-        btn.addEventListener('click', () => {
-          opts.querySelectorAll('.clarify-option').forEach((b) => b.classList.remove('selected'));
-          btn.classList.add('selected');
-          const custom = section.querySelector('.clarify-custom-input');
-          if (custom) custom.value = '';
-        });
-        opts.appendChild(btn);
+    const title = document.createElement('div');
+    title.className = 'clarify-inline-field-title';
+    title.textContent = field.label || field.id;
+    section.appendChild(title);
+
+    if (field.prompt) {
+      const prompt = document.createElement('div');
+      prompt.className = 'clarify-inline-field-prompt';
+      prompt.textContent = field.prompt;
+      section.appendChild(prompt);
+    }
+
+    const opts = document.createElement('div');
+    opts.className = 'clarify-inline-options';
+    const options = normalizeClarifyOptions(field.options);
+    options.forEach((opt, optIdx) => {
+      const id = `clarify-${field.id}-${optIdx}-${Date.now()}`;
+      const row = document.createElement('label');
+      row.className = 'clarify-inline-option';
+      row.htmlFor = id;
+
+      const input = document.createElement('input');
+      input.type = 'radio';
+      input.name = `clarify-field-${field.id}`;
+      input.id = id;
+      input.value = opt.value || opt.label;
+      input.addEventListener('change', () => {
+        opts.querySelectorAll('.clarify-inline-option').forEach((el) => el.classList.remove('selected'));
+        row.classList.add('selected');
+        const custom = section.querySelector('.clarify-inline-custom');
+        if (custom) custom.value = '';
       });
-      section.appendChild(opts);
 
-      if (field.allow_custom) {
-        const input = document.createElement('input');
-        input.type = 'text';
-        input.className = 'clarify-custom-input';
-        input.placeholder = field.placeholder || '';
-        input.addEventListener('input', () => {
-          opts.querySelectorAll('.clarify-option').forEach((b) => b.classList.remove('selected'));
-        });
-        section.appendChild(input);
+      const body = document.createElement('div');
+      body.className = 'clarify-inline-option-body';
+      const name = document.createElement('div');
+      name.className = 'clarify-inline-option-label';
+      name.textContent = opt.label;
+      body.appendChild(name);
+      if (opt.description) {
+        const desc = document.createElement('div');
+        desc.className = 'clarify-inline-option-desc';
+        desc.textContent = opt.description;
+        body.appendChild(desc);
       }
 
-      fieldsEl.appendChild(section);
+      row.appendChild(input);
+      row.appendChild(body);
+      opts.appendChild(row);
     });
-  }
+    section.appendChild(opts);
+
+    if (field.allow_custom) {
+      const otherRow = document.createElement('label');
+      otherRow.className = 'clarify-inline-option clarify-inline-other';
+      const otherInput = document.createElement('input');
+      otherInput.type = 'radio';
+      otherInput.name = `clarify-field-${field.id}`;
+      otherInput.value = '__other__';
+      otherInput.addEventListener('change', () => {
+        opts.querySelectorAll('.clarify-inline-option').forEach((el) => el.classList.remove('selected'));
+        otherRow.classList.add('selected');
+        section.querySelector('.clarify-inline-custom')?.focus();
+      });
+      const otherBody = document.createElement('div');
+      otherBody.className = 'clarify-inline-option-body';
+      otherBody.innerHTML = '<div class="clarify-inline-option-label">Other</div>';
+      otherRow.appendChild(otherInput);
+      otherRow.appendChild(otherBody);
+      opts.appendChild(otherRow);
+
+      const custom = document.createElement('input');
+      custom.type = 'text';
+      custom.className = 'clarify-inline-custom';
+      custom.placeholder = field.placeholder || 'Other…';
+      custom.addEventListener('input', () => {
+        if (custom.value.trim()) {
+          opts.querySelectorAll('input[type="radio"]').forEach((r) => {
+            r.checked = r.value === '__other__';
+          });
+          opts.querySelectorAll('.clarify-inline-option').forEach((el) => el.classList.remove('selected'));
+          otherRow.classList.add('selected');
+        }
+      });
+      section.appendChild(custom);
+    }
+
+    fieldsWrap.appendChild(section);
+    if (fieldIdx < (payload.fields || []).length - 1) {
+      const sep = document.createElement('hr');
+      sep.className = 'clarify-inline-sep';
+      fieldsWrap.appendChild(sep);
+    }
+  });
+  card.appendChild(fieldsWrap);
 
   const ft = payload.free_text || {};
-  if (freeLabel) freeLabel.textContent = ft.label || '';
-  if (freeInput) {
+  if (ft.label || ft.placeholder) {
+    const freeWrap = document.createElement('div');
+    freeWrap.className = 'clarify-inline-free';
+    const freeLabel = document.createElement('div');
+    freeLabel.className = 'clarify-inline-field-title';
+    freeLabel.textContent = ft.label || '';
+    freeWrap.appendChild(freeLabel);
+    const freeInput = document.createElement('textarea');
+    freeInput.className = 'clarify-inline-free-input';
+    freeInput.rows = 2;
     freeInput.placeholder = ft.placeholder || '';
-    freeInput.value = '';
+    freeWrap.appendChild(freeInput);
+    card.appendChild(freeWrap);
   }
-  if (freeWrap) freeWrap.style.display = ft.label || ft.placeholder ? '' : 'none';
 
-  if (skipBtn) skipBtn.textContent = payload.skip_label || 'Skip and run';
-  if (submitBtn) submitBtn.textContent = payload.submit_label || 'Start research';
+  const actions = document.createElement('div');
+  actions.className = 'clarify-inline-actions';
+  const skipBtn = document.createElement('button');
+  skipBtn.type = 'button';
+  skipBtn.className = 'clarify-inline-skip';
+  skipBtn.textContent = payload.skip_label || 'Skip';
+  skipBtn.addEventListener('click', () => handleClarificationSubmit(true));
+  const submitBtn = document.createElement('button');
+  submitBtn.type = 'button';
+  submitBtn.className = 'clarify-inline-submit';
+  submitBtn.innerHTML = `<i class="ri-play-fill"></i> ${escapeHtml(payload.submit_label || 'Submit')}`;
+  submitBtn.addEventListener('click', () => handleClarificationSubmit(false));
+  actions.appendChild(skipBtn);
+  actions.appendChild(submitBtn);
+  card.appendChild(actions);
 
-  modal.hidden = false;
-  modal.classList.add('is-open');
-  document.body.classList.add('clarify-modal-open');
-
-  const firstFocus = modal.querySelector('.clarify-custom-input, .clarify-free-input, .clarify-option');
-  if (firstFocus) firstFocus.focus();
+  contentDiv.innerHTML = '';
+  contentDiv.appendChild(card);
+  chatArea.scrollTop = chatArea.scrollHeight;
 }
 
-function collectClarificationForm() {
-  const modal = document.getElementById('clarificationModal');
+function collectClarificationForm(root) {
+  const card = root || document.querySelector('.clarify-inline-card');
   const selections = {};
-  if (!modal) return { selections, free_text: '' };
+  if (!card) return { selections, free_text: '' };
 
-  modal.querySelectorAll('.clarify-field').forEach((section) => {
+  card.querySelectorAll('.clarify-inline-field').forEach((section) => {
     const fieldId = section.dataset.fieldId;
     if (!fieldId) return;
-    const selected = section.querySelector('.clarify-option.selected');
-    const custom = section.querySelector('.clarify-custom-input');
+    const custom = section.querySelector('.clarify-inline-custom');
     const customVal = custom?.value?.trim() || '';
+    const checked = section.querySelector('input[type="radio"]:checked');
     if (customVal) {
       selections[fieldId] = customVal;
-    } else if (selected) {
-      selections[fieldId] = selected.dataset.value || selected.textContent || '';
+    } else if (checked && checked.value !== '__other__') {
+      selections[fieldId] = checked.value || '';
     }
   });
 
-  const freeText = modal.querySelector('.clarify-free-input')?.value?.trim() || '';
+  const freeText = card.querySelector('.clarify-inline-free-input')?.value?.trim() || '';
   return { selections, free_text: freeText };
 }
 
@@ -4675,11 +4770,19 @@ async function handleClarificationSubmit(skip) {
   const state = pendingClarificationState;
   if (!state || isStreaming) return;
 
+  const host = state.hostContent || document.querySelector('.clarify-inline-card')?.closest('.msg-content');
   const { selections, free_text: freeText } = skip
     ? { selections: {}, free_text: '' }
-    : collectClarificationForm();
+    : collectClarificationForm(host?.querySelector('.clarify-inline-card'));
 
-  closeClarificationModal();
+  // Freeze the clarification card as submitted state
+  const card = host?.querySelector('.clarify-inline-card');
+  if (card) {
+    card.classList.add('is-submitted');
+    card.querySelectorAll('input, textarea, button').forEach((el) => {
+      el.disabled = true;
+    });
+  }
 
   const userLabel = buildClarificationUserLabel(skip, selections, freeText, state.payload);
   addMessage('user', userLabel);
@@ -4769,6 +4872,7 @@ async function executeChatRequest({
       chatArea.scrollTop = chatArea.scrollHeight;
     } else if (currentEvent === 'phase_update') {
       setActivityPhase(data.phase);
+      handlePhaseUpdate(data.phase, data.label);
       showStreamStatus(data.label || 'Working…', '');
       const earlyPhases = ['planning', 'resolving', 'clarifying', 'retrieving_tools'];
       if (earlyPhases.includes(data.phase) || data.phase === 'database') {
@@ -4792,9 +4896,10 @@ async function executeChatRequest({
       showContentLoading(assistantContent, data.label || 'Querying…');
       addToolIndicator(data.tool_name, data.arguments, data.kind);
     } else if (currentEvent === 'tool_result') {
+      handleWorkflowToolResult(data);
       const indicators = currentThinkingTools?.querySelectorAll('.tool-indicator') || [];
       const lastInd = indicators[indicators.length - 1];
-      if (lastInd) updateToolIndicator(lastInd, data.success, data.summary);
+      if (lastInd) updateToolIndicator(lastInd, data.success, data.summary, data.error_kind);
     } else if (currentEvent === 'sources') {
       window.__lastSources = data.citations || [];
       const synthLabel = /[\u4e00-\u9fff]/.test(fullText || message || '')
@@ -4813,10 +4918,13 @@ async function executeChatRequest({
       clarificationPayload = data;
     } else if (currentEvent === 'done') {
       showStreamStatus('');
+      markWorkflowDone();
       collapseThinkingTools();
       collapsePlanPanel();
     } else if (currentEvent === 'error') {
       showStreamStatus('');
+      if (currentWorkflowState) currentWorkflowState.status = 'error';
+      markWorkflowDone();
       hideContentLoading(assistantContent);
       hideStreamingCursor(assistantContent);
       assistantContent.innerHTML = `<p style="color:#c0392b;">${escapeHtml(data.message)}</p>`;
@@ -4825,12 +4933,12 @@ async function executeChatRequest({
   });
 
   if (clarificationPayload) {
-    removeAssistantBubble(assistantContent);
     pendingClarificationState = {
       originalMessage: message,
       payload: clarificationPayload,
+      hostContent: assistantContent,
     };
-    showClarificationModal(clarificationPayload);
+    showInlineClarification(assistantContent, clarificationPayload);
     return { clarification: true };
   }
 

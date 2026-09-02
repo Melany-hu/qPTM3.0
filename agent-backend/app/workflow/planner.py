@@ -735,6 +735,9 @@ def _is_plausible_gene(token: str | None) -> bool:
     # Gene symbols are usually 2+ chars; single letter is almost never a gene query
     if len(t) < 2:
         return False
+    # Residue tokens (S15, Y394, T308…) are never gene symbols.
+    if re.fullmatch(r"[STYKR]\d{2,5}", t):
+        return False
     return bool(re.fullmatch(r"[A-Z][A-Z0-9]{1,14}", t))
 
 
@@ -904,9 +907,19 @@ def parse_query_entities(message: str) -> dict[str, Any]:
                     entities["gene"] = token
                     break
 
-    # Final sanity: never keep stopword genes
+    # Colloquial p53 / Trp53 (case-insensitive) when no better symbol was found
+    mouseish = entities.get("organism") == "mouse" or bool(
+        re.search(r"小鼠|\bmouse\b", message, re.I)
+    )
+    if not entities["gene"] and re.search(r"\b(?:trp53|p53)\b", message, re.I):
+        entities["gene"] = "Trp53" if mouseish else "TP53"
+
+    # Final sanity: never keep stopword / residue “genes”
     if entities["gene"] and not _is_plausible_gene(entities["gene"]):
         entities["gene"] = None
+    # Canonicalize p53 family
+    if entities.get("gene") and entities["gene"].upper() in ("P53", "TP53", "TRP53"):
+        entities["gene"] = "Trp53" if mouseish else "TP53"
 
     return entities
 
@@ -2172,11 +2185,21 @@ def infer_tool_arguments(
     entities: dict[str, Any],
     state: ConversationState | None = None,
 ) -> dict[str, Any]:
-    """Infer tool call arguments from parsed entities (deterministic routing)."""
-    gene = entities.get("gene") or (state.target_gene if state else None)
-    uniprot = entities.get("uniprot_ac") or (state.target_uniprot_ac if state else None)
-    position = entities.get("position") or (state.target_position if state else None)
-    ptm_type = entities.get("ptm_type") or (state.target_ptm_type if state else "phosphorylation")
+    """Infer tool call arguments from parsed entities (deterministic routing).
+
+    ``state`` must be a ConversationState (or None). Passing a string query here
+    is unsupported — put the query into ``entities["query"]`` instead.
+    """
+    # Guard against historical misuse (query str passed as 3rd arg).
+    if state is not None and not hasattr(state, "target_uniprot_ac"):
+        state = None
+
+    gene = entities.get("gene") or (getattr(state, "target_gene", None) if state else None)
+    uniprot = entities.get("uniprot_ac") or (getattr(state, "target_uniprot_ac", None) if state else None)
+    position = entities.get("position") or (getattr(state, "target_position", None) if state else None)
+    ptm_type = entities.get("ptm_type") or (
+        getattr(state, "target_ptm_type", None) if state else None
+    ) or "phosphorylation"
     organism = entities.get("organism", "human")
     query = entities.get("query", "")
 

@@ -18,7 +18,7 @@ if ($envUrl) {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>qPTM | Agent</title>
 <script src="assets/js/include.js"></script>
-<link rel="stylesheet" href="assets/css/agent.css?v=20260831-ts-agent">
+<link rel="stylesheet" href="assets/css/agent.css?v=20260901-resolve-tools">
 
 </head>
 <body class="agent-page">
@@ -129,7 +129,7 @@ if ($envUrl) {
       <div class="workflow-sidebar-body" id="workflowSidebarBody">
         <div class="workflow-sidebar-empty">
           <i class="ri-git-branch-line"></i>
-          <p>单 Agent 调研活动将在此展示（计划、工具调用、文献检索）。</p>
+          <p>此处展示 Agent 的思考、计划与工作流（阶段、工具、文献）。</p>
           <p class="workflow-sidebar-empty-hint">发起问题后，点击消息中的「Agent Studio」或顶部按钮可打开本面板。</p>
         </div>
       </div>
@@ -137,30 +137,11 @@ if ($envUrl) {
   </div><!-- /.agent-main -->
 </div>
 
-<div class="clarify-modal" id="clarificationModal" hidden>
-  <div class="clarify-backdrop" data-clarify-dismiss></div>
-  <div class="clarify-card" role="dialog" aria-modal="true" aria-labelledby="clarifyTitle">
-    <div class="clarify-header">
-      <h2 class="clarify-title" id="clarifyTitle">补充研究信息</h2>
-      <p class="clarify-intro"></p>
-    </div>
-    <div class="clarify-fields"></div>
-    <div class="clarify-free-text">
-      <label class="clarify-free-label"></label>
-      <textarea class="clarify-free-input" rows="2"></textarea>
-    </div>
-    <div class="clarify-actions">
-      <button type="button" class="clarify-skip-btn">跳过，直接执行</button>
-      <button type="button" class="clarify-submit-btn">开始研究</button>
-    </div>
-  </div>
-</div>
-
 <script>
 window.QPTM_AGENT_CONFIG = {
   chatUrl: <?php echo json_encode($BACKEND_URL, JSON_UNESCAPED_SLASHES); ?>
 };
 </script>
-<script src="assets/js/agent.js?v=20260831-ts-agent"></script>
+<script src="assets/js/agent.js?v=20260901-followup-fix"></script>
 </body>
 </html>

@@ -10,6 +10,8 @@ export function getOrCreateSession(sessionId) {
             artifacts: new ArtifactStore(),
             citations: [],
             pendingClarification: null,
+            clarifyRound: 0,
+            deepResearchBrief: null,
             lastMode: "qa",
             turnCount: 0,
         };

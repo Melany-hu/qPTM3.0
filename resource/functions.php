@@ -326,7 +326,6 @@ function showResTable($displayQyeryRes){
 			<td class='col-gene'><span class='result-gene'>".$row['gene']."</span></td>
 			<td class='col-pos'>".$row['pos']."</td>
             <td class='col-mod'>".showModBadge($row['mods'])."</td>
-            <td class='col-pep'>".showPep($row['pep'], $row['mods'])."</td>
             <td class='col-sample'>".displayText($row['sample'])."</td>
             <td class='col-condition'>".displayText($row['samplecondition'])."</td>
             <td class='col-ratio'>".displayDecimal($row['qratio'])."</td>
@@ -334,7 +333,7 @@ function showResTable($displayQyeryRes){
             <td class='col-score'><span class='result-score'>".showPTMscore($row['qptmscore'], $row['fdr'])."</span></td>
 		</tr>
 		<tr class='Detail-line'>
-			<td colspan='11'><div class='detail-loading'><div class='typing-dots' aria-hidden='true'><span></span><span></span><span></span></div>Loading detail...</div></td>
+			<td colspan='10'><div class='detail-loading'><div class='typing-dots' aria-hidden='true'><span></span><span></span><span></span></div>Loading detail...</div></td>
 		</tr>";
 	}
 	return $returnLine;
@@ -536,13 +535,12 @@ function queryAndDisplay($mainQueryInfo, $queryContent){
     		<th class='arrange' value='up' width='7%'>UniProt<i class='arrow ri-arrow-up-down-fill'></i></th>
     		<th class='arrange' value='gene' width='7%'>Gene<i class='arrow ri-arrow-up-down-fill'></i></th>
     		<th class='arrange' value='pos' width='7%'>Position<i class='arrow ri-arrow-up-down-fill'></i></th>
-            <th class='arrange' value='mods' width='11%'>Modification<i class='arrow ri-arrow-up-down-fill'></i></th>
-    		<th class='arrange' value='pep' width='14%'>SequenceWindow<i class='arrow ri-arrow-up-down-fill'></i></th>
-    		<th class='arrange' value='sample' width='9%'>Sample<i class='arrow ri-arrow-up-down-fill'></i></th>       		
-    		<th class='arrange' value='samplecondition' width='12%'>Condition<i class='arrow ri-arrow-up-down-fill'></i></th>       		
-            <th class='arrange' value='qratio' width='8%'>Log2Ratio<i class='arrow ri-arrow-up-down-fill'></i></th>
-    		<th class='arrange' value='pvalue' width='8%'><i>P</i>&nbspvalue<i class='arrow ri-arrow-up-down-fill'></i></th>
-    		<th class='arrange' value='qptmscore' width='10%'>Reliability<i class='arrow ri-arrow-up-down-fill'></i></th>
+            <th class='arrange' value='mods' width='12%'>Modification<i class='arrow ri-arrow-up-down-fill'></i></th>
+    		<th class='arrange' value='sample' width='12%'>Sample<i class='arrow ri-arrow-up-down-fill'></i></th>       		
+    		<th class='arrange' value='samplecondition' width='14%'>Condition<i class='arrow ri-arrow-up-down-fill'></i></th>       		
+            <th class='arrange' value='qratio' width='9%'>Log2Ratio<i class='arrow ri-arrow-up-down-fill'></i></th>
+    		<th class='arrange' value='pvalue' width='9%'><i>P</i>&nbspvalue<i class='arrow ri-arrow-up-down-fill'></i></th>
+    		<th class='arrange' value='qptmscore' width='12%'>Reliability <a href='help.html#help-reliability' class='th-help-link' title='About reliability scoring' aria-label='About reliability scoring'><i class='ri-error-warning-line'></i></a><i class='arrow ri-arrow-up-down-fill'></i></th>
 		</tr></thead>
 		<thead class='table-light table-sm'><tr>
 			<th><div class='form-control form-control-sm border-0'><i class='ri-search-line'></i></div></th>
@@ -550,7 +548,6 @@ function queryAndDisplay($mainQueryInfo, $queryContent){
             <th><input class='search-line form-control form-control-sm' type='text' name='gene'></th>
             <th><input class='search-line form-control form-control-sm' type='text' name='pos'></th>
             <th><input class='search-line form-control form-control-sm' type='text' name='mods'></th>
-            <th><input class='search-line form-control form-control-sm' type='text' name='pep'></th>
             <th><input class='search-line form-control form-control-sm' type='text' name='sample'></th>
             <th><input class='search-line form-control form-control-sm' type='text' name='samplecondition'></th>
             <th><input class='search-line form-control form-control-sm' type='text' name='qratio'></th>
@@ -659,7 +656,7 @@ function formatPtmResourceSource($source){
 	$map = array(
 		'phosphositeplus' => array('PhosphoSitePlus', 'https://www.phosphosite.org'),
 		'dbptm' => array('dbPTM', 'https://biomics.lab.nycu.edu.tw/dbPTM/'),
-		'ptmatlas' => array('PTMAtlas', 'https://db.systemsbiology.net/sbeams/cgi/PeptideAtlas/GetPTMSites'),
+		'ptmatlas' => array('PTMAtlas', 'https://deepmvp.ptmax.org/'),
 		'cplm' => array('CPLM', 'http://cplm.biocuckoo.cn/'),
 		'uniprot' => array('UniProt', 'https://www.uniprot.org/'),
 		'glycositeatlas' => array('GlycositeAtlas', 'http://nglycositeatlas.biomarkercenter.org/'),
@@ -1350,33 +1347,12 @@ function displayUbiBrowserTable($uniprot){
 
 /**
  * Protein-level GPS-Uber (by substrate UniProt) + UbiBrowser E3/DUB evidence as one Experimental table.
+ * Pass precomputed $rows from collectUbExperimentalRows() to avoid a second lookup.
  */
-function displayUbExperimentalTable($uniprot){
-	$rows = array();
-
-	foreach(lookupGpsUberE3BySubstrate($uniprot) as $r){
-		$cls = ($r['class'] !== '' && $r['class'] !== 'unclassified') ? $r['class'] : '-';
-		$rows[] = array(
-			'type' => 'E3',
-			'gene' => $r['gene'],
-			'class' => $cls,
-			'pmids' => $r['pmids'],
-			'pmid_raw' => '',
-			'source' => "<a href='http://gpsuber.biocuckoo.cn/' target='_blank' rel='noopener'>GPS-Uber</a>",
-		);
+function displayUbExperimentalTable($uniprot, $rows = null){
+	if($rows === null){
+		$rows = collectUbExperimentalRows($uniprot);
 	}
-
-	foreach(lookupUbiBrowserInteractions($uniprot, 50) as $r){
-		$rows[] = array(
-			'type' => ($r['enzyme_type'] !== '' ? $r['enzyme_type'] : '-'),
-			'gene' => ($r['enzyme_gene'] !== '' ? $r['enzyme_gene'] : '-'),
-			'class' => ($r['family'] !== '' ? $r['family'] : '-'),
-			'pmids' => array(),
-			'pmid_raw' => isset($r['pmid']) ? (string)$r['pmid'] : '',
-			'source' => "<a href='http://ubibrowser.bio-it.cn/ubibrowser_v3/home/index' target='_blank' rel='noopener'>UbiBrowser</a>",
-		);
-	}
-
 	if(!$rows){
 		return '-';
 	}
@@ -1531,6 +1507,135 @@ function detailExpandAction($hasContent, $mode = 'table'){
 	return "<td class='detail-action'><button type='button' class='detail-toggle ".$class."' aria-label='".$label."'><i class='ri-add-circle-fill'></i></button></td>";
 }
 
+/** Count valid enzyme annotation chunks (pipe-separated). */
+function countEnzymeChunks($enzymeInfo){
+	$n = 0;
+	foreach(array_filter(array_map('trim', explode('|', (string)$enzymeInfo)), 'strlen') as $chunk){
+		$p = parseEnzymeChunk($chunk);
+		if($p['label'] !== '' || $p['gene'] !== ''){
+			$n++;
+		}
+	}
+	return $n;
+}
+
+function detailCountHtml($count){
+	return "<br><span class='detail-count'>(Count: ".(int)$count.")</span>";
+}
+
+/**
+ * One external-database chip link.
+ */
+function extLinkChip($label, $url){
+	$label = htmlspecialchars((string)$label, ENT_QUOTES, 'UTF-8');
+	$url = htmlspecialchars((string)$url, ENT_QUOTES, 'UTF-8');
+	return "<a class='ext-link-chip' href='".$url."' target='_blank' rel='noopener'>".$label."</a>";
+}
+
+/**
+ * External links panel (Protein information), grouped by research aspect.
+ */
+function buildExternalLinksHtml($uniprot, $geneName){
+	$up = preg_replace('/-\d+$/', '', trim((string)$uniprot));
+	$gene = primaryGeneSymbol($geneName);
+	$upQ = $up !== '' ? rawurlencode($up) : '';
+	$geneQ = $gene !== '' ? rawurlencode($gene) : $upQ;
+	$searchQ = $geneQ !== '' ? $geneQ : $upQ;
+
+	$groups = array(
+		'Protein' => array(
+			array('UniProt', $up !== '' ? 'https://www.uniprot.org/uniprotkb/'.$up : 'https://www.uniprot.org'),
+			array('AlphaFold DB', $up !== '' ? 'https://alphafold.ebi.ac.uk/entry/'.$up : 'https://alphafold.ebi.ac.uk'),
+			array('PDB', $up !== '' ? 'https://www.ebi.ac.uk/pdbe/pdbe-kb/proteins/'.$up : 'https://www.rcsb.org'),
+			array('ProteomeXchange', $searchQ !== '' ? 'https://proteomecentral.proteomexchange.org/cgi/GetDataset?search='.$searchQ : 'https://www.proteomexchange.org/'),
+			array('CPTAC', 'https://proteomics.cancer.gov/programs/cptac'),
+		),
+		'PTM' => array(
+			array('qPTM', $up !== '' ? 'result.php?type=browse&tag=up&keyword='.rawurlencode($up) : 'index.php'),
+			array('PhosphoSitePlus', $searchQ !== '' ? 'https://www.phosphosite.org/simpleSearchSubmitAction.action?searchStr='.$searchQ : 'https://www.phosphosite.org'),
+			array('dbPTM', 'https://biomics.lab.nycu.edu.tw/dbPTM/'),
+			array('CPLM', 'http://cplm.biocuckoo.cn/'),
+			array('PTMAtlas', 'https://deepmvp.ptmax.org/'),
+		),
+		'Regulators' => array(
+			array('eKPI', 'https://ekpi.omicsbio.info/'),
+			array('GPS 6.0', 'https://gps.biocuckoo.cn'),
+			array('GPS-Uber', 'http://gpsuber.biocuckoo.cn/'),
+			array('iPTMnet', $up !== '' ? 'https://research.bioinformatics.udel.edu/iptmnet/entry/'.$up : 'https://research.bioinformatics.udel.edu/iptmnet/'),
+			array('UbiBrowser', 'http://ubibrowser.bio-it.cn/ubibrowser_v3/home/index'),
+		),
+		'Interaction' => array(
+			array('PTMint', 'https://ptmint.sjtu.edu.cn/'),
+			array('PTMcode2', 'http://ptmcode.embl.de'),
+			array('IntAct', $up !== '' ? 'https://www.ebi.ac.uk/intact/search?query='.$upQ : 'https://www.ebi.ac.uk/intact'),
+			array('BioGRID', $searchQ !== '' ? 'https://thebiogrid.org/search.php?search='.$searchQ.'&organism=all' : 'https://thebiogrid.org'),
+			array('STRING', $up !== '' ? 'https://string-db.org/cgi/network?identifiers='.$upQ : 'https://string-db.org'),
+		),
+		'Function' => array(
+			array('GO', $up !== '' ? 'https://www.ebi.ac.uk/QuickGO/annotations?geneProductId='.$upQ : 'https://www.ebi.ac.uk/QuickGO/'),
+			array('KEGG', $searchQ !== '' ? 'https://www.kegg.jp/kegg-bin/search_organism_menu?org_name=hsa&keyword='.$searchQ : 'https://www.kegg.jp'),
+			array('PathBank', $searchQ !== '' ? 'https://pathbank.org/#search?query='.$searchQ : 'https://pathbank.org'),
+			array('Reactome', $up !== '' ? 'https://reactome.org/content/query?q='.$upQ.'&types=Protein' : 'https://reactome.org'),
+			array('FunscoR', 'https://evocellnet.github.io/funscoR/'),
+		),
+		'Disease and drug' => array(
+			array('PTMD', 'https://ptmd.biocuckoo.cn/'),
+			array('ActiveDriverDB', $gene !== '' ? 'https://activedriverdb.org/gene/'.$gene.'/' : ($up !== '' ? 'https://activedriverdb.org/protein/'.$up.'/' : 'https://activedriverdb.org')),
+			array('CancerProteome', 'http://bio-bigdata.hrbmu.edu.cn/CancerProteome'),
+			array('PMADS', 'https://pmads-db.org'),
+		),
+		'Compartment' => array(
+			array('HPA', $gene !== '' ? 'https://www.proteinatlas.org/search/'.$geneQ : 'https://www.proteinatlas.org'),
+			array('OpenCell', 'https://opencell.czbiohub.org/'),
+			array('iNuLoC', 'http://inuloc.omicsbio.info/'),
+			array('PTMPhaSe', 'https://ptmphase.sjtu.edu.cn'),
+			array('SubCELL', 'https://subcell.idrblab.cn/'),
+		),
+	);
+
+	$html = "<div class='ext-links'>";
+	foreach($groups as $cat => $links){
+		$html .= "<div class='ext-links-row'>";
+		$html .= "<span class='ext-links-cat'>".htmlspecialchars($cat, ENT_QUOTES, 'UTF-8')."</span>";
+		$html .= "<span class='ext-links-chips'>";
+		foreach($links as $item){
+			$html .= extLinkChip($item[0], $item[1]);
+		}
+		$html .= "</span></div>";
+	}
+	$html .= "</div>";
+	return $html;
+}
+
+/**
+ * Collect Ub Experimental rows (GPS-Uber + UbiBrowser) for a substrate UniProt.
+ */
+function collectUbExperimentalRows($uniprot){
+	$rows = array();
+	foreach(lookupGpsUberE3BySubstrate($uniprot) as $r){
+		$cls = ($r['class'] !== '' && $r['class'] !== 'unclassified') ? $r['class'] : '-';
+		$rows[] = array(
+			'type' => 'E3',
+			'gene' => $r['gene'],
+			'class' => $cls,
+			'pmids' => $r['pmids'],
+			'pmid_raw' => '',
+			'source' => "<a href='http://gpsuber.biocuckoo.cn/' target='_blank' rel='noopener'>GPS-Uber</a>",
+		);
+	}
+	foreach(lookupUbiBrowserInteractions($uniprot, 50) as $r){
+		$rows[] = array(
+			'type' => ($r['enzyme_type'] !== '' ? $r['enzyme_type'] : '-'),
+			'gene' => ($r['enzyme_gene'] !== '' ? $r['enzyme_gene'] : '-'),
+			'class' => ($r['family'] !== '' ? $r['family'] : '-'),
+			'pmids' => array(),
+			'pmid_raw' => isset($r['pmid']) ? (string)$r['pmid'] : '',
+			'source' => "<a href='http://ubibrowser.bio-it.cn/ubibrowser_v3/home/index' target='_blank' rel='noopener'>UbiBrowser</a>",
+		);
+	}
+	return $rows;
+}
+
 function buildEkpiPlaceholder($uniprot, $pos, $line){
 	$up = htmlspecialchars($uniprot, ENT_QUOTES, 'UTF-8');
 	$ps = htmlspecialchars((string)$pos, ENT_QUOTES, 'UTF-8');
@@ -1538,7 +1643,7 @@ function buildEkpiPlaceholder($uniprot, $pos, $line){
 	return "<div class='ekpi-quant-block' data-up='".$up."' data-pos='".$ps."' data-line='".$ln."' data-loaded='0'>"
 		."<div class='ekpi-quant-status text-muted'>Open this tab to load inferred correlations…</div>"
 		."<div class='ekpi-quant-table-wrap'></div>"
-		."<div class='ekpi-quant-note text-muted' style='display:none'>Source: <a href='https://ekpi.omicsbio.info/' target='_blank' rel='noopener'>eKPI</a> — top kinase–site Spearman correlations from cancer multi-omics datasets.</div>"
+		."<div class='ekpi-quant-note text-muted' style='display:none'>Source: <a href='https://ekpi.omicsbio.info/' target='_blank' rel='noopener'>eKPI</a>--Inferring kinase–phosphosite regulation from phosphoproteome-enriched cancer multi-omics datasets. (listed top 10 kinase–phosphosite pairs)</div>"
 		."</div>";
 }
 
@@ -1859,6 +1964,36 @@ function propValueAtPosition($csv, $pos){
 	return trim($parts[$idx]);
 }
 
+/**
+ * Build ±$flank sequence window around a 1-based site position.
+ * Missing terminal residues are padded with '_'.
+ */
+function buildSequenceWindowHtml($sequence, $pos, $flank = 7){
+	$sequence = (string)$sequence;
+	$pos = intval($pos);
+	$flank = max(0, intval($flank));
+	$len = strlen($sequence);
+	if($pos < 1 || $len === 0 || $pos > $len){
+		return '';
+	}
+	$start = $pos - $flank; // 1-based
+	$end = $pos + $flank;
+	$left = '';
+	$center = $sequence[$pos - 1];
+	$right = '';
+	for($i = $start; $i < $pos; $i++){
+		$left .= ($i >= 1 && $i <= $len) ? $sequence[$i - 1] : '_';
+	}
+	for($i = $pos + 1; $i <= $end; $i++){
+		$right .= ($i >= 1 && $i <= $len) ? $sequence[$i - 1] : '_';
+	}
+	return "<span class='site-context-window couriernew'>"
+		.htmlspecialchars($left, ENT_QUOTES, 'UTF-8')
+		."<span class='site-context-res'>".htmlspecialchars($center, ENT_QUOTES, 'UTF-8')."</span>"
+		.htmlspecialchars($right, ENT_QUOTES, 'UTF-8')
+		."</span>";
+}
+
 function describeSecondStructure($code){
 	$map = array(
 		'A' => 'Alpha-helix',
@@ -1915,10 +2050,18 @@ function buildSiteContextHtml($upi, $psite){
 
 	$posLabel = $pos > 0 ? (string)$pos : '-';
 	$aa = '';
-	if($pos > 0 && isset($upi['Sequence']) && $upi['Sequence'] !== '' && $pos <= strlen($upi['Sequence'])){
-		$aa = $upi['Sequence'][$pos - 1];
+	$seq = isset($upi['Sequence']) ? (string)$upi['Sequence'] : '';
+	if($pos > 0 && $seq !== '' && $pos <= strlen($seq)){
+		$aa = $seq[$pos - 1];
 	}
-	$posHtml = "<div class='site-context-pos'><span class='site-context-pos-label'>Site</span><span class='site-context-pos-value'>".($aa !== '' ? htmlspecialchars($aa).$posLabel : $posLabel)."</span></div>";
+	$windowHtml = ($seq !== '' && $pos > 0) ? buildSequenceWindowHtml($seq, $pos, 7) : '';
+	$posHtml = "<div class='site-context-pos'>"
+		."<span class='site-context-pos-label'>Site</span>"
+		."<span class='site-context-pos-value'>".($aa !== '' ? htmlspecialchars($aa).$posLabel : $posLabel)."</span>";
+	if($windowHtml !== ''){
+		$posHtml .= "<span class='site-context-pos-label'>Sequence window</span>".$windowHtml;
+	}
+	$posHtml .= "</div>";
 
 	$row1 = array(
 		array('Disorder', $fmtNum($disorder)),
@@ -1969,6 +2112,258 @@ function displayDecimal($value, $decimals = 2){
 	return $value;
 }
 
+/*------ Regulation: helpers & tables ------*/
+function parsePmidList($raw){
+	$pmids = array();
+	foreach(preg_split('/[|;,\s]+/', (string)$raw) as $p){
+		$p = trim($p);
+		if($p !== '' && ctype_digit($p)){
+			$pmids[] = $p;
+		}
+	}
+	return array_values(array_unique($pmids));
+}
+
+function displayDashOrText($value){
+	$value = trim((string)$value);
+	if($value === '' || strcasecmp($value, 'none') === 0 || strcasecmp($value, 'na') === 0 || $value === '-'){
+		return '-';
+	}
+	return htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
+}
+
+function displayFuncscoreHtml($score){
+	if($score === null || !is_numeric($score)){
+		return '-';
+	}
+	$score = (float)$score;
+	$pct = max(0, min(100, (int)round($score * 100)));
+	$label = number_format($score, 3, '.', '');
+	$level = 'low';
+	if($score >= 0.7){
+		$level = 'high';
+	}elseif($score >= 0.4){
+		$level = 'mid';
+	}
+	return "<div class='funcscore-wrap'>"
+		."<span class='funcscore-value funcscore-".$level."'>".$label."</span>"
+		."<span class='funcscore-bar' title='Functional score ".$label."'><span class='funcscore-bar-fill' style='width:".$pct."%'></span></span>"
+		."<span class='funcscore-note'>higher is more likely functional</span>"
+		."</div>";
+}
+
+function displayPspRegulatoryTable($rows){
+	if(!$rows){
+		return '-';
+	}
+	$html = "<div class='detail-table-scroll hide-more'><table class='table table-bordered hide-table enzyme-annot-table'><thead class='thead-dark'>"
+		."<tr><th>On function</th><th>On process</th><th>PMID</th><th>Source</th></tr>"
+		."</thead><tbody>";
+	$src = "<a href='https://www.phosphosite.org' target='_blank' rel='noopener'>PhosphoSitePlus</a>";
+	foreach($rows as $r){
+		$fn = displayDashOrText(isset($r['on_function']) ? $r['on_function'] : '');
+		$proc = displayDashOrText(isset($r['on_process']) ? $r['on_process'] : '');
+		$pmidHtml = formatPmidLinks(parsePmidList(isset($r['pmids']) ? $r['pmids'] : ''));
+		$html .= "<tr><td>".$fn."</td><td>".$proc."</td><td>".$pmidHtml."</td><td>".$src."</td></tr>";
+	}
+	$html .= "</tbody></table></div>";
+	return $html;
+}
+
+function displayPtmintTable($rows){
+	if(!$rows){
+		return '-';
+	}
+	$html = "<div class='detail-table-scroll hide-more'><table class='table table-bordered hide-table enzyme-annot-table'><thead class='thead-dark'>"
+		."<tr><th>Effect</th><th>Partner</th><th>Disease</th><th>Method</th><th>PMID</th><th>Source</th></tr>"
+		."</thead><tbody>";
+	$src = "<a href='https://ptmint.sjtu.edu.cn/' target='_blank' rel='noopener'>PTMint</a>";
+	foreach($rows as $r){
+		$partnerGene = trim((string)(isset($r['int_gene']) ? $r['int_gene'] : ''));
+		$partnerUp = trim((string)(isset($r['int_uniprot']) ? $r['int_uniprot'] : ''));
+		if($partnerGene !== '' && $partnerUp !== ''){
+			$partner = htmlspecialchars($partnerGene, ENT_QUOTES, 'UTF-8')
+				." (<a href='https://www.uniprot.org/uniprot/".htmlspecialchars($partnerUp, ENT_QUOTES, 'UTF-8')."' target='_blank' rel='noopener'>"
+				.htmlspecialchars($partnerUp, ENT_QUOTES, 'UTF-8')."</a>)";
+		}elseif($partnerGene !== ''){
+			$partner = htmlspecialchars($partnerGene, ENT_QUOTES, 'UTF-8');
+		}elseif($partnerUp !== ''){
+			$partner = "<a href='https://www.uniprot.org/uniprot/".htmlspecialchars($partnerUp, ENT_QUOTES, 'UTF-8')."' target='_blank' rel='noopener'>"
+				.htmlspecialchars($partnerUp, ENT_QUOTES, 'UTF-8')."</a>";
+		}else{
+			$partner = '-';
+		}
+		$effectRaw = trim((string)(isset($r['effect']) ? $r['effect'] : ''));
+		$effectClass = 'reg-effect-other';
+		if(stripos($effectRaw, 'enhance') !== false || stripos($effectRaw, 'promot') !== false){
+			$effectClass = 'reg-effect-up';
+		}elseif(stripos($effectRaw, 'inhibit') !== false || stripos($effectRaw, 'decreas') !== false){
+			$effectClass = 'reg-effect-down';
+		}
+		$effect = $effectRaw !== ''
+			? "<span class='reg-effect ".$effectClass."'>".htmlspecialchars($effectRaw, ENT_QUOTES, 'UTF-8')."</span>"
+			: '-';
+		$method = displayDashOrText(isset($r['method']) ? $r['method'] : '');
+		$disease = displayDashOrText(isset($r['disease']) ? $r['disease'] : '');
+		$pmidHtml = formatPmidLinks(parsePmidList(isset($r['pmid']) ? $r['pmid'] : ''));
+		$html .= "<tr><td>".$effect."</td><td>".$partner."</td><td>".$disease."</td><td>".$method."</td><td>".$pmidHtml."</td><td>".$src."</td></tr>";
+	}
+	$html .= "</tbody></table></div>";
+	return $html;
+}
+
+function displayPtmphaseTable($rows){
+	if(!$rows){
+		return '-';
+	}
+	$html = "<div class='detail-table-scroll hide-more'><table class='table table-bordered hide-table enzyme-annot-table'><thead class='thead-dark'>"
+		."<tr><th>Effect</th><th>LLPS partners</th><th>Regions</th><th>MLOs</th><th>Disease</th><th>Method</th><th>PMID</th><th>Source</th></tr>"
+		."</thead><tbody>";
+	$src = "<a href='https://ptmphase.sjtu.edu.cn' target='_blank' rel='noopener'>PTMPhaSe</a>";
+	foreach($rows as $r){
+		$effectRaw = trim((string)(isset($r['effect']) ? $r['effect'] : ''));
+		$effectClass = 'reg-effect-other';
+		if(stripos($effectRaw, 'promot') !== false || stripos($effectRaw, 'enhance') !== false){
+			$effectClass = 'reg-effect-up';
+		}elseif(stripos($effectRaw, 'inhibit') !== false || stripos($effectRaw, 'repress') !== false){
+			$effectClass = 'reg-effect-down';
+		}
+		$effect = $effectRaw !== ''
+			? "<span class='reg-effect ".$effectClass."'>".htmlspecialchars($effectRaw, ENT_QUOTES, 'UTF-8')."</span>"
+			: '-';
+		$partners = displayDashOrText(isset($r['llps_partners']) ? $r['llps_partners'] : '');
+		$regions = displayDashOrText(isset($r['llps_regions']) ? $r['llps_regions'] : '');
+		$mlos = displayDashOrText(isset($r['mlos']) ? $r['mlos'] : '');
+		$method = displayDashOrText(isset($r['methods']) ? $r['methods'] : '');
+		$disease = displayDashOrText(isset($r['diseases']) ? $r['diseases'] : '');
+		$pmidHtml = formatPmidLinks(parsePmidList(isset($r['pmid']) ? $r['pmid'] : ''));
+		$html .= "<tr><td>".$effect."</td><td>".$partners."</td><td>".$regions."</td><td>".$mlos."</td><td>".$disease."</td><td>".$method."</td><td>".$pmidHtml."</td><td>".$src."</td></tr>";
+	}
+	$html .= "</tbody></table></div>";
+	return $html;
+}
+
+function ptmcodeEvidenceLabels($row){
+	$labels = array();
+	if(!empty($row['manual']) && (string)$row['manual'] !== '0'){
+		$labels[] = 'Manual';
+	}
+	if(!empty($row['structure']) && (string)$row['structure'] !== '0'){
+		$labels[] = 'Structure';
+	}
+	if(!empty($row['same_residue']) && (string)$row['same_residue'] !== '0'){
+		$labels[] = 'Same residue';
+	}
+	if(!empty($row['coevolution']) && (string)$row['coevolution'] !== '0'){
+		$labels[] = 'Coevolution';
+	}
+	return $labels ? implode('; ', $labels) : '-';
+}
+
+function displayPtmcodeTable($withinRows, $betweenRows){
+	$rows = array();
+	foreach($withinRows as $r){
+		$rows[] = $r;
+	}
+	foreach($betweenRows as $r){
+		$rows[] = $r;
+	}
+	if(!$rows){
+		return '-';
+	}
+	$html = "<div class='detail-table-scroll hide-more'><table class='table table-bordered hide-table enzyme-annot-table'><thead class='thead-dark'>"
+		."<tr><th>Scope</th><th>Site A</th><th>Site B</th><th>Partner gene</th><th>Evidence</th><th>Source</th></tr>"
+		."</thead><tbody>";
+	$src = "<a href='http://ptmcode.embl.de' target='_blank' rel='noopener'>PTMcode2</a>";
+	foreach($rows as $r){
+		$scope = (isset($r['_scope']) && $r['_scope'] === 'between') ? 'Between proteins' : 'Within protein';
+		$siteA = trim((string)(isset($r['residue1']) ? $r['residue1'] : ''));
+		$ptm1 = trim((string)(isset($r['ptm1']) ? $r['ptm1'] : ''));
+		if($siteA === '' && isset($r['position1'])){
+			$siteA = (string)$r['position1'];
+		}
+		$siteALabel = htmlspecialchars(trim($siteA.($ptm1 !== '' ? ' ('.$ptm1.')' : '')), ENT_QUOTES, 'UTF-8');
+		$siteB = trim((string)(isset($r['residue2']) ? $r['residue2'] : ''));
+		$ptm2 = trim((string)(isset($r['ptm2']) ? $r['ptm2'] : ''));
+		if($siteB === '' && isset($r['position2'])){
+			$siteB = (string)$r['position2'];
+		}
+		$siteBLabel = htmlspecialchars(trim($siteB.($ptm2 !== '' ? ' ('.$ptm2.')' : '')), ENT_QUOTES, 'UTF-8');
+		$partner = '-';
+		if(isset($r['_scope']) && $r['_scope'] === 'between'){
+			$g1 = trim((string)(isset($r['gene1']) ? $r['gene1'] : ''));
+			$g2 = trim((string)(isset($r['gene2']) ? $r['gene2'] : ''));
+			$partner = htmlspecialchars(($g1 !== '' && $g2 !== '') ? ($g1.' ↔ '.$g2) : ($g1 !== '' ? $g1 : $g2), ENT_QUOTES, 'UTF-8');
+			if($partner === ''){
+				$partner = '-';
+			}
+		}else{
+			$partner = htmlspecialchars(isset($r['gene']) ? $r['gene'] : '-', ENT_QUOTES, 'UTF-8');
+		}
+		$evidence = htmlspecialchars(ptmcodeEvidenceLabels($r), ENT_QUOTES, 'UTF-8');
+		$html .= "<tr><td>".$scope."</td><td>".$siteALabel."</td><td>".$siteBLabel."</td><td>".$partner."</td><td>".$evidence."</td><td>".$src."</td></tr>";
+	}
+	$html .= "</tbody></table></div>";
+	return $html;
+}
+
+/**
+ * Build Regulation detail section HTML for a site.
+ * Returns array(html, has_any)
+ */
+function buildRegulationSection($uniprot, $psite, $geneName, $line, $ptmdRows = array()){
+	$pspRows = lookupPspRegulatory($uniprot, $psite);
+	$ptmintRows = lookupPtmintPpi($uniprot, $psite);
+	$llpsRows = lookupPtmphaseLlps($uniprot, $psite);
+	$gene = primaryGeneSymbol($geneName);
+	if($gene === '' && $pspRows){
+		$gene = primaryGeneSymbol(isset($pspRows[0]['gene']) ? $pspRows[0]['gene'] : '');
+	}
+	if($gene === '' && $ptmintRows){
+		$gene = primaryGeneSymbol(isset($ptmintRows[0]['gene']) ? $ptmintRows[0]['gene'] : '');
+	}
+	$withinRows = $gene !== '' ? lookupPtmcodeWithin($gene, $psite) : array();
+	$betweenRows = $gene !== '' ? lookupPtmcodeBetween($gene, $psite) : array();
+	$funcScore = lookupFuncscore($uniprot, $psite);
+
+	if(!is_array($ptmdRows)){
+		$ptmdRows = array();
+	}
+	$ptmdCount = count($ptmdRows);
+	$ptmdHas = ($ptmdCount > 0);
+
+	$pspHas = count($pspRows) > 0;
+	$ptmintHas = count($ptmintRows) > 0;
+	$llpsHas = count($llpsRows) > 0;
+	$crosstalkHas = (count($withinRows) + count($betweenRows)) > 0;
+	$scoreHas = ($funcScore !== null);
+
+	$pspHtml = $pspHas ? displayPspRegulatoryTable($pspRows) : '-';
+	$ptmintHtml = $ptmintHas ? displayPtmintTable($ptmintRows) : '-';
+	$llpsHtml = $llpsHas ? displayPtmphaseTable($llpsRows) : '-';
+	$crosstalkHtml = $crosstalkHas ? displayPtmcodeTable($withinRows, $betweenRows) : '-';
+	$scoreHtml = displayFuncscoreHtml($funcScore);
+	$ptmdHtml = $ptmdHas ? displayPTMD($ptmdRows) : '-';
+
+	$html = "<div class='more-info detail-section' id='div-reg-".$line."' style='display:none'>
+		<table class='detail-table detail-table-actions'>
+		<tbody>
+			<tr><td>Functional score<br><span class='detail-count'>(Predicted, Ochoa et al.)</span></td><td class='detail-rich'>".$scoreHtml."</td><td class='detail-action'></td></tr>
+			<tr><td>Disease and variants<br><span class='detail-count'>(Count: ".$ptmdCount.")</span></td><td class='detail-rich'>".$ptmdHtml."</td>".detailExpandAction($ptmdHas)."</tr>
+			<tr><td>Molecular effects<br><span class='detail-count'>(Count: ".count($pspRows).")</span></td><td class='detail-rich'>".$pspHtml."</td>".detailExpandAction($pspHas)."</tr>
+			<tr><td>Interaction effects<br><span class='detail-count'>(Count: ".count($ptmintRows).")</span></td><td class='detail-rich'>".$ptmintHtml."</td>".detailExpandAction($ptmintHas)."</tr>
+			<tr><td>Phase separation<br><span class='detail-count'>(Count: ".count($llpsRows).")</span></td><td class='detail-rich'>".$llpsHtml."</td>".detailExpandAction($llpsHas)."</tr>
+			<tr><td>Cross-talk<br><span class='detail-count'>(Count: ".(count($withinRows)+count($betweenRows)).")</span></td><td class='detail-rich'>".$crosstalkHtml."</td>".detailExpandAction($crosstalkHas)."</tr>
+		</tbody>
+		</table>
+	</div>";
+
+	return array(
+		'html' => $html,
+		'has_any' => ($pspHas || $ptmintHas || $llpsHas || $crosstalkHas || $scoreHas || $ptmdHas),
+	);
+}
+
 /*------ Add some div to detail part ------*/
 function addDetailDivInfo($rawdata){
 	$rawInfo = explode('|', $rawdata);
@@ -2012,7 +2407,8 @@ function addDetailDivInfo($rawdata){
 	$probDisplay = displayDash($sci ? str_replace('#', ': ', $sci['prob']) : '');
 	$ispspDisplay = displayDash($sci ? $sci['ispsp'] : '');
 	$isdbptmDisplay = displayDash($sci ? $sci['isdbptm'] : '');
-	$qptmcountDisplay = displayDash($sci ? $sci['qptmcount'] : '');
+	$isptmatlasDisplay = displayDash($sci ? (isset($sci['isptmatlas']) ? $sci['isptmatlas'] : '') : '');
+	$qptmcountDisplay = displayDash($sci ? (isset($sci['qptmcount']) ? $sci['qptmcount'] : '') : '');
 	$qratioproDisplay = displayDecimal($qratiopro);
 	$pvalueproDisplay = displayDecimal($pvaluepro);
 	if($qratioproDisplay === '-' && $pvalueproDisplay === '-'){
@@ -2032,10 +2428,10 @@ function addDetailDivInfo($rawdata){
 	$hasStructureData = isset($upi['Sequence']) && $upi['Sequence'] !== '';
 
 //Detail information about experiment
-	$buttonGroup = "<div class='detail-tabs' role='tablist'><button type='button' class='detail-tab active' role='tab' id='exp-".$line."'>Experiment information</button><button type='button' class='detail-tab' role='tab' id='pro-".$line."'>Protein information</button>";
+	$buttonGroup = "<div class='detail-tabs' role='tablist'><button type='button' class='detail-tab active' role='tab' id='exp-".$line."'>Experiment information</button><button type='button' class='detail-tab' role='tab' id='pro-".$line."'>Protein information</button><button type='button' class='detail-tab' role='tab' id='reg-".$line."'>Functional regulation</button>";
 	
 	if($mod == 'Phosphorylation'){
-		$buttonGroup = $buttonGroup."<button type='button' class='detail-tab' role='tab' id='enz-".$line."'>Potential kinases and their inhibitors</button>";
+		$buttonGroup = $buttonGroup."<button type='button' class='detail-tab' role='tab' id='enz-".$line."'>Phosphorylation regulators and inhibitors</button>";
 	}
 	elseif($mod == 'Acetylation'){
 		$buttonGroup = $buttonGroup."<button type='button' class='detail-tab' role='tab' id='enz-".$line."'>Acetylation regulators and inhibitors</button>";
@@ -2045,9 +2441,6 @@ function addDetailDivInfo($rawdata){
 	}
 	elseif($mod == 'Ubiquitylation'){
 		$buttonGroup = $buttonGroup."<button type='button' class='detail-tab' role='tab' id='enz-".$line."'>E3/DUB ligases</button>";
-	}
-	elseif($mod == 'SUMOylation'){
-		$buttonGroup = $buttonGroup."<button type='button' class='detail-tab' role='tab' id='enz-".$line."'>SUMO site evidence</button>";
 	}
 	$buttonGroup = $buttonGroup."</div>";
 
@@ -2062,10 +2455,9 @@ function addDetailDivInfo($rawdata){
 			<tr><td>Label method</td><td colspan='6'>".displayText($exi['labelmethod'])."</td></tr>
 			<tr><td>Enrichment method</td><td colspan='6'>".displayText($exi['enrichmethod'])."</td></tr>
 			<tr><td>Mass spectrometer</td><td colspan='6'>".displayText($exi['msmethod'])."</td></tr>
-			<tr><td>Raw peptide</td><td colspan='6'>".($seqwin === '' || $seqwin === '-' ? displayDash($seqwin) : "<span class='couriernew'>".$seqwin."</span>")."</td></tr>
 			<tr><td>Reported PEP/Localization Probability</td><td colspan='6'>".$probDisplay."</td></tr>
 			<tr><td>Re-identified FDR</td><td colspan='6'>".displayDash($fdr)."</td></tr>
-			<tr class='detail-subgrid'><td>Records in databases</td><td><span class='detail-sub-label'>Identified times in qPTM</span><span class='detail-sub-value'>".$qptmcountDisplay."</span></td><td><span class='detail-sub-label'>Collected in PhosphoSitePlus</span><span class='detail-sub-value'>".$ispspDisplay."</span></td><td><span class='detail-sub-label'>Collected in dbPTM</span><span class='detail-sub-value'>".$isdbptmDisplay."</span></td></tr>
+			<tr class='detail-subgrid'><td>Records in databases</td><td><span class='detail-sub-label'>Identified times in qPTM</span><span class='detail-sub-value'>".$qptmcountDisplay."</span></td><td><span class='detail-sub-label'>Collected in PhosphoSitePlus</span><span class='detail-sub-value'>".$ispspDisplay."</span></td><td><span class='detail-sub-label'>Collected in dbPTM</span><span class='detail-sub-value'>".$isdbptmDisplay."</span></td><td><span class='detail-sub-label'>Collected in PTMAtlas</span><span class='detail-sub-value'>".$isptmatlasDisplay."</span></td></tr>
 		</tbody>
 		</table>
 	</div>";
@@ -2103,12 +2495,8 @@ function addDetailDivInfo($rawdata){
 			<tr><td>Function</td><td class='detail-rich'><span class='hide-text text-less'>".($upi['Function'] == ''?"-":displayFuncDes($upi['Function']))."</span></td><td class='detail-action'><button type='button' class='detail-toggle show-text' aria-label='Expand text'><i class='ri-add-circle-fill'></i></button></td></tr>
 			<tr class='known-localization-row'><td>Subcellular localization</td><td class='detail-rich detail-localization'>".buildKnownLocalizationHtml(isset($upi['Localization']) ? $upi['Localization'] : (isset($upi['Subcellular Location']) ? $upi['Subcellular Location'] : ''), isset($upi['Taxonomy']) ? $upi['Taxonomy'] : '9606', $line)."</td><td class='detail-action'></td></tr>
 			<tr><td>PTMs for protein<br><span class='detail-count'>(Count: ".$PTMqueryResNum.")</span></td><td class='detail-rich'>".displayPTM($ptmRows)."</td><td class='detail-action'><button type='button' class='detail-toggle show-table' aria-label='Expand table'><i class='ri-add-circle-fill'></i></button></td></tr>
-			<tr><td>Disease and variants<br><span class='detail-count'>(Count: ".$PTMDqueryResNum.")</span></td><td class='detail-rich'>".displayPTMD($ptmdRows)."</td><td class='detail-action'><button type='button' class='detail-toggle show-table' aria-label='Expand table'><i class='ri-add-circle-fill'></i></button></td></tr>
 			<tr class='sequence-structure-row'><td>Sequence and structure<br><span class='detail-count'>(Length: ".strlen($upi['Sequence']).")</span></td><td class='detail-rich'><div class='sequence-structure-grid'><div class='sequence-structure-3d'>".buildProteinStructureHtml($uniprot, $psite, $line, $hasStructureData)."</div><div class='sequence-structure-seq'>".($upi['Sequence'] == ''?"-":displaySequence($upi['Sequence']))."</div></div></td><td class='detail-action'><span class='detail-action-spacer' aria-hidden='true'></span></td></tr>
-		</tbody>
-		</table>
-		<div class='sequence-properties-block' data-line='".htmlspecialchars($line, ENT_QUOTES, 'UTF-8')."'>
-			<div class='sequence-properties-title'>Sequence properties</div>
+			<tr class='sequence-properties-row'><td>Sequence properties</td><td class='detail-rich'><div class='sequence-properties-block' data-line='".htmlspecialchars($line, ENT_QUOTES, 'UTF-8')."'>
 			".$siteContextHtml."
 			<div class='data' style='display:none;'>".$structureDataInputs."</div>
 			<div class='viewer detail-viewer'>
@@ -2123,8 +2511,16 @@ function addDetailDivInfo($rawdata){
 				<div class='detail-chart surfaceshow' id='surfaceshow-".$line."'></div>
 				<div class='detail-chart hydropathyshow' id='hydropathyshow-".$line."'></div>
 			</div>
-		</div>
+		</div></td><td class='detail-action'></td></tr>
+			<tr class='external-links-row'><td>External links</td><td class='detail-rich'>".buildExternalLinksHtml($uniprot, isset($upi['GeneName']) ? $upi['GeneName'] : '')."</td><td class='detail-action'></td></tr>
+		</tbody>
+		</table>
 	</div>";
+
+//Detail information about site regulation
+	$geneForReg = isset($upi['GeneName']) ? $upi['GeneName'] : '';
+	$regSection = buildRegulationSection($uniprot, $psite, $geneForReg, $line, $ptmdRows);
+	$divGroup = $divGroup.$regSection['html'];
 
 //Detail information about enzyme
 
@@ -2147,24 +2543,29 @@ function addDetailDivInfo($rawdata){
 		$db->close();
 
 		$expHas = trim((string)$enzi['exp']) !== '';
-		$gpsHas = trim((string)$enzi['gps']) !== '';
-		$expHtml = $expHas ? displayEnzymeTable($enzi['exp'], 'Kinase', array('show_evidence'=>true, 'show_pmid'=>true)) : '-';
-		$gpsHtml = $gpsHas ? displayEnzymeTable($enzi['gps'], 'Kinase', array('show_score'=>true, 'show_evidence'=>true)) : '-';
-		$ekpiHtml = buildEkpiPlaceholder($uniprot, $psite, $line);
-
-		$igpsRow = '';
-		if(isset($enzi['igps']) && trim((string)$enzi['igps']) !== ''){
-			$igpsHtml = displayEnzymeTable($enzi['igps'], 'Kinase', array('show_evidence'=>true));
-			$igpsRow = "<tr><td>iGPS</td><td class='detail-rich'>".$igpsHtml."</td>".detailExpandAction(true)."</tr>";
+		$gpsRaw = isset($enzi['gps']) ? trim((string)$enzi['gps']) : '';
+		$igpsRaw = isset($enzi['igps']) ? trim((string)$enzi['igps']) : '';
+		$predParts = array();
+		if($gpsRaw !== ''){
+			$predParts[] = $gpsRaw;
 		}
+		if($igpsRaw !== ''){
+			$predParts[] = $igpsRaw;
+		}
+		$predRaw = implode('|', $predParts);
+		$predHas = ($predRaw !== '');
+		$expCount = countEnzymeChunks($enzi['exp']);
+		$predCount = countEnzymeChunks($predRaw);
+		$expHtml = $expHas ? displayEnzymeTable($enzi['exp'], 'Kinase', array('show_evidence'=>true, 'show_pmid'=>true)) : '-';
+		$predHtml = $predHas ? displayEnzymeTable($predRaw, 'Kinase', array('show_evidence'=>true)) : '-';
+		$ekpiHtml = buildEkpiPlaceholder($uniprot, $psite, $line);
 
 		$divGroup = $divGroup."<div class='more-info detail-section' id='div-enz-".$line."' style='display:none'>
 		<table class='detail-table detail-table-actions'>
 		<tbody>
-			<tr><td>Experimental</td><td class='detail-rich'>".$expHtml."</td>".detailExpandAction($expHas)."</tr>
-			<tr><td>Predicted</td><td class='detail-rich'>".$gpsHtml."</td>".detailExpandAction($gpsHas)."</tr>
-			".$igpsRow."
-			<tr><td>Inferred</td><td class='detail-rich'>".$ekpiHtml."</td>".detailExpandAction(true)."</tr>
+			<tr><td>Experimental".detailCountHtml($expCount)."</td><td class='detail-rich'>".$expHtml."</td>".detailExpandAction($expHas)."</tr>
+			<tr><td>Predicted".detailCountHtml($predCount)."</td><td class='detail-rich'>".$predHtml."</td>".detailExpandAction($predHas)."</tr>
+			<tr><td>Inferred".detailCountHtml(10)."</td><td class='detail-rich'>".$ekpiHtml."</td>".detailExpandAction(true)."</tr>
 		</tbody>
 		</table>
 	</div>";
@@ -2191,12 +2592,14 @@ function addDetailDivInfo($rawdata){
 		$acePredMerged = buildAceEnzymeMergedInfo(isset($enzi['pla']) ? $enzi['pla'] : '', 'Deep-PLA', 'predicted');
 		$aceExpHas = ($aceExpMerged !== '');
 		$acePredHas = ($acePredMerged !== '');
+		$aceExpCount = countEnzymeChunks($aceExpMerged);
+		$acePredCount = countEnzymeChunks($acePredMerged);
 
 		$divGroup = $divGroup."<div class='more-info detail-section' id='div-enz-".$line."' style='display:none'>
 		<table class='detail-table detail-table-actions'>
 		<tbody>
-			<tr><td>Experimental</td><td class='detail-rich'>".($aceExpHas ? displayAceEnzymeTable($aceExpMerged, 'acetylation') : '-')."</td>".detailExpandAction($aceExpHas)."</tr>
-			<tr><td>Predicted</td><td class='detail-rich'>".($acePredHas ? displayAceEnzymeTable($acePredMerged, 'acetylation') : '-')."</td>".detailExpandAction($acePredHas)."</tr>
+			<tr><td>Experimental".detailCountHtml($aceExpCount)."</td><td class='detail-rich'>".($aceExpHas ? displayAceEnzymeTable($aceExpMerged, 'acetylation') : '-')."</td>".detailExpandAction($aceExpHas)."</tr>
+			<tr><td>Predicted".detailCountHtml($acePredCount)."</td><td class='detail-rich'>".($acePredHas ? displayAceEnzymeTable($acePredMerged, 'acetylation') : '-')."</td>".detailExpandAction($acePredHas)."</tr>
 		</tbody>
 		</table>
 	</div>";
@@ -2206,39 +2609,27 @@ function addDetailDivInfo($rawdata){
 		$mePredMerged = buildWeramEnzymeMergedInfo('', 'WERAM', 'predicted', 'methylation');
 		$meExpHas = ($meExpMerged !== '');
 		$mePredHas = ($mePredMerged !== '');
+		$meExpCount = countEnzymeChunks($meExpMerged);
+		$mePredCount = countEnzymeChunks($mePredMerged);
 
 		$divGroup = $divGroup."<div class='more-info detail-section' id='div-enz-".$line."' style='display:none'>
 		<table class='detail-table detail-table-actions'>
 		<tbody>
-			<tr><td>Experimental</td><td class='detail-rich'>".($meExpHas ? displayAceEnzymeTable($meExpMerged, 'methylation') : '-')."</td>".detailExpandAction($meExpHas)."</tr>
-			<tr><td>Predicted</td><td class='detail-rich'>".($mePredHas ? displayAceEnzymeTable($mePredMerged, 'methylation') : '-')."</td>".detailExpandAction($mePredHas)."</tr>
+			<tr><td>Experimental".detailCountHtml($meExpCount)."</td><td class='detail-rich'>".($meExpHas ? displayAceEnzymeTable($meExpMerged, 'methylation') : '-')."</td>".detailExpandAction($meExpHas)."</tr>
+			<tr><td>Predicted".detailCountHtml($mePredCount)."</td><td class='detail-rich'>".($mePredHas ? displayAceEnzymeTable($mePredMerged, 'methylation') : '-')."</td>".detailExpandAction($mePredHas)."</tr>
 		</tbody>
 		</table>
 	</div>";
 	}
 	elseif($mod == 'Ubiquitylation'){
-		$ubExpHtml = displayUbExperimentalTable($uniprot);
-		$ubExpHas = ($ubExpHtml !== '-');
+		$ubRows = collectUbExperimentalRows($uniprot);
+		$ubExpCount = count($ubRows);
+		$ubExpHas = ($ubExpCount > 0);
+		$ubExpHtml = $ubExpHas ? displayUbExperimentalTable($uniprot, $ubRows) : '-';
 		$divGroup = $divGroup."<div class='more-info detail-section' id='div-enz-".$line."' style='display:none'>
 		<table class='detail-table detail-table-actions'>
 		<tbody>
-			<tr><td>Experimental</td><td class='detail-rich'>".($ubExpHas ? $ubExpHtml : '-')."</td>".detailExpandAction($ubExpHas)."</tr>
-		</tbody>
-		</table>
-	</div>";
-	}
-	elseif($mod == 'SUMOylation'){
-		$db = connectDB();
-		$enzQueryRes = $db->query("select * from sumoenztable where up='{$uniprot}' and pos = '{$psite}'");
-		$enzQueryResNum = isset($enzQueryRes->num_rows) ? $enzQueryRes->num_rows : 0;
-		$enzi = ($enzQueryResNum == 0) ? array('evidence'=>'') : $enzQueryRes->fetch_assoc();
-		$db->close();
-		$sumoHas = trim((string)$enzi['evidence']) !== '';
-		$sumoHtml = $sumoHas ? displaySumoEvidence($enzi['evidence']) : '-';
-		$divGroup = $divGroup."<div class='more-info detail-section' id='div-enz-".$line."' style='display:none'>
-		<table class='detail-table detail-table-actions'>
-		<tbody>
-			<tr><td>Site evidence</td><td class='detail-rich'>".$sumoHtml."</td>".detailExpandAction($sumoHas)."</tr>
+			<tr><td>Experimental".detailCountHtml($ubExpCount)."</td><td class='detail-rich'>".$ubExpHtml."</td>".detailExpandAction($ubExpHas)."</tr>
 		</tbody>
 		</table>
 	</div>";
@@ -2419,7 +2810,7 @@ if(isset($_POST["type"])){
 			$queryResNum = $queryResAll->fetch_assoc()['count(*)'];
 		}
 		if($queryResNum == 0){
-			$tableChange = "<tr><td colspan='10'><div class='alert alert-warning'>Sorry, no matching records found.</div></td></tr>";
+			$tableChange = "<tr><td colspan='11'><div class='alert alert-warning'>Sorry, no matching records found.</div></td></tr>";
 		}
 		else{
 			$tableChange = showResTable($queryRes);

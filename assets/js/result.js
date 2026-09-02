@@ -252,7 +252,7 @@
 
   function renderResultError(message) {
     $('#tableChange').html(
-      '<tr><td colspan="11"><div class="status-msg status-error"><i class="ri-error-warning-line"></i> ' + message + '</div></td></tr>'
+      '<tr><td colspan="10"><div class="status-msg status-error"><i class="ri-error-warning-line"></i> ' + message + '</div></td></tr>'
     );
   }
 
@@ -624,8 +624,10 @@
         .then(function(r) { return r.json(); })
         .then(function(data) {
           var rows = (data && data.correlations) ? data.correlations : [];
+          var $note = $block.find('.ekpi-quant-note');
           if (!rows.length) {
             $status.text('-');
+            $note.hide();
             return;
           }
           var html = "<div class='detail-table-scroll hide-more'><table class='table table-bordered hide-table enzyme-annot-table'><thead class='thead-dark'><tr>"
@@ -656,10 +658,12 @@
           html += '</tbody></table></div>';
           $status.hide();
           $wrap.html(html);
+          $note.show();
         })
         .catch(function() {
           $block.attr('data-loaded', '0');
           $status.text('Failed to load inferred evidence');
+          $block.find('.ekpi-quant-note').hide();
         });
     }
     $(document).on('click', RESULT_ROOT + ' .detail-panel .show-table', function(e) {
@@ -728,7 +732,7 @@
     }
 
     $('#pageInfo').text('Searching...');
-    $('#tableChange').html('<tr><td colspan="11"><div class="status-msg"><div class="typing-dots" aria-hidden="true"><span></span><span></span><span></span></div>Loading results...</div></td></tr>');
+    $('#tableChange').html('<tr><td colspan="10"><div class="status-msg"><div class="typing-dots" aria-hidden="true"><span></span><span></span><span></span></div>Loading results...</div></td></tr>');
 
     $.ajax({
       url: './resource/functions.php',

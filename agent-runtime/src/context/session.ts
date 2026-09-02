@@ -8,6 +8,10 @@ export interface SessionState {
   artifacts: ArtifactStore;
   citations: Citation[];
   pendingClarification: Record<string, unknown> | null;
+  /** How many clarification rounds already completed in this deep-research thread. */
+  clarifyRound: number;
+  /** Accumulated question + clarification answers for multi-round clarify. */
+  deepResearchBrief: string | null;
   lastMode: "qa" | "deep_research";
   turnCount: number;
 }
@@ -23,6 +27,8 @@ export function getOrCreateSession(sessionId: string): SessionState {
       artifacts: new ArtifactStore(),
       citations: [],
       pendingClarification: null,
+      clarifyRound: 0,
+      deepResearchBrief: null,
       lastMode: "qa",
       turnCount: 0,
     };

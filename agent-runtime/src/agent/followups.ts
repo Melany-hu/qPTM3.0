@@ -8,6 +8,14 @@ export interface FollowUpQuestion {
   intent: "qa" | "deep_research";
 }
 
+/** Reject assistant-to-user clarification / meta prompts — chips must be user-askable. */
+function looksLikeAgentAskingUser(text: string): boolean {
+  return /^(您|你|请问|能否|可否|是否希望|您是否|你是否|您提到|你提到|请确认|请补充)/.test(text)
+    || /您是否希望|你是否希望|是指.+吗|我(将|可以)基于|重新查询|若确认/.test(text)
+    || /^(Would you|Do you|Can you|Could you|Shall I|Should I|Did you mean|Are you asking)/i.test(text)
+    || /\b(would you like me|do you want me|shall I|did you mean)\b/i.test(text);
+}
+
 export async function generateFollowUps(
   question: string,
   answer: string,
@@ -31,21 +39,31 @@ export async function generateFollowUps(
 
   const prompt =
     lang === "zh"
-      ? `根据本轮调研生成 5 个后续问题。必须结合实际用过的数据库与文献，不要泛泛而谈。
+      ? `根据本轮调研生成 5 个「用户可一键发送」的后续问题。
+硬性要求：
+1. text 必须是用户口吻的科学追问（例如「TP53 S15 有哪些上游激酶？」），点一下就会作为新问题发出。
+2. 禁止助手反问用户（禁止「您提到的…是指…吗？」「您是否希望我重新查询…」等确认/征求许可句式）。
+3. 禁止讨论系统/工具元问题（靶点解析错误、MCP 未连接、是否重跑某工具）。
+4. 结合实际用过的数据库与结论往深处问，不要泛泛而谈。
 ${drRule}
 输出 JSON: [{"text":"...","intent":"qa"|"deep_research"}]
 
-调查上下文: ${memory.gene || ""} ${memory.position || ""}
+调查上下文: gene=${memory.gene || ""} site=${memory.position || ""} UniProt=${memory.uniprot_ac || ""}
 已用工具: ${toolsLine}
 Artifacts: ${artifactCatalog}
 
 用户问题: ${question}
 回答摘要: ${(answer || "").slice(0, 2500)}`
-      : `Generate 5 follow-up questions grounded in this investigation. Use actual databases/literature touched — no generic templates.
+      : `Generate 5 clickable follow-up questions the USER would send next.
+Hard rules:
+1. Phrased as the user's scientific questions (e.g. "Which kinases phosphorylate TP53 S15?").
+2. Never ask the user for confirmation or permission ("Did you mean…?", "Would you like me to…?").
+3. No meta/system topics (parse errors, reconnect tools, re-run queries).
+4. Ground in databases/findings from this turn — no generic templates.
 ${drRule}
 Output JSON: [{"text":"...","intent":"qa"|"deep_research"}]
 
-Context: ${memory.gene || ""} ${memory.position || ""}
+Context: gene=${memory.gene || ""} site=${memory.position || ""} UniProt=${memory.uniprot_ac || ""}
 Tools used: ${toolsLine}
 Artifacts: ${artifactCatalog}
 
@@ -58,8 +76,8 @@ Answer excerpt: ${(answer || "").slice(0, 2500)}`;
       maxTokens: 800,
       temperature: 0.4,
     });
-    const parsed = parseFollowUpJson(content);
-    if (parsed.length >= 3) return normalizeFollowUps(parsed, mode, lang);
+    const parsed = parseFollowUpJson(content).filter((q) => !looksLikeAgentAskingUser(q.text));
+    if (parsed.length >= 3) return normalizeFollowUps(parsed, mode, lang, memory);
   } catch {
     /* fallback below */
   }
@@ -95,12 +113,13 @@ function normalizeFollowUps(
   items: FollowUpQuestion[],
   mode: "qa" | "deep_research",
   lang: "zh" | "en",
+  memory: InvestigationMemory,
 ): FollowUpQuestion[] {
-  let out = items.slice(0, 5);
+  let out = items.filter((q) => !looksLikeAgentAskingUser(q.text)).slice(0, 5);
   if (mode === "qa") {
     const drCount = out.filter((q) => q.intent === "deep_research").length;
     if (drCount < 2) {
-      const extras = fallbackFollowUps("qa", lang, emptyMem()).filter((q) => q.intent === "deep_research");
+      const extras = fallbackFollowUps("qa", lang, memory).filter((q) => q.intent === "deep_research");
       for (const e of extras) {
         if (out.length >= 5) break;
         if (!out.some((x) => x.text === e.text)) out.push(e);
@@ -108,28 +127,14 @@ function normalizeFollowUps(
     }
   }
   while (out.length < 5) {
-    const fb = fallbackFollowUps(mode, lang, emptyMem());
+    const fb = fallbackFollowUps(mode, lang, memory);
     for (const f of fb) {
-      if (!out.some((x) => x.text === f.text)) out.push(f);
+      if (!out.some((x) => x.text === f.text) && !looksLikeAgentAskingUser(f.text)) out.push(f);
       if (out.length >= 5) break;
     }
+    break;
   }
   return out.slice(0, 5);
-}
-
-function emptyMem(): InvestigationMemory {
-  return {
-    gene: null,
-    uniprot_ac: null,
-    position: null,
-    ptm_type: "phosphorylation",
-    organism: "human",
-    pmid: null,
-    mutation_label: null,
-    query_mode: null,
-    findings_summary: "",
-    entities: {},
-  };
 }
 
 function fallbackFollowUps(

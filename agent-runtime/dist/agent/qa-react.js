@@ -1,11 +1,12 @@
 import { addFinding, mergeEntities, parseEntities } from "../context/memory.js";
-import { callQptmTool, biomcpSearchArticle, readQptmResource, webSearch, } from "../mcp/hub.js";
+import { callQptmTool, searchLiteratureArticles, readQptmResource, webSearch, } from "../mcp/hub.js";
 import { loadSkills, skillsForMode } from "../skills/loader.js";
 import { getLlm } from "../llm/client.js";
 import { mergeCitation } from "./citations.js";
 import { classifyQueryMode, detectLang, gateReply, needsLiterature, needsWebSearch, } from "./gate.js";
 import { retrieveTools } from "./retriever.js";
 import { generateFollowUps } from "./followups.js";
+import { applyResolvedIdentity, invokeArgumentsJson, resolveSessionTarget, } from "./resolve-target.js";
 function phase(phase, label) {
     return { type: "phase_update", phase, label };
 }
@@ -35,19 +36,21 @@ async function executeQptmTool(toolHint, question, memory, artifacts, citations)
     else {
         result = await callQptmTool("qptm_invoke", {
             tool_name: toolHint,
-            arguments_json: JSON.stringify({
-                gene: memory.gene,
-                position: memory.position,
-                uniprot_ac: memory.uniprot_ac,
-                query: question,
-            }),
+            arguments_json: invokeArgumentsJson(memory, question),
         });
     }
+    applyResolvedIdentity(memory, result);
     const summary = result.summary || "done";
-    addFinding(memory, toolHint, summary);
+    const kindTag = result.error_kind ? ` [${result.error_kind}]` : "";
+    addFinding(memory, toolHint, `${summary}${kindTag}`);
     artifacts.add("db_result", `${toolHint}: ${question}`, summary, { tool: toolHint, arguments: args });
     mergeCitation(citations, toolHint);
-    return { summary, tool: toolHint };
+    return {
+        summary,
+        tool: toolHint,
+        success: result.success,
+        error_kind: result.error_kind,
+    };
 }
 export async function* runQA(userMessage, history, session) {
     const memory = session.memory;
@@ -93,20 +96,45 @@ export async function* runQA(userMessage, history, session) {
         return;
     }
     yield phase("database", lang === "zh" ? "查询数据库" : "Querying databases");
+    if (memory.gene || memory.uniprot_ac) {
+        yield {
+            type: "tool_call",
+            tool_name: "qptm_resolve",
+            arguments: { gene: memory.gene, position: memory.position, query: userMessage },
+            kind: "database",
+        };
+        const resolved = await resolveSessionTarget(memory, userMessage);
+        yield {
+            type: "tool_result",
+            payload: {
+                tool_name: "qptm_resolve",
+                success: resolved.success,
+                summary: resolved.summary,
+                error_kind: resolved.error_kind,
+                data_count: 1,
+            },
+            kind: "database",
+        };
+    }
     const toolList = retrieveTools(userMessage, memory, 6);
     const parallel = toolList.slice(0, 3);
     for (const tool of parallel) {
         yield {
             type: "tool_call",
             tool_name: tool,
-            arguments: { query: userMessage },
+            arguments: {
+                query: userMessage,
+                gene: memory.gene,
+                uniprot_ac: memory.uniprot_ac,
+                position: memory.position,
+            },
             kind: "database",
         };
-        const { summary } = await executeQptmTool(tool, userMessage, memory, artifacts, citations);
+        const { summary, success, error_kind } = await executeQptmTool(tool, userMessage, memory, artifacts, citations);
         toolsUsed.push(tool);
         yield {
             type: "tool_result",
-            payload: { tool_name: tool, success: true, summary, data_count: 1 },
+            payload: { tool_name: tool, success, summary, error_kind, data_count: 1 },
             kind: "database",
         };
     }
@@ -114,7 +142,7 @@ export async function* runQA(userMessage, history, session) {
     if (needsLiterature(userMessage)) {
         yield phase("literature", lang === "zh" ? "检索文献" : "Searching literature");
         const start = Date.now();
-        litSummary = await biomcpSearchArticle(userMessage);
+        litSummary = await searchLiteratureArticles(userMessage);
         const elapsed = (Date.now() - start) / 1000;
         artifacts.add("literature_search", userMessage, litSummary.slice(0, 1500));
         yield {
@@ -145,12 +173,14 @@ export async function* runQA(userMessage, history, session) {
 async function synthesizeQA(question, history, memory, skills, sourcesCatalog, extraEvidence, citations, lang) {
     const citeList = citations.map((c) => `${c.id}: ${c.database}`).join(", ");
     const system = lang === "zh"
-        ? `你是 qPTM 生物学专家助手，只回答生物学问题。回答简洁准确，区分实验数据与预测结果。引用数据库名（${citeList}）。不要冗长综述。`
-        : `You are qPTM biology expert. Answer concisely; distinguish experimental vs predicted evidence. Cite databases (${citeList}). No lengthy reviews.`;
+        ? `你是 qPTM 生物学专家助手，只回答生物学问题。回答简洁准确，区分实验数据与预测结果。引用数据库名（${citeList}）。不要冗长综述。
+工具结果标注含义：[empty_result]=库中无记录，不是缺参数；[missing_params]=缺少参数；[call_bug]=调用失败。已解析的靶点（gene/UniProt/site）不得再说“缺少 UniProt AC”。`
+        : `You are qPTM biology expert. Answer concisely; distinguish experimental vs predicted evidence. Cite databases (${citeList}). No lengthy reviews.
+Tool tags: [empty_result]=no records in DB (not a missing ID); [missing_params]=need more arguments; [call_bug]=call failed. If gene/UniProt/site is already resolved, do NOT say UniProt AC is missing.`;
     const userBlock = [
         skills,
         `Sources catalog:\n${sourcesCatalog.slice(0, 4000)}`,
-        `Memory: gene=${memory.gene} site=${memory.position}`,
+        `Memory: gene=${memory.gene || ""} UniProt=${memory.uniprot_ac || ""} site=${memory.position || ""} ptm=${memory.ptm_type || ""}`,
         memory.findings_summary,
         extraEvidence ? `Evidence:\n${extraEvidence.slice(0, 6000)}` : "",
         `Question: ${question}`,

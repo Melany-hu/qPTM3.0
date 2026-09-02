@@ -14,7 +14,7 @@ let biomcpClient: McpClientWrap | null = null;
 let qptmInitPromise: Promise<void> | null = null;
 let biomcpInitPromise: Promise<McpClientWrap | null> | null = null;
 
-const MCP_CONNECT_TIMEOUT_MS = Number(process.env.MCP_CONNECT_TIMEOUT_MS || 8000);
+const MCP_CONNECT_TIMEOUT_MS = Number(process.env.MCP_CONNECT_TIMEOUT_MS || 15000);
 
 async function connectStdio(
   name: string,
@@ -31,6 +31,7 @@ async function connectStdio(
     });
     const client = new Client({ name: `qptm-agent-${name}`, version: "1.0.0" });
     await client.connect(transport);
+    console.log(`MCP ${name} connected (${command} ${args.join(" ")})`);
     return { name, client, transport };
   } catch (e) {
     console.warn(`MCP ${name} connect failed:`, e);
@@ -45,23 +46,31 @@ async function connectStdioWithTimeout(
   cwd?: string,
 ): Promise<McpClientWrap | null> {
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let timedOut = false;
   try {
-    return await Promise.race([
+    const result = await Promise.race([
       connectStdio(name, command, args, cwd),
       new Promise<null>((resolve) => {
         timer = setTimeout(() => {
+          timedOut = true;
           console.warn(`MCP ${name} connect timed out after ${MCP_CONNECT_TIMEOUT_MS}ms`);
           resolve(null);
         }, MCP_CONNECT_TIMEOUT_MS);
       }),
     ]);
+    if (timedOut && result) {
+      // Late success after timeout — still use it.
+      return result;
+    }
+    return result;
   } finally {
     if (timer) clearTimeout(timer);
   }
 }
 
-/** Connect qPTM stdio MCP only — never blocks on BioMCP. */
+/** Connect qPTM stdio MCP only — never blocks on BioMCP. Retries after failed connect. */
 export async function initQptmMcp(): Promise<void> {
+  if (qptmClient) return;
   if (qptmInitPromise) return qptmInitPromise;
   qptmInitPromise = (async () => {
     qptmClient = await connectStdioWithTimeout(
@@ -70,6 +79,10 @@ export async function initQptmMcp(): Promise<void> {
       cfg.qptmMcpArgs,
       cfg.qptmMcpCwd,
     );
+    if (!qptmClient) {
+      // Allow a later request to retry instead of caching permanent failure.
+      qptmInitPromise = null;
+    }
   })();
   return qptmInitPromise;
 }
@@ -109,13 +122,27 @@ export async function readQptmResource(uri: string): Promise<string> {
   }
 }
 
+export type QptmToolResult = {
+  success: boolean;
+  summary: string;
+  data: unknown;
+  error_kind?: string | null;
+  missing?: string[];
+  resolved?: Record<string, unknown> | null;
+};
+
 export async function callQptmTool(
   toolName: string,
   args: Record<string, unknown>,
-): Promise<{ success: boolean; summary: string; data: unknown }> {
+): Promise<QptmToolResult> {
   await ensureQptmMcp();
   if (!qptmClient) {
-    return { success: false, summary: "qPTM MCP not connected", data: null };
+    return {
+      success: false,
+      summary: "qPTM MCP not connected",
+      data: null,
+      error_kind: "call_bug",
+    };
   }
   try {
     const result = await qptmClient.client.callTool({ name: toolName, arguments: args });
@@ -130,13 +157,27 @@ export async function callQptmTool(
     } catch {
       parsed = { raw: text };
     }
+    const payloadSuccess = parsed.success;
+    const success =
+      !result.isError && (payloadSuccess === undefined ? true : payloadSuccess !== false);
+    const dataObj =
+      parsed.data && typeof parsed.data === "object"
+        ? (parsed.data as Record<string, unknown>)
+        : null;
+    const resolved =
+      (parsed.resolved as Record<string, unknown> | undefined) ||
+      (dataObj && (dataObj.uniprot_ac || dataObj.gene) ? dataObj : null);
     return {
-      success: !result.isError,
+      success,
       summary: String(parsed.summary || text.slice(0, 400)),
       data: parsed.data ?? parsed,
+      error_kind:
+        (parsed.error_kind as string | null | undefined) ?? (success ? null : "tool_error"),
+      missing: Array.isArray(parsed.missing) ? (parsed.missing as string[]) : [],
+      resolved,
     };
   } catch (e) {
-    return { success: false, summary: String(e), data: null };
+    return { success: false, summary: String(e), data: null, error_kind: "call_bug" };
   }
 }
 
@@ -174,6 +215,38 @@ export async function biomcpSearchArticle(query: string): Promise<string> {
 
 export async function biomcpGetArticle(id: string): Promise<string> {
   return callBiomcp("get", ["article", id]);
+}
+
+/**
+ * Literature search with a reliable fallback: BioMCP is often unavailable on this host.
+ * Prefer qPTM's PubTator tool via MCP, then BioMCP/Tavily-less CLI.
+ */
+export async function searchLiteratureArticles(query: string): Promise<string> {
+  const q = (query || "").trim();
+  if (!q) return "";
+
+  const viaPubtator = await callQptmTool("qptm_invoke", {
+    tool_name: "pubtator_literature_search",
+    arguments_json: JSON.stringify({ query: q, limit: 8 }),
+  });
+  if (viaPubtator.success || viaPubtator.summary) {
+    const dataStr =
+      typeof viaPubtator.data === "string"
+        ? viaPubtator.data
+        : JSON.stringify(viaPubtator.data ?? {});
+    const combined = `${viaPubtator.summary || ""}\n${dataStr}`;
+    if (/PMID/i.test(combined) || /publication/i.test(viaPubtator.summary || "")) {
+      return combined.slice(0, 8000);
+    }
+  }
+
+  const viaBiomcp = await biomcpSearchArticle(q);
+  if (viaBiomcp && !/BioMCP CLI not available|MCP biomcp connect failed|BioMCP error/i.test(viaBiomcp)) {
+    return viaBiomcp;
+  }
+  return viaPubtator.summary
+    ? `${viaPubtator.summary}\n${JSON.stringify(viaPubtator.data ?? {})}`.slice(0, 8000)
+    : viaBiomcp || "Literature search unavailable";
 }
 
 export async function webSearch(query: string): Promise<string> {
