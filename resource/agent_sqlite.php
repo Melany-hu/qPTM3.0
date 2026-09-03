@@ -12,6 +12,10 @@ function agentDataRoot(){
 }
 
 function openAgentSqlite($relativePath){
+	static $pool = array();
+	if(isset($pool[$relativePath]) && $pool[$relativePath] instanceof SQLite3){
+		return $pool[$relativePath];
+	}
 	$path = agentDataRoot().'/'.$relativePath;
 	if(!is_file($path)){
 		return null;
@@ -19,10 +23,16 @@ function openAgentSqlite($relativePath){
 	try{
 		$db = new SQLite3($path, SQLITE3_OPEN_READONLY);
 		$db->busyTimeout(2000);
+		$pool[$relativePath] = $db;
 		return $db;
 	}catch(Exception $e){
 		return null;
 	}
+}
+
+/** Pooled connections stay open for the request; keep call sites unchanged. */
+function closeAgentSqlite($db = null){
+	return;
 }
 
 function lookupKinaseUniprots(array $genes){
@@ -50,7 +60,7 @@ function lookupKinaseUniprots(array $genes){
 				$out[$gene] = preg_replace('/-\d+$/', '', trim($row['kin_uniprot']));
 			}
 		}
-		$db->close();
+		closeAgentSqlite($db);
 	}
 	$missing = array_diff($genes, array_keys($out));
 	if($missing){
@@ -68,7 +78,7 @@ function lookupKinaseUniprots(array $genes){
 					$out[$gene] = trim($row['uniprot_base']);
 				}
 			}
-			$db->close();
+			closeAgentSqlite($db);
 		}
 	}
 	return $out;
@@ -92,7 +102,7 @@ function lookupUbiBrowserInteractions($uniprot, $limit = 50){
 		 LIMIT 200'
 	);
 	if(!$stmt){
-		$db->close();
+		closeAgentSqlite($db);
 		return $out;
 	}
 	$stmt->bindValue(':u', $uniprot, SQLITE3_TEXT);
@@ -121,7 +131,7 @@ function lookupUbiBrowserInteractions($uniprot, $limit = 50){
 			break;
 		}
 	}
-	$db->close();
+	closeAgentSqlite($db);
 	usort($out, function($a, $b){
 		if($a['_human'] !== $b['_human']){
 			return $a['_human'] - $b['_human'];
@@ -160,7 +170,7 @@ function lookupGpsUberE3BySubstrate($uniprot, $limit = 150){
 		 ORDER BY e3_gene COLLATE NOCASE, position'
 	);
 	if(!$stmt){
-		$db->close();
+		closeAgentSqlite($db);
 		return $out;
 	}
 	$stmt->bindValue(':b', $base, SQLITE3_TEXT);
@@ -195,7 +205,7 @@ function lookupGpsUberE3BySubstrate($uniprot, $limit = 150){
 			}
 		}
 	}
-	$db->close();
+	closeAgentSqlite($db);
 	foreach($merged as $r){
 		$out[] = $r;
 	}
@@ -227,7 +237,7 @@ function lookupWeramRegulators($modification, $evidence = '', $limit = 300){
 			 ORDER BY gene COLLATE NOCASE"
 		);
 		if(!$stmt){
-			$db->close();
+			closeAgentSqlite($db);
 			return $out;
 		}
 		$stmt->bindValue(':mod', $modification, SQLITE3_TEXT);
@@ -241,7 +251,7 @@ function lookupWeramRegulators($modification, $evidence = '', $limit = 300){
 			 ORDER BY gene COLLATE NOCASE"
 		);
 		if(!$stmt){
-			$db->close();
+			closeAgentSqlite($db);
 			return $out;
 		}
 		$stmt->bindValue(':mod', $modification, SQLITE3_TEXT);
@@ -275,7 +285,7 @@ function lookupWeramRegulators($modification, $evidence = '', $limit = 300){
 			break;
 		}
 	}
-	$db->close();
+	closeAgentSqlite($db);
 	usort($out, function($a, $b){
 		if($a['_role'] !== $b['_role']){
 			return $a['_role'] - $b['_role'];
@@ -317,7 +327,7 @@ function lookupWeramUniprot($gene, $modification = ''){
 			 LIMIT 1"
 		);
 		if(!$stmt){
-			$db->close();
+			closeAgentSqlite($db);
 			return '';
 		}
 		$stmt->bindValue(':mod', $modification, SQLITE3_TEXT);
@@ -330,14 +340,14 @@ function lookupWeramUniprot($gene, $modification = ''){
 			 LIMIT 1"
 		);
 		if(!$stmt){
-			$db->close();
+			closeAgentSqlite($db);
 			return '';
 		}
 		$stmt->bindValue(':g', $gene, SQLITE3_TEXT);
 	}
 	$res = $stmt->execute();
 	$row = $res ? $res->fetchArray(SQLITE3_ASSOC) : false;
-	$db->close();
+	closeAgentSqlite($db);
 	if(!$row || empty($row['uniprot'])){
 		return '';
 	}
@@ -366,7 +376,7 @@ function lookupDrugBankIdsByUniprot($uniprot, $limit = 8){
 	}
 	$stmt = $db->prepare('SELECT db_id, groups FROM records WHERE uniprot = :u');
 	if(!$stmt){
-		$db->close();
+		closeAgentSqlite($db);
 		return '';
 	}
 	$stmt->bindValue(':u', $uniprot, SQLITE3_TEXT);
@@ -391,7 +401,7 @@ function lookupDrugBankIdsByUniprot($uniprot, $limit = 8){
 		}
 		$ranked[] = array($rank, $dbid);
 	}
-	$db->close();
+	closeAgentSqlite($db);
 	if(!$ranked){
 		return '';
 	}
@@ -455,7 +465,7 @@ function lookupDrugBankClinical(array $dbIds){
 			);
 		}
 	}
-	$db->close();
+	closeAgentSqlite($db);
 	return $out;
 }
 
@@ -514,7 +524,7 @@ function lookupPspRegulatory($uniprot, $position, $limit = 20){
 		 LIMIT :lim'
 	);
 	if(!$stmt){
-		$db->close();
+		closeAgentSqlite($db);
 		return $out;
 	}
 	$stmt->bindValue(':u', trim((string)$uniprot), SQLITE3_TEXT);
@@ -526,7 +536,7 @@ function lookupPspRegulatory($uniprot, $position, $limit = 20){
 	while($res && ($row = $res->fetchArray(SQLITE3_ASSOC))){
 		$out[] = $row;
 	}
-	$db->close();
+	closeAgentSqlite($db);
 	return $out;
 }
 
@@ -550,7 +560,7 @@ function lookupFuncscore($uniprot, $position){
 		 LIMIT 1'
 	);
 	if(!$stmt){
-		$db->close();
+		closeAgentSqlite($db);
 		return null;
 	}
 	$stmt->bindValue(':u', trim((string)$uniprot), SQLITE3_TEXT);
@@ -558,7 +568,7 @@ function lookupFuncscore($uniprot, $position){
 	$stmt->bindValue(':pos', $pos, SQLITE3_INTEGER);
 	$res = $stmt->execute();
 	$row = $res ? $res->fetchArray(SQLITE3_ASSOC) : false;
-	$db->close();
+	closeAgentSqlite($db);
 	if(!$row || !isset($row['functional_score']) || $row['functional_score'] === ''){
 		return null;
 	}
@@ -589,7 +599,7 @@ function lookupPtmintPpi($uniprot, $position, $limit = 50){
 		 LIMIT :lim'
 	);
 	if(!$stmt){
-		$db->close();
+		closeAgentSqlite($db);
 		return $out;
 	}
 	$stmt->bindValue(':u', trim((string)$uniprot), SQLITE3_TEXT);
@@ -610,7 +620,7 @@ function lookupPtmintPpi($uniprot, $position, $limit = 50){
 		$seen[$key] = true;
 		$out[] = $row;
 	}
-	$db->close();
+	closeAgentSqlite($db);
 	return $out;
 }
 
@@ -638,7 +648,7 @@ function lookupPtmphaseLlps($uniprot, $position, $limit = 30){
 		 LIMIT :lim'
 	);
 	if(!$stmt){
-		$db->close();
+		closeAgentSqlite($db);
 		return $out;
 	}
 	$stmt->bindValue(':u', trim((string)$uniprot), SQLITE3_TEXT);
@@ -650,7 +660,7 @@ function lookupPtmphaseLlps($uniprot, $position, $limit = 30){
 	while($res && ($row = $res->fetchArray(SQLITE3_ASSOC))){
 		$out[] = $row;
 	}
-	$db->close();
+	closeAgentSqlite($db);
 	return $out;
 }
 
@@ -690,7 +700,7 @@ function lookupPtmcodeWithin($gene, $position, $limit = 40){
 		 LIMIT :lim'
 	);
 	if(!$stmt){
-		$db->close();
+		closeAgentSqlite($db);
 		return $out;
 	}
 	$stmt->bindValue(':g', strtoupper($gene), SQLITE3_TEXT);
@@ -701,7 +711,7 @@ function lookupPtmcodeWithin($gene, $position, $limit = 40){
 		$row['_scope'] = 'within';
 		$out[] = $row;
 	}
-	$db->close();
+	closeAgentSqlite($db);
 	return $out;
 }
 
@@ -729,7 +739,7 @@ function lookupPtmcodeBetween($gene, $position, $limit = 40){
 		 LIMIT :lim'
 	);
 	if(!$stmt){
-		$db->close();
+		closeAgentSqlite($db);
 		return $out;
 	}
 	$stmt->bindValue(':g', strtoupper($gene), SQLITE3_TEXT);
@@ -741,6 +751,6 @@ function lookupPtmcodeBetween($gene, $position, $limit = 40){
 		$row['_scope'] = 'between';
 		$out[] = $row;
 	}
-	$db->close();
+	closeAgentSqlite($db);
 	return $out;
 }

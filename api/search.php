@@ -4,6 +4,8 @@
  *
  * Search qPTM PTM events (qevent) using the same resolution strategy as the
  * live site: resolve gene/protein/function via protable → filter qevent by up.
+ * Each event includes Experiment information fields (resource, methods,
+ * condition annotations, sample type, database cross-refs, etc.).
  *
  * Parameters:
  *   q         - search keyword (required)
@@ -101,15 +103,63 @@ switch ($field) {
         break;
 
     case 'sample':
-        $where[] = 'e.sample LIKE ?';
-        $params[] = '%' . $q . '%';
-        $types .= 's';
+        // Resolve names via small samtable, then equality on indexed qevent.sample
+        // (avoids leading-wildcard LIKE + huge JOIN against scoretable).
+        $sampleHits = fetch_all(
+            'SELECT DISTINCT sam FROM samtable
+             WHERE sam = ? OR sam LIKE ? OR sam LIKE ? OR IFNULL(samdetail, \'\') LIKE ?',
+            [$q, $q . '%', '%' . $q . '%', '%' . $q . '%'],
+            'ssss'
+        );
+        $sampleNames = [];
+        foreach ($sampleHits as $hit) {
+            if (!empty($hit['sam'])) {
+                $sampleNames[] = $hit['sam'];
+            }
+        }
+        // Also include exact qevent.sample equality in case samtable is incomplete.
+        if (!in_array($q, $sampleNames, true)) {
+            $sampleNames[] = $q;
+        }
+        append_in_clause($where, $params, $types, 'e.sample', array_values(array_unique($sampleNames)));
         break;
 
     case 'condition':
-        $where[] = 'e.samplecondition LIKE ?';
-        $params[] = '%' . $q . '%';
-        $types .= 's';
+        // Resolve names via small contable / con_annotation, then equality on
+        // indexed qevent.samplecondition (avoids leading-wildcard LIKE on 15M rows).
+        $condNames = [];
+        $condHits = fetch_all(
+            'SELECT DISTINCT con FROM contable
+             WHERE con = ? OR con LIKE ? OR con LIKE ? OR IFNULL(condetail, \'\') LIKE ?
+             LIMIT 500',
+            [$q, $q . '%', '%' . $q . '%', '%' . $q . '%'],
+            'ssss'
+        );
+        foreach ($condHits as $hit) {
+            if (!empty($hit['con'])) {
+                $condNames[] = $hit['con'];
+            }
+        }
+        $annHits = fetch_all(
+            'SELECT DISTINCT con FROM con_annotation
+             WHERE con = ? OR con LIKE ? OR con LIKE ?
+                OR IFNULL(condetail, \'\') LIKE ?
+                OR IFNULL(agent_raw, \'\') LIKE ?
+                OR IFNULL(agent_key, \'\') LIKE ?
+                OR IFNULL(gene, \'\') LIKE ?
+             LIMIT 500',
+            [$q, $q . '%', '%' . $q . '%', '%' . $q . '%', '%' . $q . '%', '%' . $q . '%', '%' . $q . '%'],
+            'sssssss'
+        );
+        foreach ($annHits as $hit) {
+            if (!empty($hit['con'])) {
+                $condNames[] = $hit['con'];
+            }
+        }
+        if (!in_array($q, $condNames, true)) {
+            $condNames[] = $q;
+        }
+        append_in_clause($where, $params, $types, 'e.samplecondition', array_values(array_unique($condNames)));
         break;
 
     case 'protein':
@@ -161,13 +211,7 @@ $countSql = "SELECT COUNT(*) AS total FROM qevent e WHERE $whereClause";
 $countRow = fetch_one($countSql, $params, $types);
 $total = intval($countRow['total'] ?? 0);
 
-$dataSql = "SELECT e.pmid, e.up, e.gene, e.pos, e.mods, e.pep, e.sample,
-                   e.samplecondition, e.org, e.qratio, e.pvalue,
-                   e.qratiopro, e.pvaluepro, e.qptmscore, e.fdr
-            FROM qevent e
-            WHERE $whereClause
-            ORDER BY e.qptmscore DESC, e.gene, e.pos
-            LIMIT ? OFFSET ?";
+$dataSql = event_select_page_sql($whereClause, 'e.timetype DESC, e.qptmscore DESC, e.gene, e.pos');
 
 $pageParams = array_merge($params, [$per_page, $offset]);
 $pageTypes = $types . 'ii';

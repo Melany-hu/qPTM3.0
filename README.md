@@ -33,11 +33,10 @@ qPTM2026/
 │   ├── db.php               Shared MySQL connection & helpers
 │   ├── search.php           GET /api/search?q=TP53
 │   ├── site.php             GET /api/site?uniprot=P04637&pos=15
-│   ├── conditions.php       GET /api/conditions?uniprot=P04637&pos=15
+│   ├── conditions.php       GET /api/conditions?q=IL-33
 │   ├── kinases.php          GET /api/kinases/P04637/15
 │   ├── protein.php          GET /api/protein/P04637
 │   ├── browse.php           GET /api/browse?org=human&mod=phosphorylation
-│   ├── stats.php            GET /api/stats
 │   └── .htaccess            URL rewriting rules
 │
 │  ── Agent Backend (Python FastAPI) ──

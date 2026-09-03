@@ -99,6 +99,22 @@ function displayText($value){
 	return htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
 }
 
+/**
+ * Display-only fix: cell-cycle typo "S phage" / "G1 phage" → "phase".
+ * Does not change stored data; safe against macrophage / esophageal.
+ */
+function fixCellCyclePhageDisplay($text){
+	$text = (string)$text;
+	if($text === '' || stripos($text, 'phage') === false){
+		return $text;
+	}
+	return preg_replace(
+		'/\b((?:Early|Late|Middle)\s+S|G0|G1(?:-S)?|G2|M|mitosis|S)\s+phage\b/i',
+		'$1 phase',
+		$text
+	);
+}
+
 /** Same normalization as displayText(), without HTML escaping (for JSON/filter labels). */
 function displayLabel($value){
 	if($value === null){
@@ -160,6 +176,34 @@ function subQuery($subSearchTags, $subSearchKeyword, $subSearchTable, $subReturn
 	
 }
 
+/*------ Resolve samplecondition values from qevent (exact / prefix; uses idx_samplecondition) ------*/
+function resolveSampleConditionsFromQevent($keyword, $limit = 100){
+	$keyword = trim((string)$keyword);
+	$out = array();
+	if($keyword === ''){
+		return $out;
+	}
+	$db = connectDB();
+	$kwEsc = $db->real_escape_string($keyword);
+	$limit = max(1, (int)$limit);
+	$queryRes = $db->query(
+		"SELECT DISTINCT samplecondition FROM qevent".
+		" WHERE samplecondition = '{$kwEsc}' OR samplecondition LIKE '{$kwEsc}%'".
+		" LIMIT {$limit}"
+	);
+	if($queryRes){
+		while($row = $queryRes->fetch_assoc()){
+			$sc = isset($row['samplecondition']) ? (string)$row['samplecondition'] : '';
+			if($sc === ''){
+				continue;
+			}
+			$out[] = "samplecondition = '".$db->real_escape_string($sc)."'";
+		}
+	}
+	$db->close();
+	return $out;
+}
+
 /*------ Create need qevent query information ------*/
 function createMainQueryInfo($tag, $keyword){
 	$contableRes = array();
@@ -172,16 +216,74 @@ function createMainQueryInfo($tag, $keyword){
 		}
 		return "(pos = '".$pos."')";
 	}
+	if($tag == 'uppos'){
+		$keyword = trim((string)$keyword);
+		if(!preg_match('/^([A-Za-z0-9-]+)\s*[#：:]\s*(\d+)\s*$/', $keyword, $m)){
+			return '(1 = 0)';
+		}
+		$up = preg_replace('/[^A-Za-z0-9-]/', '', $m[1]);
+		$pos = preg_replace('/\D+/', '', $m[2]);
+		if($up === '' || $pos === ''){
+			return '(1 = 0)';
+		}
+		return "(up = '".$up."' and pos = '".$pos."')";
+	}
+	if($tag == 'genepos'){
+		$keyword = trim((string)$keyword);
+		if(!preg_match('/^([A-Za-z0-9._-]+)\s*[#：:]\s*(\d+)\s*$/', $keyword, $m)){
+			return '(1 = 0)';
+		}
+		$gene = preg_replace('/[^A-Za-z0-9._-]/', '', $m[1]);
+		$pos = preg_replace('/\D+/', '', $m[2]);
+		if($gene === '' || $pos === ''){
+			return '(1 = 0)';
+		}
+		$db = connectDB();
+		$geneEsc = $db->real_escape_string($gene);
+		$db->close();
+		return "(gene = '".$geneEsc."' and pos = '".$pos."')";
+	}
+	if($tag == 'proteinpos'){
+		$keyword = trim((string)$keyword);
+		if(!preg_match('/^(.+?)\s*[#：:]\s*(\d+)\s*$/u', $keyword, $m)){
+			return '(1 = 0)';
+		}
+		$protein = trim($m[1]);
+		$pos = preg_replace('/\D+/', '', $m[2]);
+		if($protein === '' || $pos === ''){
+			return '(1 = 0)';
+		}
+		$protableRes = subQuery('proteinname', $protein, 'protable', 'primaryacc', 'up');
+		if($protableRes === false){
+			return false;
+		}
+		if(count($protableRes) === 0){
+			return '(1 = 0)';
+		}
+		return '(('.implode(' or ', $protableRes).") and pos = '".$pos."')";
+	}
 	if($tag == 'Context'){
 		$contableRes = subQuery('con condetail', $keyword, 'contable', 'con', 'samplecondition');
 		$samtableRes = subQuery('samdetail', $keyword, 'samtable', 'sam', 'sample');
 		$protableRes = subQuery('uniprotaccs genename proteinname func', $keyword, 'protable', 'primaryacc', 'up');
+		if($contableRes !== false){
+			$fromQevent = resolveSampleConditionsFromQevent($keyword);
+			if(count($fromQevent) > 0){
+				$contableRes = array_values(array_unique(array_merge($contableRes, $fromQevent)));
+			}
+		}
 
 		//$returnQueryInfos = array_merge($returnQueryInfos, subQuery('con condetail', $keyword, 'contable', 'con', 'samplecondition'), subQuery('samdetail', $keyword, 'samtable', 'sam', 'sample'), subQuery('uniprotaccs genename proteinname func', $keyword, 'protable', 'primaryacc', 'up'));
 	}	
 	elseif($tag == 'con condetail'){
 		$contableRes = subQuery($tag, $keyword, 'contable', 'con', 'samplecondition');
-		//$returnQueryInfos = array_merge($returnQueryInfos, subQuery($tag, $keyword, 'contable', 'con', 'samplecondition'));
+		// contable may lag behind qevent; also resolve by samplecondition exact/prefix
+		if($contableRes !== false){
+			$fromQevent = resolveSampleConditionsFromQevent($keyword);
+			if(count($fromQevent) > 0){
+				$contableRes = array_values(array_unique(array_merge($contableRes, $fromQevent)));
+			}
+		}
 	}
 	elseif($tag == 'samdetail'){
 		$samtableRes = subQuery($tag, $keyword, 'samtable', 'sam', 'sample');
@@ -202,9 +304,11 @@ function createMainQueryInfo($tag, $keyword){
 		return false;
 	}
 	else{
-		//$returnQueryInfos = array();
-		//$returnQueryInfos = array_merge($returnQueryInfos, $protableRes, $samtableRes, $contableRes);	
-		return '('.implode(' or ', array_merge($protableRes, $samtableRes, $contableRes)).')';
+		$merged = array_merge($protableRes, $samtableRes, $contableRes);
+		if(count($merged) === 0){
+			return '(1 = 0)';
+		}
+		return '('.implode(' or ', $merged).')';
 	}
 }
 
@@ -220,19 +324,44 @@ function showSelect($allSelects){
     return $selectItem;
 }
 
-function getResultFilterOptions($mainQueryInfo){
+function getResultFilterOptions($mainQueryInfo, $appliedFilters = array()){
 	$db = connectDB();
 	$filterFields = array(
+		'gene' => 'gene',
 		'pos' => 'pos',
 		'mods' => 'mods',
 		'sample' => 'sample',
 		'samplecondition' => 'samplecondition',
 		'qptmscore' => 'qptmscore'
 	);
+	if(!is_array($appliedFilters)){
+		$appliedFilters = array();
+	}
 	$filterOptions = array();
 	foreach($filterFields as $key => $column){
-		$orderBy = ($column === 'pos') ? 'CAST(pos AS UNSIGNED) asc' : $column.' desc';
-		$queryRes = $db->query("select ".$column." from qevent where (".$mainQueryInfo.") group by ".$column." order by ".$orderBy);
+		if($column === 'pos'){
+			$orderBy = 'CAST(pos AS UNSIGNED) asc';
+		}elseif($column === 'gene'){
+			$orderBy = 'gene asc';
+		}else{
+			$orderBy = $column.' desc';
+		}
+		$whereParts = array('('.$mainQueryInfo.')');
+		foreach($appliedFilters as $fkey => $vals){
+			if($fkey === $key || !isset($filterFields[$fkey]) || !is_array($vals) || !count($vals)){
+				continue;
+			}
+			$col = $filterFields[$fkey];
+			$ors = array();
+			foreach($vals as $v){
+				$ors[] = $col." = '".$db->real_escape_string((string)$v)."'";
+			}
+			if(count($ors)){
+				$whereParts[] = '('.implode(' or ', $ors).')';
+			}
+		}
+		$whereSql = implode(' and ', $whereParts);
+		$queryRes = $db->query("select ".$column." from qevent where ".$whereSql." group by ".$column." order by ".$orderBy);
 		$values = array();
 		if($queryRes){
 			while($row = $queryRes->fetch_assoc()){
@@ -319,7 +448,7 @@ function showResTable($displayQyeryRes){
 	$returnLine = '';
 	for($i = 0;$i<$displayQyeryResNum;$i++){
 		$row = $displayQyeryRes->fetch_assoc();
-		$rawdata = $row['mods'].'|'.$row['pmid'].'|'.$row['samplecondition'].'|'.$row['sample'].'|'.$i.'|'.$row['up'].'|'.$row['pos'].'|'.$row['pep'].'|'.$row['qratiopro'].'|'.$row['pvaluepro'].'|'.$row['timefile'].'|'.$row['timetype'].'|'.$row['org'].'|'.$row['fdr'];
+		$rawdata = $row['mods'].'|'.$row['pmid'].'|'.$row['samplecondition'].'|'.$row['sample'].'|'.$i.'|'.$row['up'].'|'.$row['pos'].'|'.'|'.$row['qratiopro'].'|'.$row['pvaluepro'].'|'.$row['timefile'].'|'.$row['timetype'].'|'.$row['org'].'|'.$row['fdr'];
 		$returnLine = $returnLine."<tr class='Table-line'>
 			<td class='col-detail'><button type='button' class='detail-toggle' aria-label='Toggle detail' value=\"".$rawdata."\"><i class='ri-add-circle-fill'></i></button></td>
 			<td class='col-uniprot'><a class='result-link' href='https://www.uniprot.org/uniprot/".$row['up']."' target='_blank' rel='noopener'>".$row['up']."</a></td>
@@ -419,7 +548,7 @@ function showPageInfo($queryResNum, $nowPage, $rowNumber){
 /*------ Build qevent query from search parameters ------*/
 function buildSearchQueryInfo($links, $tags, $keywords, $mods, $orgs){
 	$mainQueryInfos = array();
-	$tag2item = array("Context"=>"Any Field","uniprotaccs"=>"UniProt Accession","genename"=>"Gene Name","proteinname"=>"Protein Name","pos"=>"Position","func"=>"Function","con condetail"=>"Condition","samdetail"=>"Sample");
+	$tag2item = array("Context"=>"Any Field","uniprotaccs"=>"UniProt Accession","uppos"=>"UniProt ID#Position","genename"=>"Gene Name","genepos"=>"Gene Name#Position","proteinname"=>"Protein Name","proteinpos"=>"Protein Name#Position","pos"=>"Position","func"=>"Function","con condetail"=>"Condition","samdetail"=>"Sample");
 	$queryContents = array();
 	for($i=0;$i<count($tags);$i++){
 		array_push($queryContents, ' '.$links[$i].' ');
@@ -428,7 +557,7 @@ function buildSearchQueryInfo($links, $tags, $keywords, $mods, $orgs){
 		array_push($mainQueryInfos, ' '.$links[$i].' ');
 		$createMainQueryInfoRes = createMainQueryInfo($tags[$i], $keywords[$i]);
 		if($createMainQueryInfoRes === false){
-			return array('error' => "There are too many matched records with your keyword(s) in '".$tag2item[$tags[$i]]."', please provide a more detailed search plan!");
+			return array('error' => "There are too many matched records with your keyword(s) in '".$tag2item[$tags[$i]]."', please provide a more detailed search plan.");
 		}
 		array_push($mainQueryInfos, $createMainQueryInfoRes);
 	}
@@ -476,7 +605,7 @@ function searchDB($links, $tags, $keywords, $mods, $orgs){
 }
 function queryAndDisplay($mainQueryInfo, $queryContent){
 	$db = connectDB();	
-	$queryRes = $db->query("select * from qevent where (".$mainQueryInfo.") order by qptmscore desc, up, pos limit 0, 10");
+	$queryRes = $db->query("select * from qevent where (".$mainQueryInfo.") order by timetype desc, qptmscore desc, up, pos limit 0, 10");
 	$queryResAll = $db->query("select count(*) from qevent where (".$mainQueryInfo.")");
 
 	echo "<span id='rawQueryInfo' style='display:none'>".$mainQueryInfo."</span>";
@@ -583,6 +712,399 @@ function ID2links($headLink, $IDs){
 	return implode(', ', $linkInfos);
 }
 
+/** Human-readable Condition type labels (Browse / result detail). */
+function contrastTypeLabel($type){
+	$map = array(
+		'pharmacological' => 'Pharmacological',
+		'genetic' => 'Genetic',
+		'physical' => 'Physical',
+		'disease' => 'Disease',
+		'cell_state' => 'Cell state',
+		'other' => 'Other'
+	);
+	$key = strtolower(trim((string)$type));
+	return isset($map[$key]) ? $map[$key] : trim((string)$type);
+}
+
+/** Build external URL for an ontology CURIE (e.g. ChEBI:45716). */
+function ontologyIdUrl($curie){
+	$curie = trim((string)$curie);
+	if($curie === '' || strpos($curie, ':') === false){
+		return '';
+	}
+	$parts = explode(':', $curie, 2);
+	$prefix = strtoupper(trim($parts[0]));
+	$id = trim($parts[1]);
+	if($id === ''){
+		return '';
+	}
+	switch($prefix){
+		case 'CHEBI':
+			$num = preg_replace('/^CHEBI:/i', '', $id);
+			if(stripos($id, 'CHEBI:') === 0){
+				$num = substr($id, 6);
+			}
+			return 'https://www.ebi.ac.uk/chebi/searchId.do?chebiId=CHEBI:'.rawurlencode($num);
+		case 'PUBCHEM':
+			return 'https://pubchem.ncbi.nlm.nih.gov/compound/'.rawurlencode($id);
+		case 'DOID':
+			return 'https://disease-ontology.org/?id=DOID:'.rawurlencode(preg_replace('/^DOID:/i', '', $id));
+		case 'HGNC':
+			return 'https://www.genenames.org/data/gene-symbol-report/#!/hgnc_id/HGNC:'.rawurlencode($id);
+		case 'UNIPROT':
+			return 'https://www.uniprot.org/uniprotkb/'.rawurlencode($id);
+		case 'CELLOSAURUS':
+			return 'https://www.cellosaurus.org/'.rawurlencode($id);
+		case 'MESH':
+			return 'https://meshb.nlm.nih.gov/record/ui?ui='.rawurlencode($id);
+		case 'GO':
+			return 'https://amigo.geneontology.org/amigo/term/GO:'.rawurlencode($id);
+		case 'SGD':
+			return 'https://www.yeastgenome.org/locus/'.rawurlencode($id);
+		case 'NCIT':
+			return 'https://ncit.nci.nih.gov/ncitbrowser/ConceptReport.jsp?dictionary=NCI_Thesaurus&code='.rawurlencode($id);
+		case 'NCBITAXON':
+			return 'https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?id='.rawurlencode($id);
+		default:
+			return '';
+	}
+}
+
+/** Render ontology_id pipe list as external links. */
+function formatOntologyLinks($ontologyId){
+	$ontologyId = trim((string)$ontologyId);
+	if($ontologyId === ''){
+		return '';
+	}
+	$bits = preg_split('/\s*\|\s*/', $ontologyId);
+	$links = array();
+	foreach($bits as $bit){
+		$bit = trim($bit);
+		if($bit === ''){ continue; }
+		$url = ontologyIdUrl($bit);
+		$label = htmlspecialchars($bit, ENT_QUOTES, 'UTF-8');
+		if($url !== ''){
+			$links[] = "<a href='".htmlspecialchars($url, ENT_QUOTES, 'UTF-8')."' target='_blank' rel='noopener'>".$label."</a>";
+		}else{
+			$links[] = $label;
+		}
+	}
+	return implode(' · ', $links);
+}
+
+/**
+ * HTML rows for Condition type + Condition ontology
+ * after Detail condition in result experiment detail.
+ */
+/** Escape a value for tab-delimited download rows. */
+function tsvCell($value){
+	if($value === null){
+		return '';
+	}
+	$value = trim((string)$value);
+	if($value === '' || $value === '-'){
+		return '';
+	}
+	return str_replace(array("\t", "\r", "\n"), ' ', $value);
+}
+
+/** Column headers for Search result downloads (includes Experiment information fields). */
+function downloadResultHeader(){
+	return array(
+		'UniProt',
+		'Gene',
+		'Position',
+		'Modification',
+		'Organism',
+		'PMID',
+		'Resource',
+		'Detail condition',
+		'Condition type',
+		'Condition ontology',
+		'Condition',
+		'Sample',
+		'Sample type',
+		'Label method',
+		'Enrichment method',
+		'Mass spectrometer',
+		'Log2Ratio',
+		'pvalue',
+		'Related protein Log2Ratio',
+		'Related protein pvalue',
+		'Has time course',
+		'Reported PEP/Localization probability',
+		'Reliability',
+		'Re-identified FDR',
+		'Identified times in qPTM',
+		'Collected in PhosphoSitePlus',
+		'Collected in dbPTM',
+		'Collected in PTMAtlas',
+	);
+}
+
+/**
+ * Preload small Experimental-information lookup tables for result downloads.
+ * scoretable is too large and is fetched in batches separately.
+ */
+function loadDownloadExperimentalMaps($db){
+	$maps = array(
+		'exp' => array(),
+		'sam' => array(),
+		'con' => array(),
+		'ann' => array(),
+		'dict' => array(),
+	);
+
+	$res = @$db->query("SELECT pmid, mods, tit, labelmethod, enrichmethod, msmethod FROM exptable");
+	if($res){
+		while($r = $res->fetch_assoc()){
+			$maps['exp'][$r['pmid']."\t".$r['mods']] = $r;
+		}
+	}
+
+	$res = @$db->query("SELECT sam, samtype FROM samtable");
+	if($res){
+		while($r = $res->fetch_assoc()){
+			$maps['sam'][$r['sam']] = isset($r['samtype']) ? (string)$r['samtype'] : '';
+		}
+	}
+
+	$res = @$db->query("SELECT pmid, con, condetail FROM contable");
+	if($res){
+		while($r = $res->fetch_assoc()){
+			$maps['con'][$r['pmid']."\t".$r['con']] = isset($r['condetail']) ? (string)$r['condetail'] : '';
+		}
+	}
+
+	$res = @$db->query("SELECT pmid, con, contrast_type, agent_key, agent_raw, gene, perturbation FROM con_annotation");
+	if($res){
+		while($r = $res->fetch_assoc()){
+			$maps['ann'][$r['pmid']."\t".$r['con']] = $r;
+			$conOnly = "\t".$r['con'];
+			if(!isset($maps['ann'][$conOnly])){
+				$maps['ann'][$conOnly] = $r;
+			}
+		}
+	}
+
+	$res = @$db->query("SELECT agent_key, preferred_name, ontology_id FROM agent_dictionary");
+	if($res){
+		while($r = $res->fetch_assoc()){
+			$maps['dict'][$r['agent_key']] = $r;
+		}
+	}
+
+	return $maps;
+}
+
+/** Batch-load scoretable rows by scoreid. */
+function fetchScoreRowsByIds($db, $ids){
+	$out = array();
+	$ids = array_values(array_unique(array_filter(array_map('strval', $ids))));
+	$chunkSize = 500;
+	$total = count($ids);
+	for($i = 0; $i < $total; $i += $chunkSize){
+		$chunk = array_slice($ids, $i, $chunkSize);
+		$escaped = array();
+		foreach($chunk as $id){
+			$escaped[] = "'".$db->real_escape_string($id)."'";
+		}
+		$res = $db->query("SELECT scoreid, prob, ispsp, isdbptm, isptmatlas FROM scoretable WHERE scoreid IN (".implode(',', $escaped).")");
+		if($res){
+			while($r = $res->fetch_assoc()){
+				$out[$r['scoreid']] = $r;
+			}
+		}
+	}
+	return $out;
+}
+
+/** Resolve condition type / ontology labels for a download row. */
+function resolveDownloadConditionAnnotation($pmid, $con, $maps){
+	$typeLabel = '';
+	$pert = '';
+	$factor = '';
+	$ann = null;
+	$key = $pmid."\t".$con;
+	if(isset($maps['ann'][$key])){
+		$ann = $maps['ann'][$key];
+	}elseif(isset($maps['ann']["\t".$con])){
+		$ann = $maps['ann']["\t".$con];
+	}
+	if(is_array($ann)){
+		$typeLabel = contrastTypeLabel(isset($ann['contrast_type']) ? $ann['contrast_type'] : '');
+		$pert = isset($ann['perturbation']) ? trim((string)$ann['perturbation']) : '';
+		$agentKey = isset($ann['agent_key']) ? trim((string)$ann['agent_key']) : '';
+		$agentRaw = isset($ann['agent_raw']) ? trim((string)$ann['agent_raw']) : '';
+		$gene = isset($ann['gene']) ? trim((string)$ann['gene']) : '';
+		if($agentKey !== '' && isset($maps['dict'][$agentKey])){
+			$dict = $maps['dict'][$agentKey];
+			$factor = trim((string)(isset($dict['preferred_name']) ? $dict['preferred_name'] : ''));
+			$ontologyId = trim((string)(isset($dict['ontology_id']) ? $dict['ontology_id'] : ''));
+			if($factor !== '' && $ontologyId !== ''){
+				$factor .= ' ('.$ontologyId.')';
+			}elseif($factor === '' && $ontologyId !== ''){
+				$factor = $ontologyId;
+			}
+		}
+		if($factor === ''){
+			$factor = ($gene !== '' ? $gene : $agentRaw);
+		}
+	}
+	$typeCell = $typeLabel;
+	if($typeLabel !== '' && $pert !== '' && $pert !== 'other' && $pert !== 'drug' && $pert !== 'disease' && $pert !== 'stimulus'){
+		$typeCell .= ' ('.$pert.')';
+	}
+	return array($typeCell, $factor);
+}
+
+/** Normalize free-text for download (encoding fixes used on the result page). */
+function downloadTextField($value){
+	return displayLabel($value);
+}
+
+/** Build one enriched download line matching Experiment information on the result page. */
+function formatDownloadResultRow($row, $maps, $score = null){
+	$pmid = isset($row['pmid']) ? (string)$row['pmid'] : '';
+	$mods = isset($row['mods']) ? (string)$row['mods'] : '';
+	$con = isset($row['samplecondition']) ? (string)$row['samplecondition'] : '';
+	$sample = isset($row['sample']) ? (string)$row['sample'] : '';
+	$org = isset($row['org']) ? (string)$row['org'] : '';
+
+	$exp = isset($maps['exp'][$pmid."\t".$mods]) ? $maps['exp'][$pmid."\t".$mods] : null;
+	$condetail = isset($maps['con'][$pmid."\t".$con]) ? $maps['con'][$pmid."\t".$con] : '';
+	$samtype = isset($maps['sam'][$sample]) ? $maps['sam'][$sample] : '';
+	list($typeCell, $factorCell) = resolveDownloadConditionAnnotation($pmid, $con, $maps);
+
+	$timetype = isset($row['timetype']) ? (string)$row['timetype'] : '0';
+	$hasTimeCourse = ($timetype !== '' && $timetype !== '0') ? 'Yes' : 'No';
+
+	$qptmcount = isset($row['qptmcount']) ? (string)$row['qptmcount'] : '';
+	$prob = '';
+	$ispsp = '';
+	$isdbptm = '';
+	$isptmatlas = '';
+	if(is_array($score)){
+		$prob = isset($score['prob']) ? str_replace('#', ': ', (string)$score['prob']) : '';
+		$ispsp = isset($score['ispsp']) ? (string)$score['ispsp'] : '';
+		$isdbptm = isset($score['isdbptm']) ? (string)$score['isdbptm'] : '';
+		$isptmatlas = isset($score['isptmatlas']) ? (string)$score['isptmatlas'] : '';
+	}
+
+	$cells = array(
+		$row['up'] ?? '',
+		$row['gene'] ?? '',
+		$row['pos'] ?? '',
+		$row['mods'] ?? '',
+		$org,
+		$pmid,
+		downloadTextField(is_array($exp) && isset($exp['tit']) ? $exp['tit'] : ''),
+		downloadTextField(fixCellCyclePhageDisplay($condetail)),
+		downloadTextField($typeCell),
+		downloadTextField($factorCell),
+		downloadTextField($con),
+		downloadTextField($sample),
+		downloadTextField($samtype),
+		downloadTextField(is_array($exp) && isset($exp['labelmethod']) ? $exp['labelmethod'] : ''),
+		downloadTextField(is_array($exp) && isset($exp['enrichmethod']) ? $exp['enrichmethod'] : ''),
+		downloadTextField(is_array($exp) && isset($exp['msmethod']) ? $exp['msmethod'] : ''),
+		$row['qratio'] ?? '',
+		$row['pvalue'] ?? '',
+		$row['qratiopro'] ?? '',
+		$row['pvaluepro'] ?? '',
+		$hasTimeCourse,
+		downloadTextField($prob),
+		$row['qptmscore'] ?? '',
+		$row['fdr'] ?? '',
+		$qptmcount,
+		$ispsp,
+		$isdbptm,
+		$isptmatlas,
+	);
+	return implode("\t", array_map('tsvCell', $cells));
+}
+
+/** Write a batch of qevent rows with Experimental information enrichment. */
+function writeDownloadResultBatch($handle, $db, $batch, $maps){
+	$scoreIds = array();
+	foreach($batch as $row){
+		$scoreIds[] = ($row['org'] ?? '').'#'.($row['pmid'] ?? '').'#'.($row['up'] ?? '').'#'.($row['pos'] ?? '').'#'.($row['mods'] ?? '');
+	}
+	$scores = fetchScoreRowsByIds($db, $scoreIds);
+	foreach($batch as $row){
+		$sid = ($row['org'] ?? '').'#'.($row['pmid'] ?? '').'#'.($row['up'] ?? '').'#'.($row['pos'] ?? '').'#'.($row['mods'] ?? '');
+		$score = isset($scores[$sid]) ? $scores[$sid] : null;
+		fwrite($handle, formatDownloadResultRow($row, $maps, $score)."\n");
+	}
+}
+
+function buildConditionAnnotationRows($db, $pmid, $con){
+	$pmidEsc = $db->real_escape_string((string)$pmid);
+	$conEsc = $db->real_escape_string((string)$con);
+	$annRes = @$db->query(
+		"SELECT contrast_type, agent_key, agent_raw, gene, perturbation, parse_confidence
+		 FROM con_annotation
+		 WHERE pmid='{$pmidEsc}' AND con='{$conEsc}'
+		 LIMIT 1"
+	);
+	if(!$annRes || !$annRes->num_rows){
+		// Fall back: same condition name may share annotation across PMIDs
+		$annRes = @$db->query(
+			"SELECT contrast_type, agent_key, agent_raw, gene, perturbation, parse_confidence
+			 FROM con_annotation
+			 WHERE con='{$conEsc}'
+			 LIMIT 1"
+		);
+	}
+
+	$typeLabel = '';
+	$pert = '';
+	$factorName = '';
+	$ontologyHtml = '';
+	if($annRes && $annRes->num_rows){
+		$ann = $annRes->fetch_assoc();
+		$typeLabel = contrastTypeLabel(isset($ann['contrast_type']) ? $ann['contrast_type'] : '');
+		$pert = isset($ann['perturbation']) ? trim((string)$ann['perturbation']) : '';
+		$agentKey = isset($ann['agent_key']) ? trim((string)$ann['agent_key']) : '';
+		$agentRaw = isset($ann['agent_raw']) ? trim((string)$ann['agent_raw']) : '';
+		$gene = isset($ann['gene']) ? trim((string)$ann['gene']) : '';
+		if($agentKey !== ''){
+			$akEsc = $db->real_escape_string($agentKey);
+			$dictRes = @$db->query(
+				"SELECT preferred_name, ontology_id, entity_type, agent_class
+				 FROM agent_dictionary WHERE agent_key='{$akEsc}' LIMIT 1"
+			);
+			if($dictRes && $dictRes->num_rows){
+				$dict = $dictRes->fetch_assoc();
+				$factorName = trim((string)(isset($dict['preferred_name']) ? $dict['preferred_name'] : ''));
+				$ontologyHtml = formatOntologyLinks(isset($dict['ontology_id']) ? $dict['ontology_id'] : '');
+			}
+		}
+		if($factorName === ''){
+			$factorName = ($gene !== '' ? $gene : $agentRaw);
+		}
+	}
+
+	$typeCell = ($typeLabel !== '') ? displayText($typeLabel) : '-';
+	if($typeLabel !== '' && $pert !== '' && $pert !== 'other' && $pert !== 'drug' && $pert !== 'disease' && $pert !== 'stimulus'){
+		$typeCell .= " <span class='text-muted' style='font-weight:normal'>(".displayText($pert).")</span>";
+	}
+
+	if($factorName !== ''){
+		$factorCell = displayText($factorName);
+		if($ontologyHtml !== ''){
+			$factorCell .= " <span class='text-muted' style='margin-left:0.35rem'>(".$ontologyHtml.")</span>";
+		}
+	}elseif($ontologyHtml !== ''){
+		$factorCell = $ontologyHtml;
+	}else{
+		$factorCell = '-';
+	}
+
+	return "<tr><td>Condition type</td><td colspan='6'>".$typeCell."</td></tr>"
+		."<tr><td>Condition ontology</td><td colspan='6'>".$factorCell."</td></tr>";
+}
+
 /*------ Add tips to PubMed info in function description------*/
 function displayFuncDes($funcDes){
 	$pattern = "/\((PubMed:[0-9]*,? *)+\)/";
@@ -647,6 +1169,39 @@ function parsePtmsOtherResource($raw){
 	return $rows;
 }
 
+/** Count PTM site rows without building the full sorted table. */
+function countPtmsOtherResource($raw){
+	$raw = trim((string)$raw);
+	if($raw === ''){
+		return 0;
+	}
+	$count = 0;
+	foreach(explode(';', $raw) as $part){
+		$part = trim($part);
+		if($part === '' || !preg_match('/^(.+?):([\d,]+)\(([^)]+)\)$/', $part, $matches)){
+			continue;
+		}
+		foreach(explode(',', $matches[2]) as $pos){
+			$pos = trim($pos);
+			if($pos !== '' && ctype_digit($pos)){
+				$count++;
+			}
+		}
+	}
+	return $count;
+}
+
+/** Placeholder for large detail tables loaded on expand. */
+function lazyDetailTablePlaceholder($kind, $uniprot){
+	$kind = preg_replace('/[^a-z_]/', '', (string)$kind);
+	$upEsc = htmlspecialchars(trim((string)$uniprot), ENT_QUOTES, 'UTF-8');
+	return "<div class='detail-table-scroll hide-more lazy-detail-table is-loading' data-lazy='".$kind."' data-up='".$upEsc."' data-loaded='0'>"
+		."<div class='structure-viewer-loading detail-table-loading'>"
+		."<span class='structure-spinner' aria-hidden='true'></span>"
+		."<span>Loading table...</span>"
+		."</div></div>";
+}
+
 /*------ Display external PTM resources in a table ------*/
 function formatPtmResourceSource($source){
 	$source = trim((string)$source);
@@ -694,11 +1249,9 @@ function displayPTM($ptmRows){
 /*------ Display PTMD information in a table------*/
 function formatPtmdSource($source){
 	$source = trim((string)$source);
-	if($source === ''){
-		return '-';
-	}
-	$parts = preg_split('/[;,]/', $source);
+	$parts = ($source === '') ? array() : preg_split('/[;,]/', $source);
 	$links = array();
+	$hasPtmd = false;
 	foreach($parts as $part){
 		$part = trim($part);
 		if($part === ''){
@@ -709,10 +1262,15 @@ function formatPtmdSource($source){
 		}elseif(strcasecmp($part, 'ActiveDriverDB') === 0){
 			$links[] = "<a href='https://activedriverdb.org/' target='_blank' rel='noopener'>".htmlspecialchars($part)."</a>";
 		}elseif(strcasecmp($part, 'PTMD') === 0){
-			$links[] = "<a href='https://ptmd.biocuckoo.cn/' target='_blank' rel='noopener'>".htmlspecialchars($part)."</a>";
+			$hasPtmd = true;
+			$links[] = "<a href='https://ptmd.biocuckoo.cn/' target='_blank' rel='noopener'>PTMD</a>";
 		}else{
 			$links[] = htmlspecialchars($part);
 		}
+	}
+	// Disease and variants rows are curated from PTMD; always show PTMD as a source.
+	if(!$hasPtmd){
+		$links[] = "<a href='https://ptmd.biocuckoo.cn/' target='_blank' rel='noopener'>PTMD</a>";
 	}
 	return $links ? implode(', ', $links) : '-';
 }
@@ -1660,8 +2218,33 @@ function displayDrug($drugInfo, $drugType){
 	return $returnDrugInfos;
 }
 
+function resolveTimeCourseFile($timeFile, $pmid = ''){
+	$baseDir = __DIR__.'/time_course_mat/';
+	$timeFile = trim((string)$timeFile);
+	$pmid = trim((string)$pmid);
+	if($timeFile === ''){
+		return '';
+	}
+	$candidates = array($timeFile);
+	// DB timefile may omit PMID, while files are named "{pmid}#{timefile}.txt"
+	if($pmid !== '' && strpos($timeFile, $pmid.'#') !== 0){
+		$candidates[] = $pmid.'#'.$timeFile;
+	}
+	foreach($candidates as $name){
+		$path = $baseDir.$name.'.txt';
+		if(is_file($path)){
+			return $path;
+		}
+	}
+	return '';
+}
+
 function showTimeCourse($UniProtID, $pos, $mod, $pmid, $timeFile,$timeType,$thisCon){
-	$file = fopen(__DIR__.'/time_course_mat/'.$timeFile.'.txt','r');
+	$path = resolveTimeCourseFile($timeFile, $pmid);
+	if($path === ''){
+		return '-';
+	}
+	$file = fopen($path, 'r');
 	if(!$file){
 		return '-';
 	}
@@ -1720,19 +2303,33 @@ function showTimeCourse($UniProtID, $pos, $mod, $pmid, $timeFile,$timeType,$this
 /*------ Load protein annotation file ------*/
 function loadProteinInfo($uniprot){
 	$upi = array();
-	$filePath = __DIR__.'/proinfo/'.$uniprot.'.txt';
-	$file = @fopen($filePath, 'r');
-	if(!$file){
+	$uniprot = trim((string)$uniprot);
+	if($uniprot === ''){
 		return $upi;
 	}
-	while(!feof($file)){
-		$thisline = fgets($file);
-		$thislineInfo = explode("\t",str_replace("\n", "", $thisline));
-		if(count($thislineInfo) > 1){
-			$upi[$thislineInfo[0]] = $thislineInfo[1];
-	    }
+	$candidates = array($uniprot);
+	$base = preg_replace('/-\d+$/', '', $uniprot);
+	if($base !== '' && $base !== $uniprot){
+		$candidates[] = $base;
 	}
-	fclose($file);
+	foreach($candidates as $id){
+		$filePath = __DIR__.'/proinfo/'.$id.'.txt';
+		$file = @fopen($filePath, 'r');
+		if(!$file){
+			continue;
+		}
+		while(!feof($file)){
+			$thisline = fgets($file);
+			$thislineInfo = explode("\t",str_replace("\n", "", $thisline));
+			if(count($thislineInfo) > 1){
+				$upi[$thislineInfo[0]] = $thislineInfo[1];
+			}
+		}
+		fclose($file);
+		if($upi){
+			return $upi;
+		}
+	}
 	return $upi;
 }
 
@@ -1854,8 +2451,23 @@ function buildQptmPtminfo($uniprot){
 	if($uniprot === ''){
 		return '';
 	}
+	$base = preg_replace('/-\d+$/', '', $uniprot);
+	$cacheIds = array_values(array_unique(array_filter(array($uniprot, $base))));
+	$cacheDir = __DIR__.'/cache/ptm_qptm';
+	foreach($cacheIds as $cacheId){
+		$cacheFile = $cacheDir.'/'.$cacheId.'.txt';
+		if(is_file($cacheFile)){
+			$cached = trim((string)@file_get_contents($cacheFile));
+			if($cached !== ''){
+				return $cached;
+			}
+		}
+	}
+
 	$db = connectDB();
-	$queryRes = $db->query("select mods, pos from qevent where up = '".$db->real_escape_string($uniprot)."' group by mods, pos order by mods, CAST(pos AS UNSIGNED)");
+	$esc = $db->real_escape_string($uniprot);
+	// Avoid ORDER BY CAST(...) here — it forces a filesort on large proteins.
+	$queryRes = $db->query("select mods, pos from qevent where up = '{$esc}' group by mods, pos");
 	$grouped = array();
 	if($queryRes){
 		while($row = $queryRes->fetch_assoc()){
@@ -1875,10 +2487,18 @@ function buildQptmPtminfo($uniprot){
 		return '';
 	}
 	$parts = array();
+	ksort($grouped, SORT_STRING);
 	foreach($grouped as $mod => $positions){
+		$positions = array_map('intval', $positions);
+		sort($positions, SORT_NUMERIC);
 		$parts[] = $mod.':'.implode(',', $positions);
 	}
-	return implode(';', $parts);
+	$result = implode(';', $parts);
+	if($result !== '' && (@is_dir($cacheDir) || @mkdir($cacheDir, 0755, true))){
+		$cacheWriteId = ($base !== '' ? $base : $uniprot);
+		@file_put_contents($cacheDir.'/'.$cacheWriteId.'.txt', $result, LOCK_EX);
+	}
+	return $result;
 }
 
 function htmlAttr($value){
@@ -2311,7 +2931,7 @@ function displayPtmcodeTable($withinRows, $betweenRows){
  * Build Regulation detail section HTML for a site.
  * Returns array(html, has_any)
  */
-function buildRegulationSection($uniprot, $psite, $geneName, $line, $ptmdRows = array()){
+function buildRegulationSection($uniprot, $psite, $geneName, $line, $ptmdCount = 0){
 	$pspRows = lookupPspRegulatory($uniprot, $psite);
 	$ptmintRows = lookupPtmintPpi($uniprot, $psite);
 	$llpsRows = lookupPtmphaseLlps($uniprot, $psite);
@@ -2326,10 +2946,7 @@ function buildRegulationSection($uniprot, $psite, $geneName, $line, $ptmdRows = 
 	$betweenRows = $gene !== '' ? lookupPtmcodeBetween($gene, $psite) : array();
 	$funcScore = lookupFuncscore($uniprot, $psite);
 
-	if(!is_array($ptmdRows)){
-		$ptmdRows = array();
-	}
-	$ptmdCount = count($ptmdRows);
+	$ptmdCount = (int)$ptmdCount;
 	$ptmdHas = ($ptmdCount > 0);
 
 	$pspHas = count($pspRows) > 0;
@@ -2343,7 +2960,7 @@ function buildRegulationSection($uniprot, $psite, $geneName, $line, $ptmdRows = 
 	$llpsHtml = $llpsHas ? displayPtmphaseTable($llpsRows) : '-';
 	$crosstalkHtml = $crosstalkHas ? displayPtmcodeTable($withinRows, $betweenRows) : '-';
 	$scoreHtml = displayFuncscoreHtml($funcScore);
-	$ptmdHtml = $ptmdHas ? displayPTMD($ptmdRows) : '-';
+	$ptmdHtml = $ptmdHas ? lazyDetailTablePlaceholder('ptmd', $uniprot) : '-';
 
 	$html = "<div class='more-info detail-section' id='div-reg-".$line."' style='display:none'>
 		<table class='detail-table detail-table-actions'>
@@ -2361,6 +2978,33 @@ function buildRegulationSection($uniprot, $psite, $geneName, $line, $ptmdRows = 
 	return array(
 		'html' => $html,
 		'has_any' => ($pspHas || $ptmintHas || $llpsHas || $crosstalkHas || $scoreHas || $ptmdHas),
+	);
+}
+
+/** Structure track payload for lazy chart rendering. */
+function buildDetailStructurePayload($uniprot, $organism){
+	$upi = loadProteinInfo($uniprot);
+	$props = loadProteinProperties($uniprot, $organism);
+	$upi = mergeProteinStructureProperties($upi, $props);
+	if(!isset($upi['PTM_qPTM']) || $upi['PTM_qPTM'] === ''){
+		$upi['PTM_qPTM'] = buildQptmPtminfo($uniprot);
+	}
+	$surfaceValue = '';
+	if(isset($upi['SurfaceAccessbility']) && $upi['SurfaceAccessbility'] !== ''){
+		$surfaceValue = $upi['SurfaceAccessbility'];
+	}elseif(isset($upi['Surface']) && $upi['Surface'] !== ''){
+		$surfaceValue = $upi['Surface'];
+	}
+	return array(
+		'sequence' => isset($upi['Sequence']) ? $upi['Sequence'] : '',
+		'ptminfo' => isset($upi['PTM_qPTM']) ? $upi['PTM_qPTM'] : '',
+		'disorder' => isset($upi['Disorder']) ? $upi['Disorder'] : '',
+		'exposeburied' => isset($upi['ExposeBuried']) ? $upi['ExposeBuried'] : '',
+		'polar' => isset($upi['Polar']) ? $upi['Polar'] : '',
+		'charge' => isset($upi['Charge']) ? $upi['Charge'] : '',
+		'secondstr' => isset($upi['Second']) ? $upi['Second'] : '',
+		'surface' => $surfaceValue,
+		'hydropathy' => isset($upi['Hydropathy']) ? $upi['Hydropathy'] : '',
 	);
 }
 
@@ -2383,21 +3027,28 @@ function addDetailDivInfo($rawdata){
 	$fdr = $rawInfo[13];
 
 	$db = connectDB();
-	$conQueryRes = $db->query("select * from contable where pmid='{$pmid}' and con = '{$con}'");
-	$samQueryRes = $db->query("select * from samtable where sam = '{$sample}'");
-	$expQueryRes = $db->query("select * from exptable where pmid='{$pmid}' and mods = '{$mod}'");
+	$pmidEsc = $db->real_escape_string($pmid);
+	$conEsc = $db->real_escape_string($con);
+	$sampleEsc = $db->real_escape_string($sample);
+	$modEsc = $db->real_escape_string($mod);
 	$uniprotEsc = $db->real_escape_string($uniprot);
-	$ptmdQueryRes = $db->query("select * from ptmdtable where up='{$uniprotEsc}' order by pos, mods, disease");
-	$scoreQueryRes = $db->query("select * from scoretable where scoreid = '".$organism.'#'.$pmid.'#'.$uniprot.'#'.$psite.'#'.$mod."' ");
+	$conQueryRes = $db->query("select * from contable where pmid='{$pmidEsc}' and con = '{$conEsc}'");
+	$samQueryRes = $db->query("select * from samtable where sam = '{$sampleEsc}'");
+	$expQueryRes = $db->query("select * from exptable where pmid='{$pmidEsc}' and mods = '{$modEsc}'");
+	$ptmdCountRes = $db->query("select count(*) as c from ptmdtable where up='{$uniprotEsc}'");
+	$scoreQueryRes = $db->query("select * from scoretable where scoreid = '".$db->real_escape_string($organism.'#'.$pmid.'#'.$uniprot.'#'.$psite.'#'.$mod)."' ");
 
-	// Buffer PTMD rows before closing DB (mysqli result is invalid after close)
-	$ptmdRows = fetchPtmdRows($ptmdQueryRes);
-	$PTMDqueryResNum = count($ptmdRows);
+	$PTMDqueryResNum = 0;
+	if($ptmdCountRes){
+		$ptmdCountRow = $ptmdCountRes->fetch_assoc();
+		$PTMDqueryResNum = isset($ptmdCountRow['c']) ? (int)$ptmdCountRow['c'] : 0;
+	}
 
 	$coi = ($conQueryRes && $conQueryRes->num_rows) ? $conQueryRes->fetch_assoc() : null;
 	$sai = ($samQueryRes && $samQueryRes->num_rows) ? $samQueryRes->fetch_assoc() : null;
 	$exi = ($expQueryRes && $expQueryRes->num_rows) ? $expQueryRes->fetch_assoc() : null;
 	$sci = ($scoreQueryRes && $scoreQueryRes->num_rows) ? $scoreQueryRes->fetch_assoc() : null;
+	$conditionAnnRows = buildConditionAnnotationRows($db, $pmid, $con);
 	$db->close();
 
 	if(!is_array($coi)){ $coi = array('condetail' => '-'); }
@@ -2413,19 +3064,25 @@ function addDetailDivInfo($rawdata){
 	$pvalueproDisplay = displayDecimal($pvaluepro);
 	if($qratioproDisplay === '-' && $pvalueproDisplay === '-'){
 		$relatedProteinDisplay = '-';
+	}elseif($pvalueproDisplay === '-'){
+		$relatedProteinDisplay = $qratioproDisplay;
 	}else{
 		$relatedProteinDisplay = $qratioproDisplay.' (<i>P</i> value = '.$pvalueproDisplay.')';
 	}
 
 	$upi = loadProteinInfo($uniprot);
+	if(!isset($upi['Sequence'])){ $upi['Sequence'] = ''; }
+	if(!isset($upi['UniProtID'])){ $upi['UniProtID'] = ''; }
+	if(!isset($upi['ProteinName'])){ $upi['ProteinName'] = ''; }
+	if(!isset($upi['GeneName'])){ $upi['GeneName'] = ''; }
+	if(!isset($upi['Organism'])){ $upi['Organism'] = ''; }
+	if(!isset($upi['Taxonomy'])){ $upi['Taxonomy'] = ''; }
+	if(!isset($upi['Function'])){ $upi['Function'] = ''; }
+	// Load properties for site-context chips only; full track strings stay lazy for charts.
 	$props = loadProteinProperties($uniprot, $organism);
 	$upi = mergeProteinStructureProperties($upi, $props);
-	if(!isset($upi['PTM_qPTM']) || $upi['PTM_qPTM'] === ''){
-		$upi['PTM_qPTM'] = buildQptmPtminfo($uniprot);
-	}
-	$ptmRows = parsePtmsOtherResource(isset($upi['PTMs_other_resource']) ? $upi['PTMs_other_resource'] : '');
-	$PTMqueryResNum = count($ptmRows);
-	$hasStructureData = isset($upi['Sequence']) && $upi['Sequence'] !== '';
+	$PTMqueryResNum = countPtmsOtherResource(isset($upi['PTMs_other_resource']) ? $upi['PTMs_other_resource'] : '');
+	$hasStructureData = ($upi['Sequence'] !== '');
 
 //Detail information about experiment
 	$buttonGroup = "<div class='detail-tabs' role='tablist'><button type='button' class='detail-tab active' role='tab' id='exp-".$line."'>Experiment information</button><button type='button' class='detail-tab' role='tab' id='pro-".$line."'>Protein information</button><button type='button' class='detail-tab' role='tab' id='reg-".$line."'>Functional regulation</button>";
@@ -2448,14 +3105,17 @@ function addDetailDivInfo($rawdata){
 		<table class='detail-table'>
 		<tbody>
 			<tr><td>Resource</td><td colspan='6'>".displayText($exi['tit'])." (PMID: <a href='https://pubmed.ncbi.nlm.nih.gov/".$pmid."/' target='_blank' rel='noopener'>".$pmid."</a>)"."</td></tr>
-			<tr><td>Detail condition</td><td colspan='6'>".displayText($coi['condetail'])."</td></tr>
+			<tr><td>Detail condition</td><td colspan='6'>".displayText(fixCellCyclePhageDisplay($coi['condetail']))."</td></tr>
+			".$conditionAnnRows."
+			".($timetype=='0'
+				? "<tr><td>Time course change</td><td colspan='6'>-</td></tr>"
+				: "<tr><td>Time course change</td><td colspan='6'><span style='display:none' id='timeCourseData-".$line."'>".showTimeCourse($uniprot,$psite,$mod,$pmid,$timefile,$timetype,$con)."</span><div class='timeCourseShow detail-chart' id='timeCourseShow-".$line."'></div></td></tr>")."
 			<tr><td>Related protein change</td><td colspan='6'>".$relatedProteinDisplay."</td></tr>
-			".($timetype=='0'?'':"<tr><td>Time course change</td><td colspan='6'><span style='display:none' id='timeCourseData-".$line."'>".showTimeCourse($uniprot,$psite,$mod,$pmid,$timefile,$timetype,$con)."</span><div class='timeCourseShow detail-chart' id='timeCourseShow-".$line."'></div></td></tr>")."
 			<tr><td>Sample (type)</td><td colspan='6'>".sample2link($sample,$sai['sampleurl']).($sai['samtype']==''?'':(' ('.displayText($sai['samtype']).')'))."</td></tr>
 			<tr><td>Label method</td><td colspan='6'>".displayText($exi['labelmethod'])."</td></tr>
 			<tr><td>Enrichment method</td><td colspan='6'>".displayText($exi['enrichmethod'])."</td></tr>
 			<tr><td>Mass spectrometer</td><td colspan='6'>".displayText($exi['msmethod'])."</td></tr>
-			<tr><td>Reported PEP/Localization Probability</td><td colspan='6'>".$probDisplay."</td></tr>
+			<tr><td>Reported PEP/Localization probability</td><td colspan='6'>".$probDisplay."</td></tr>
 			<tr><td>Re-identified FDR</td><td colspan='6'>".displayDash($fdr)."</td></tr>
 			<tr class='detail-subgrid'><td>Records in databases</td><td><span class='detail-sub-label'>Identified times in qPTM</span><span class='detail-sub-value'>".$qptmcountDisplay."</span></td><td><span class='detail-sub-label'>Collected in PhosphoSitePlus</span><span class='detail-sub-value'>".$ispspDisplay."</span></td><td><span class='detail-sub-label'>Collected in dbPTM</span><span class='detail-sub-value'>".$isdbptmDisplay."</span></td><td><span class='detail-sub-label'>Collected in PTMAtlas</span><span class='detail-sub-value'>".$isptmatlasDisplay."</span></td></tr>
 		</tbody>
@@ -2463,27 +3123,13 @@ function addDetailDivInfo($rawdata){
 	</div>";
 
 //Detail information about protein (+ sequence properties / structure)
-	$surfaceValue = '';
-	if(isset($upi['SurfaceAccessbility']) && $upi['SurfaceAccessbility'] !== ''){
-		$surfaceValue = $upi['SurfaceAccessbility'];
-	}elseif(isset($upi['Surface']) && $upi['Surface'] !== ''){
-		$surfaceValue = $upi['Surface'];
-	}
-	$structureDataInputs = $hasStructureData
-		? "<input type='hidden' id='sequence-".$line."' value='".htmlAttr($upi['Sequence'])."'>
-			        <input type='hidden' id='ptminfo-".$line."' value='".htmlAttr(isset($upi['PTM_qPTM']) ? $upi['PTM_qPTM'] : '')."'>
-			        <input type='hidden' id='disorder-".$line."' value='".htmlAttr(isset($upi['Disorder']) ? $upi['Disorder'] : '')."'>
-			        <input type='hidden' id='exposeburied-".$line."' value='".htmlAttr(isset($upi['ExposeBuried']) ? $upi['ExposeBuried'] : '')."'>
-			        <input type='hidden' id='polar-".$line."' value='".htmlAttr(isset($upi['Polar']) ? $upi['Polar'] : '')."'>
-			        <input type='hidden' id='charge-".$line."' value='".htmlAttr(isset($upi['Charge']) ? $upi['Charge'] : '')."'>
-			        <input type='hidden' id='secondstr-".$line."' value='".htmlAttr(isset($upi['Second']) ? $upi['Second'] : '')."'>
-			        <input type='hidden' id='surface-".$line."' value='".htmlAttr($surfaceValue)."'>
-			        <input type='hidden' id='hydropathy-".$line."' value='".htmlAttr(isset($upi['Hydropathy']) ? $upi['Hydropathy'] : '')."'>"
-		: '';
 	$structureMessage = $hasStructureData
 		? ''
 		: "<div class='structure-empty'>Sequence property tracks are not available for this protein.</div>";
 	$siteContextHtml = buildSiteContextHtml($upi, $psite);
+	$ptmHtml = ($PTMqueryResNum > 0) ? lazyDetailTablePlaceholder('ptms', $uniprot) : '-';
+	$orgEsc = htmlspecialchars($organism, ENT_QUOTES, 'UTF-8');
+	$upEsc = htmlspecialchars($uniprot, ENT_QUOTES, 'UTF-8');
 
 	$divGroup = $divGroup."<div class='more-info detail-section' id='div-pro-".$line."' style='display:none'>
 		<table class='detail-table detail-table-actions'>
@@ -2494,11 +3140,11 @@ function addDetailDivInfo($rawdata){
 			<tr><td>Organism</td><td><em>".$upi['Organism']."</em> NCBI Taxa ID=".ID2links('http://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?lvl=0&id=', array($upi['Taxonomy']))."</td><td class='detail-action'></td></tr>
 			<tr><td>Function</td><td class='detail-rich'><span class='hide-text text-less'>".($upi['Function'] == ''?"-":displayFuncDes($upi['Function']))."</span></td><td class='detail-action'><button type='button' class='detail-toggle show-text' aria-label='Expand text'><i class='ri-add-circle-fill'></i></button></td></tr>
 			<tr class='known-localization-row'><td>Subcellular localization</td><td class='detail-rich detail-localization'>".buildKnownLocalizationHtml(isset($upi['Localization']) ? $upi['Localization'] : (isset($upi['Subcellular Location']) ? $upi['Subcellular Location'] : ''), isset($upi['Taxonomy']) ? $upi['Taxonomy'] : '9606', $line)."</td><td class='detail-action'></td></tr>
-			<tr><td>PTMs for protein<br><span class='detail-count'>(Count: ".$PTMqueryResNum.")</span></td><td class='detail-rich'>".displayPTM($ptmRows)."</td><td class='detail-action'><button type='button' class='detail-toggle show-table' aria-label='Expand table'><i class='ri-add-circle-fill'></i></button></td></tr>
+			<tr><td>PTMs for protein<br><span class='detail-count'>(Count: ".$PTMqueryResNum.")</span></td><td class='detail-rich'>".$ptmHtml."</td>".detailExpandAction($PTMqueryResNum > 0)."</tr>
 			<tr class='sequence-structure-row'><td>Sequence and structure<br><span class='detail-count'>(Length: ".strlen($upi['Sequence']).")</span></td><td class='detail-rich'><div class='sequence-structure-grid'><div class='sequence-structure-3d'>".buildProteinStructureHtml($uniprot, $psite, $line, $hasStructureData)."</div><div class='sequence-structure-seq'>".($upi['Sequence'] == ''?"-":displaySequence($upi['Sequence']))."</div></div></td><td class='detail-action'><span class='detail-action-spacer' aria-hidden='true'></span></td></tr>
-			<tr class='sequence-properties-row'><td>Sequence properties</td><td class='detail-rich'><div class='sequence-properties-block' data-line='".htmlspecialchars($line, ENT_QUOTES, 'UTF-8')."'>
+			<tr class='sequence-properties-row'><td>Sequence properties</td><td class='detail-rich'><div class='sequence-properties-block' data-line='".htmlspecialchars($line, ENT_QUOTES, 'UTF-8')."' data-up='".$upEsc."' data-org='".$orgEsc."' data-structure-loaded='0'>
 			".$siteContextHtml."
-			<div class='data' style='display:none;'>".$structureDataInputs."</div>
+			<div class='data' style='display:none;'></div>
 			<div class='viewer detail-viewer'>
 				".$structureMessage."
 				<div class='structure-zoom' id='structure-zoom-".$line."'></div>
@@ -2519,7 +3165,7 @@ function addDetailDivInfo($rawdata){
 
 //Detail information about site regulation
 	$geneForReg = isset($upi['GeneName']) ? $upi['GeneName'] : '';
-	$regSection = buildRegulationSection($uniprot, $psite, $geneForReg, $line, $ptmdRows);
+	$regSection = buildRegulationSection($uniprot, $psite, $geneForReg, $line, $PTMDqueryResNum);
 	$divGroup = $divGroup.$regSection['html'];
 
 //Detail information about enzyme
@@ -2768,7 +3414,6 @@ if(isset($_POST["type"])){
 		elseif(in_array($tag, $browseTags, true)){
 			$buildResult = buildBrowseQueryInfo($tag, $keyword, $mods, $orgs);
 			if(!isset($buildResult['error'])){
-				$buildResult['filterOptions'] = getResultFilterOptions($buildResult['mainQueryInfo']);
 				$buildResult = appendQueryCount($buildResult);
 			}
 			echo json_encode($buildResult);
@@ -2787,10 +3432,23 @@ if(isset($_POST["type"])){
 				$num += 1;
 			}
 			$buildResult = buildSearchQueryInfo($links, $tags, $keywords, $mods, $orgs);
-			if(!isset($buildResult['error'])){
-				$buildResult['filterOptions'] = getResultFilterOptions($buildResult['mainQueryInfo']);
-			}
 			echo json_encode($buildResult);
+		}
+	}
+	elseif($type == "filteroptions"){
+		header('Content-Type: application/json; charset=utf-8');
+		$mainQueryInfo = isset($_POST['mainQueryInfo']) ? $_POST['mainQueryInfo'] : '';
+		$appliedFilters = array();
+		if(isset($_POST['appliedFilters']) && $_POST['appliedFilters'] !== ''){
+			$decoded = json_decode($_POST['appliedFilters'], true);
+			if(is_array($decoded)){
+				$appliedFilters = $decoded;
+			}
+		}
+		if($mainQueryInfo === ''){
+			echo json_encode(array('error' => 'Missing query.'));
+		}else{
+			echo json_encode(getResultFilterOptions($mainQueryInfo, $appliedFilters));
 		}
 	}
 	elseif($type == "change"){
@@ -2810,7 +3468,7 @@ if(isset($_POST["type"])){
 			$queryResNum = $queryResAll->fetch_assoc()['count(*)'];
 		}
 		if($queryResNum == 0){
-			$tableChange = "<tr><td colspan='11'><div class='alert alert-warning'>Sorry, no matching records found.</div></td></tr>";
+			$tableChange = "<tr><td colspan='10'><div class='status-msg'>Sorry, no matching records found.</div></td></tr>";
 		}
 		else{
 			$tableChange = showResTable($queryRes);
@@ -2826,59 +3484,225 @@ if(isset($_POST["type"])){
 		$rawdata = $_POST["rawdata"];
 		echo addDetailDivInfo($rawdata);
 	}
-	elseif($type == 'browseFword'){
-		$org = $_POST['org'];
-		$mod = $_POST['mod'];
-		$btype = $_POST['btype'];
-		$firstWord = $_POST['firstWord'];
+	elseif($type == "detail_ptms"){
+		header('Content-Type: text/html; charset=utf-8');
+		$uniprot = isset($_POST['uniprot']) ? trim((string)$_POST['uniprot']) : '';
+		$upi = loadProteinInfo($uniprot);
+		$ptmRows = parsePtmsOtherResource(isset($upi['PTMs_other_resource']) ? $upi['PTMs_other_resource'] : '');
+		echo displayPTM($ptmRows);
+	}
+	elseif($type == "detail_ptmd"){
+		header('Content-Type: text/html; charset=utf-8');
+		$uniprot = isset($_POST['uniprot']) ? trim((string)$_POST['uniprot']) : '';
 		$db = connectDB();
-		$allQueryFirstWord = mysqli_fetch_all($db->query("select fword from browsetable where org = '{$org}' and mods = '{$mod}' and btype = '$btype' group by fword"), MYSQLI_NUM);
+		$esc = $db->real_escape_string($uniprot);
+		$ptmdQueryRes = $db->query("select * from ptmdtable where up='{$esc}' order by pos, mods, disease");
+		$ptmdRows = fetchPtmdRows($ptmdQueryRes);
+		$db->close();
+		echo displayPTMD($ptmdRows);
+	}
+	elseif($type == "detail_structure"){
+		header('Content-Type: application/json; charset=utf-8');
+		$uniprot = isset($_POST['uniprot']) ? trim((string)$_POST['uniprot']) : '';
+		$organism = isset($_POST['organism']) ? trim((string)$_POST['organism']) : '';
+		$flags = JSON_UNESCAPED_UNICODE;
+		if(defined('JSON_INVALID_UTF8_SUBSTITUTE')){
+			$flags = $flags | JSON_INVALID_UTF8_SUBSTITUTE;
+		}
+		echo json_encode(buildDetailStructurePayload($uniprot, $organism), $flags);
+	}
+	elseif($type == 'browseFword'){
+		$org = isset($_POST['org']) ? (string)$_POST['org'] : '';
+		$mod = isset($_POST['mod']) ? (string)$_POST['mod'] : '';
+		$btype = isset($_POST['btype']) ? (string)$_POST['btype'] : '';
+		$contrastType = isset($_POST['contrast_type']) ? trim((string)$_POST['contrast_type']) : '';
+		$agentKey = isset($_POST['agent_key']) ? trim((string)$_POST['agent_key']) : '';
+		$db = connectDB();
+		$orgEsc = $db->real_escape_string($org);
+		$modEsc = $db->real_escape_string($mod);
+		$btypeEsc = $db->real_escape_string($btype);
+		$sql = "SELECT b.fword FROM browsetable b";
+		$where = " WHERE b.org = '{$orgEsc}' AND b.mods = '{$modEsc}' AND b.btype = '{$btypeEsc}'";
+		if($btype === 'condition' && ($contrastType !== '' || $agentKey !== '')){
+			$sql .= " INNER JOIN con_annotation a ON a.con = b.cont";
+			if($contrastType !== ''){
+				$ctEsc = $db->real_escape_string($contrastType);
+				$where .= " AND a.contrast_type = '{$ctEsc}'";
+			}
+			if($agentKey !== ''){
+				$akEsc = $db->real_escape_string($agentKey);
+				$where .= " AND a.agent_key = '{$akEsc}'";
+			}
+		}
+		$sql .= $where." GROUP BY b.fword ORDER BY b.fword";
+		$allQueryFirstWord = mysqli_fetch_all($db->query($sql), MYSQLI_NUM);
 		$db->close();
 		$returnFirstWordList = array();
-		foreach($allQueryFirstWord as $singleFirstWord){
-			array_push($returnFirstWordList, $singleFirstWord[0]);
+		if(is_array($allQueryFirstWord)){
+			foreach($allQueryFirstWord as $singleFirstWord){
+				array_push($returnFirstWordList, $singleFirstWord[0]);
+			}
 		}
 		echo json_encode($returnFirstWordList);
 	}
 	elseif($type == 'browseOption'){
-		$org = $_POST['org'];
-		$mod = $_POST['mod'];
-		$btype = $_POST['btype'];
-		$firstWord = $_POST['firstWord'];
-		$optionNumber = $_POST['optionNumber'];
-		$nowPage = $_POST['nowPage'];
+		$org = isset($_POST['org']) ? (string)$_POST['org'] : '';
+		$mod = isset($_POST['mod']) ? (string)$_POST['mod'] : '';
+		$btype = isset($_POST['btype']) ? (string)$_POST['btype'] : '';
+		$firstWord = isset($_POST['firstWord']) ? (string)$_POST['firstWord'] : '';
+		$optionNumber = isset($_POST['optionNumber']) ? intval($_POST['optionNumber']) : 50;
+		$nowPage = isset($_POST['nowPage']) ? intval($_POST['nowPage']) : 1;
+		if($optionNumber < 1){ $optionNumber = 50; }
+		if($nowPage < 1){ $nowPage = 1; }
+		$contrastType = isset($_POST['contrast_type']) ? trim((string)$_POST['contrast_type']) : '';
+		$agentKey = isset($_POST['agent_key']) ? trim((string)$_POST['agent_key']) : '';
 		$db = connectDB();
+		$orgEsc = $db->real_escape_string($org);
+		$modEsc = $db->real_escape_string($mod);
+		$btypeEsc = $db->real_escape_string($btype);
+		$useAnn = ($btype === 'condition' && ($contrastType !== '' || $agentKey !== ''));
+		$joinSql = $useAnn ? " INNER JOIN con_annotation a ON a.con = b.cont" : "";
+		$extraWhere = "";
+		if($useAnn && $contrastType !== ''){
+			$ctEsc = $db->real_escape_string($contrastType);
+			$extraWhere .= " AND a.contrast_type = '{$ctEsc}'";
+		}
+		if($useAnn && $agentKey !== ''){
+			$akEsc = $db->real_escape_string($agentKey);
+			$extraWhere .= " AND a.agent_key = '{$akEsc}'";
+		}
+		$baseWhere = "b.org = '{$orgEsc}' AND b.mods = '{$modEsc}' AND b.btype = '{$btypeEsc}'".$extraWhere;
 		if($firstWord == ''){
-			$allQueryFirstWord = mysqli_fetch_all($db->query("select fword from browsetable where org = '{$org}' and mods = '{$mod}' and btype = '$btype' group by fword"), MYSQLI_NUM);
-			$firstWord = $allQueryFirstWord[0][0];
+			$fwRes = mysqli_fetch_all($db->query(
+				"SELECT b.fword FROM browsetable b{$joinSql} WHERE {$baseWhere} GROUP BY b.fword ORDER BY b.fword"
+			), MYSQLI_NUM);
+			$firstWord = (is_array($fwRes) && isset($fwRes[0][0])) ? $fwRes[0][0] : '';
 		}
-		$allQueryContent = mysqli_fetch_all($db->query("select cont from browsetable where org = '{$org}' and mods = '{$mod}' and btype = '$btype' and fword = '{$firstWord}' order by cont limit ".(($nowPage-1)*$optionNumber).','.$optionNumber), MYSQLI_NUM);
-
-		$queryResAll = $db->query("select count(*) from browsetable where org = '{$org}' and mods = '{$mod}' and btype = '$btype' and fword = '{$firstWord}'");
-		if(!isset($queryResAll->num_rows)){
-			$queryResNum = 0;
+		$fwEsc = $db->real_escape_string($firstWord);
+		$offset = ($nowPage - 1) * $optionNumber;
+		$contentSql = "SELECT DISTINCT b.cont FROM browsetable b{$joinSql}"
+			." WHERE {$baseWhere} AND b.fword = '{$fwEsc}'"
+			." ORDER BY b.cont LIMIT {$offset},{$optionNumber}";
+		$allQueryContent = mysqli_fetch_all($db->query($contentSql), MYSQLI_NUM);
+		$countSql = "SELECT COUNT(DISTINCT b.cont) AS cnt FROM browsetable b{$joinSql}"
+			." WHERE {$baseWhere} AND b.fword = '{$fwEsc}'";
+		$queryResAll = $db->query($countSql);
+		$queryResNum = 0;
+		if($queryResAll){
+			$rowCnt = $queryResAll->fetch_assoc();
+			$queryResNum = isset($rowCnt['cnt']) ? intval($rowCnt['cnt']) : 0;
 		}
-		else{
-			$queryResNum = $queryResAll->fetch_assoc()['count(*)'];
-		}
-
 		$db->close();
 		$returnContentList = array();
-		foreach($allQueryContent as $singleQueryContent){
-			array_push($returnContentList, trim($singleQueryContent[0]));
+		if(is_array($allQueryContent)){
+			foreach($allQueryContent as $singleQueryContent){
+				array_push($returnContentList, trim($singleQueryContent[0]));
+			}
 		}
 		echo json_encode(array('totalNum'=>$queryResNum,'nowList'=>$returnContentList));
+	}
+	elseif($type == 'browseConFacets'){
+		header('Content-Type: application/json; charset=utf-8');
+		$org = isset($_POST['org']) ? (string)$_POST['org'] : '';
+		$mod = isset($_POST['mod']) ? (string)$_POST['mod'] : '';
+		$contrastType = isset($_POST['contrast_type']) ? trim((string)$_POST['contrast_type']) : '';
+		$db = connectDB();
+		$orgEsc = $db->real_escape_string($org);
+		$modEsc = $db->real_escape_string($mod);
+		$labels = array(
+			'pharmacological' => 'Pharmacological',
+			'genetic' => 'Genetic',
+			'physical' => 'Physical',
+			'disease' => 'Disease',
+			'cell_state' => 'Cell state',
+			'other' => 'Other'
+		);
+		// Fixed display order; Other always last (not alphabetical / not by count).
+		$typeRows = mysqli_fetch_all($db->query(
+			"SELECT a.contrast_type AS value, COUNT(DISTINCT b.cont) AS cnt
+			 FROM browsetable b
+			 INNER JOIN con_annotation a ON a.con = b.cont
+			 WHERE b.org = '{$orgEsc}' AND b.mods = '{$modEsc}' AND b.btype = 'condition'
+			 GROUP BY a.contrast_type"
+		), MYSQLI_ASSOC);
+		$countByType = array();
+		$totalTypes = 0;
+		if(is_array($typeRows)){
+			foreach($typeRows as $tr){
+				$v = isset($tr['value']) ? (string)$tr['value'] : '';
+				$c = isset($tr['cnt']) ? intval($tr['cnt']) : 0;
+				if($v === ''){ continue; }
+				$countByType[$v] = $c;
+				$totalTypes += $c;
+			}
+		}
+		$contrastTypes = array(array('value' => '', 'label' => 'All types', 'count' => $totalTypes));
+		$mainOrder = array('pharmacological', 'genetic', 'physical', 'disease', 'cell_state');
+		foreach($mainOrder as $v){
+			if(!isset($countByType[$v])){ continue; }
+			$contrastTypes[] = array(
+				'value' => $v,
+				'label' => isset($labels[$v]) ? $labels[$v] : $v,
+				'count' => $countByType[$v]
+			);
+			unset($countByType[$v]);
+		}
+		// Unexpected types (if any) before Other.
+		$otherCount = isset($countByType['other']) ? $countByType['other'] : null;
+		unset($countByType['other']);
+		foreach($countByType as $v => $c){
+			$contrastTypes[] = array(
+				'value' => $v,
+				'label' => isset($labels[$v]) ? $labels[$v] : $v,
+				'count' => $c
+			);
+		}
+		if($otherCount !== null){
+			$contrastTypes[] = array(
+				'value' => 'other',
+				'label' => $labels['other'],
+				'count' => $otherCount
+			);
+		}
+
+		$agentWhere = "b.org = '{$orgEsc}' AND b.mods = '{$modEsc}' AND b.btype = 'condition'"
+			." AND a.agent_key IS NOT NULL AND a.agent_key <> ''";
+		if($contrastType !== ''){
+			$ctEsc = $db->real_escape_string($contrastType);
+			$agentWhere .= " AND a.contrast_type = '{$ctEsc}'";
+		}
+		$agentRows = mysqli_fetch_all($db->query(
+			"SELECT a.agent_key AS value,
+			        COALESCE(NULLIF(d.preferred_name, ''), NULLIF(a.agent_raw, ''), a.agent_key) AS label,
+			        COUNT(DISTINCT b.cont) AS cnt
+			 FROM browsetable b
+			 INNER JOIN con_annotation a ON a.con = b.cont
+			 LEFT JOIN agent_dictionary d ON d.agent_key = a.agent_key
+			 WHERE {$agentWhere}
+			 GROUP BY a.agent_key, label
+			 ORDER BY cnt DESC, label
+			 LIMIT 400"
+		), MYSQLI_ASSOC);
+		$agents = array(array('value' => '', 'label' => 'All ontologies', 'count' => 0));
+		if(is_array($agentRows)){
+			foreach($agentRows as $ar){
+				$agents[] = array(
+					'value' => isset($ar['value']) ? (string)$ar['value'] : '',
+					'label' => isset($ar['label']) ? (string)$ar['label'] : '',
+					'count' => isset($ar['cnt']) ? intval($ar['cnt']) : 0
+				);
+			}
+		}
+		$db->close();
+		echo json_encode(array(
+			'contrast_types' => $contrastTypes,
+			'agents' => $agents
+		));
 	}
 	elseif($type == "download"){
 		$downloadQueryInfo = $_POST["newQueryInfo"];
 		$db = connectDB();
-		$queryRes = $db->query("select * from qevent where ($downloadQueryInfo) order by qptmscore desc, up, pos");
-		if(!isset($queryRes->num_rows) or $queryRes->num_rows == 0){
-				$resultsNumber=0;
-			}
-		else{
-			$resultsNumber = $queryRes->num_rows;
-		}
+		$queryRes = $db->query("select * from qevent where ($downloadQueryInfo) order by timetype desc, qptmscore desc, up, pos");
 		$downloadDir = __DIR__ . '/download';
 		if(!is_dir($downloadDir)){
 			mkdir($downloadDir, 0755, true);
@@ -2891,10 +3715,21 @@ if(isset($_POST["type"])){
 			exit;
 		}
 		$handle = fopen($tmpfname, "w");
-		fwrite($handle, "UniProt\tGene\tPosition\tSequence window\tModification\tSample\tCondition\tLog2Ratio\tpvalue\tReliability\tsite-level FDR\n");
-		for($i=0;$i<$resultsNumber;$i++) {
-			$row = $queryRes->fetch_assoc();
-			fwrite($handle, $row['up']."\t".$row['gene']."\t".$row['pos']."\t".$row['pep']."\t".$row['mods']."\t".$row['sample']."\t".$row['samplecondition']."\t".$row['qratio']."\t".$row['pvalue']."\t".$row['qptmscore']."\t".$row['fdr']."\n");
+		fwrite($handle, implode("\t", downloadResultHeader())."\n");
+		if($queryRes && isset($queryRes->num_rows) && $queryRes->num_rows > 0){
+			$maps = loadDownloadExperimentalMaps($db);
+			$batch = array();
+			$batchSize = 1000;
+			while($row = $queryRes->fetch_assoc()){
+				$batch[] = $row;
+				if(count($batch) >= $batchSize){
+					writeDownloadResultBatch($handle, $db, $batch, $maps);
+					$batch = array();
+				}
+			}
+			if(!empty($batch)){
+				writeDownloadResultBatch($handle, $db, $batch, $maps);
+			}
 		}
 		fclose($handle);
 		$filename = basename($tmpfname);

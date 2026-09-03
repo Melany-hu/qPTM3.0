@@ -38,6 +38,18 @@
 
         <div class="result-table-wrap">
           <table class="lp-table result-table">
+            <colgroup>
+              <col class="col-detail">
+              <col class="col-uniprot">
+              <col class="col-gene">
+              <col class="col-pos">
+              <col class="col-mod">
+              <col class="col-sample">
+              <col class="col-condition">
+              <col class="col-ratio">
+              <col class="col-pvalue">
+              <col class="col-score">
+            </colgroup>
             <thead>
               <tr>
                 <th class="col-detail"></th>
@@ -73,9 +85,9 @@
                   <span class="th-label"><i>P</i> value</span>
                   <button type="button" class="th-sort-indicator" aria-label="Sort by P value" title="Sort"></button>
                 </th>
-                <th class="th-sortable col-score is-sorted" data-sort="qptmscore">
-                  <span class="th-label">Reliability <a href="help.html#help-reliability" class="th-help-link" title="About reliability scoring" aria-label="About reliability scoring"><i class="ri-error-warning-line"></i></a></span>
-                  <button type="button" class="th-sort-indicator is-desc" aria-label="Sort by reliability" title="Sort"></button>
+                <th class="th-sortable col-score" data-sort="qptmscore">
+                  <span class="th-label">Reliability<a href="help.html#help-reliability" class="th-help-link" title="About reliability scoring" aria-label="About reliability scoring"><i class="ri-error-warning-line"></i></a></span>
+                  <button type="button" class="th-sort-indicator" aria-label="Sort by reliability" title="Sort"></button>
                 </th>
               </tr>
             </thead>
@@ -117,6 +129,6 @@
   <script src="assets/js/swissbiopics-sls-map.js"></script>
   <script src="assets/js/swissbiopics-loc.js"></script>
   <script src="assets/js/protein-structure.js"></script>
-  <script src="assets/js/result.js"></script>
+  <script src="assets/js/result.js?v=20260903m"></script>
 </body>
 </html>

@@ -59,7 +59,7 @@ function getOrderInfo(){
 		}
 	})
 	if(orderTag == ''){
-		orderInfos = 'qptmscore desc, up, pos';
+		orderInfos = 'timetype desc, qptmscore desc, up, pos';
 	}
 	else{
 		orderInfos = orderTag+' '+orderSort;

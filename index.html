@@ -21,37 +21,79 @@
     <div class="home-top">
     <div class="hero-section">
 
-      <img src="assets/img/logo.png" alt="qPTM Logo" class="hero-logo">
-      <p class="hero-desc"><span class="text-blue">qPTM 3.0</span>: the updated database of protein post-translational modification dynamics</p>
+      <img src="assets/img/logo.gif" alt="qPTM Logo" class="hero-logo" width="100" height="89" fetchpriority="high" decoding="async">
+      <p class="hero-desc" style="margin-bottom: 15px;margin-top: 10px;"><span class="text-blue">qPTM 3.0</span>: the updated database of protein post-translational modification dynamics and </p>
+      <p class="hero-desc">AI-assisted knowledge discovery</p>
       <form id="simple_search_form" action="result.html" method="get" onSubmit="return check_simple_search_form()">
         <input type="hidden" name="type" value="search">
         <div class="hero-search">
           
           <div class="hero-search-box">
-            <select name="simple_search_tag0" id="simple_search_tag0" aria-label="Search in">
-              <option value="Context">Any Field</option>
-              <option value="uniprotaccs">UniProt ID</option>
-              <option value="genename">Gene Name</option>
-              <option value="proteinname">Protein Name</option>
-              <option value="pos">Position</option>
-              <option value="func">Function</option>
-              <option value="samdetail">Sample</option>
-              <option value="con condetail">Condition</option>
-            </select>
+            <div class="hero-field-select rf-select rf-select--instant">
+              <input type="hidden" name="simple_search_tag0" id="simple_search_tag0" value="Context">
+              <button type="button" class="rf-select-toggle" aria-label="Search in" aria-haspopup="listbox" aria-expanded="false">
+                <span class="rf-select-label">Any Field</span>
+                <i class="ri-arrow-down-s-line rf-select-arrow"></i>
+              </button>
+              <div class="rf-select-panel">
+                <div class="rf-select-options" role="listbox">
+                  <button type="button" class="rf-option is-checked" data-value="Context" data-label="Any Field">
+                    <span class="rf-checkbox"><i class="ri-check-line"></i></span>
+                    <span class="rf-option-label">Any Field</span>
+                  </button>
+                  <button type="button" class="rf-option" data-value="uniprotaccs" data-label="UniProt ID">
+                    <span class="rf-checkbox"><i class="ri-check-line"></i></span>
+                    <span class="rf-option-label">UniProt ID</span>
+                  </button>
+                  <button type="button" class="rf-option" data-value="uppos" data-label="UniProt ID#Position">
+                    <span class="rf-checkbox"><i class="ri-check-line"></i></span>
+                    <span class="rf-option-label">UniProt ID#Position</span>
+                  </button>
+                  <button type="button" class="rf-option" data-value="genename" data-label="Gene Name">
+                    <span class="rf-checkbox"><i class="ri-check-line"></i></span>
+                    <span class="rf-option-label">Gene Name</span>
+                  </button>
+                  <button type="button" class="rf-option" data-value="genepos" data-label="Gene Name#Position">
+                    <span class="rf-checkbox"><i class="ri-check-line"></i></span>
+                    <span class="rf-option-label">Gene Name#Position</span>
+                  </button>
+                  <button type="button" class="rf-option" data-value="proteinname" data-label="Protein Name">
+                    <span class="rf-checkbox"><i class="ri-check-line"></i></span>
+                    <span class="rf-option-label">Protein Name</span>
+                  </button>
+                  <button type="button" class="rf-option" data-value="proteinpos" data-label="Protein Name#Position">
+                    <span class="rf-checkbox"><i class="ri-check-line"></i></span>
+                    <span class="rf-option-label">Protein Name#Position</span>
+                  </button>
+                  <button type="button" class="rf-option" data-value="func" data-label="Function">
+                    <span class="rf-checkbox"><i class="ri-check-line"></i></span>
+                    <span class="rf-option-label">Function</span>
+                  </button>
+                  <button type="button" class="rf-option" data-value="samdetail" data-label="Sample">
+                    <span class="rf-checkbox"><i class="ri-check-line"></i></span>
+                    <span class="rf-option-label">Sample</span>
+                  </button>
+                  <button type="button" class="rf-option" data-value="con condetail" data-label="Condition">
+                    <span class="rf-checkbox"><i class="ri-check-line"></i></span>
+                    <span class="rf-option-label">Condition</span>
+                  </button>
+                </div>
+              </div>
+            </div>
             <div class="hero-search-input-wrap">
               <input type="text" name="simple_search_input0" id="simple_search_input0" placeholder="" required>
               <a href="#advanced" class="hero-search-advanced" id="open-advanced-search">Advanced</a>
             </div>
-            <button type="submit"><i class="ri-search-line"></i> Search</button>
+            <button type="submit" class="hero-search-submit"><i class="ri-search-line"></i> Search</button>
           </div>
 
           <div class="hero-examples">
             <p class="input-example">
               Examples:
-              <span value="genename:NPM1">NPM1,</span>
-              <span value="uniprotaccs:P06748">P06748,</span>
-              <span value="proteinname:Nucleophosmin">Nucleophosmin,</span>
-              <span value="samdetail:HeLa S3">HeLa</span>
+              <span value="uppos:P04637#392">P04637#392,</span>
+              <!--<span value="genepos:TP53#392">TP53#392,</span> -->
+              <span value="samdetail:Endometrial carcinoma tumors">Endometrial carcinoma tumors,</span>
+              <span value="con condetail:UCEC Grade3">UCEC Grade3</span>
             </p>
           </div>
         </div>
@@ -66,14 +108,14 @@
       </div>
       <div class="stat-card">
         <div class="stat-number">994,878</div>
-        <div class="stat-label">PTM Sites</div>
+        <div class="stat-label">PTM sites</div>
       </div>
       <div class="stat-card">
         <div class="stat-number">49,280</div>
         <div class="stat-label">Proteins</div>
       </div>
       <div class="stat-card">
-        <div class="stat-number">3,989</div>
+        <div class="stat-number">3,988</div>
         <div class="stat-label">Conditions</div>
       </div>
       <div class="stat-card">
@@ -87,49 +129,49 @@
     <div class="section-title">Post-Translational Modifications</div>
     <div class="ptm-grid ptm-grid-mods">
       <div class="ptm-card">
-        <div class="ptm-icon ptm-icon-img"><img src="assets/img/phos.png" alt="Phosphorylation"></div>
+        <div class="ptm-icon ptm-icon-img"><img src="assets/img/phos.png" alt="Phosphorylation" loading="lazy" decoding="async"></div>
         <div class="ptm-info">
           <div class="ptm-name">Phosphorylation</div>
           <div class="ptm-count">13,543,563 events &middot; 527,982 sites</div>
         </div>
       </div>
       <div class="ptm-card">
-        <div class="ptm-icon ptm-icon-img"><img src="assets/img/ace.png" alt="Acetylation"></div>
+        <div class="ptm-icon ptm-icon-img"><img src="assets/img/ace.png" alt="Acetylation" loading="lazy" decoding="async"></div>
         <div class="ptm-info">
           <div class="ptm-name">Acetylation</div>
           <div class="ptm-count">551,030 events &middot; 85,308 sites</div>
         </div>
       </div>
       <div class="ptm-card">
-        <div class="ptm-icon ptm-icon-img"><img src="assets/img/ubi.png" alt="Ubiquitylation"></div>
+        <div class="ptm-icon ptm-icon-img"><img src="assets/img/ubi.png" alt="Ubiquitylation" loading="lazy" decoding="async"></div>
         <div class="ptm-info">
           <div class="ptm-name">Ubiquitylation</div>
           <div class="ptm-count">895,603 events &middot; 124,653 sites</div>
         </div>
       </div>
       <div class="ptm-card">
-        <div class="ptm-icon ptm-icon-img"><img src="assets/img/meth.png" alt="Methylation"></div>
+        <div class="ptm-icon ptm-icon-img"><img src="assets/img/meth.png" alt="Methylation" loading="lazy" decoding="async"></div>
         <div class="ptm-info">
           <div class="ptm-name">Methylation</div>
           <div class="ptm-count">163,727 events &middot; 123,033 sites</div>
         </div>
       </div>
       <div class="ptm-card">
-        <div class="ptm-icon ptm-icon-img"><img src="assets/img/gly.png" alt="Glycosylation"></div>
+        <div class="ptm-icon ptm-icon-img"><img src="assets/img/gly.png" alt="Glycosylation" loading="lazy" decoding="async"></div>
         <div class="ptm-info">
           <div class="ptm-name">Glycosylation</div>
           <div class="ptm-count">106,690 events &middot; 24,462 sites</div>
         </div>
       </div>
       <div class="ptm-card">
-        <div class="ptm-icon ptm-icon-img"><img src="assets/img/sumo.png" alt="SUMOylation"></div>
+        <div class="ptm-icon ptm-icon-img"><img src="assets/img/sumo.png" alt="SUMOylation" loading="lazy" decoding="async"></div>
         <div class="ptm-info">
           <div class="ptm-name">SUMOylation</div>
           <div class="ptm-count">229,403 events &middot; 49,028 sites</div>
         </div>
       </div>
       <div class="ptm-card">
-        <div class="ptm-icon ptm-icon-img"><img src="assets/img/mal.png" alt="Malonylation"></div>
+        <div class="ptm-icon ptm-icon-img"><img src="assets/img/mal.png" alt="Malonylation" loading="lazy" decoding="async"></div>
         <div class="ptm-info">
           <div class="ptm-name">Malonylation</div>
           <div class="ptm-count">1,804 events &middot; 1,804 sites</div>
@@ -137,35 +179,35 @@
       </div>
 
       <div class="ptm-card">
-        <div class="ptm-icon ptm-icon-img"><img src="assets/img/la.png" alt="Lactylation"></div>
+        <div class="ptm-icon ptm-icon-img"><img src="assets/img/la.png" alt="Lactylation" loading="lazy" decoding="async"></div>
         <div class="ptm-info">
           <div class="ptm-name">Lactylation</div>
           <div class="ptm-count">26,152 events &middot; 13,160 sites</div>
         </div>
       </div>
       <div class="ptm-card">
-        <div class="ptm-icon ptm-icon-img"><img src="assets/img/succ.png" alt="Succinylation"></div>
+        <div class="ptm-icon ptm-icon-img"><img src="assets/img/succ.png" alt="Succinylation" loading="lazy" decoding="async"></div>
         <div class="ptm-info">
           <div class="ptm-name">Succinylation</div>
           <div class="ptm-count">21,298 events &middot; 10,456 sites</div>
         </div>
       </div>
       <div class="ptm-card">
-        <div class="ptm-icon ptm-icon-img"><img src="assets/img/bhb.png" alt="β-hydroxybutyrylation"></div>
+        <div class="ptm-icon ptm-icon-img"><img src="assets/img/bhb.png" alt="β-hydroxybutyrylation" loading="lazy" decoding="async"></div>
         <div class="ptm-info">
           <div class="ptm-name">&beta;-hydroxybutyrylation</div>
           <div class="ptm-count">5,944 events &middot; 5,685 sites</div>
         </div>
       </div>
       <div class="ptm-card">
-        <div class="ptm-icon ptm-icon-img"><img src="assets/img/pal.png" alt="S-glutathionylation"></div>
+        <div class="ptm-icon ptm-icon-img"><img src="assets/img/pal.png" alt="S-glutathionylation" loading="lazy" decoding="async"></div>
         <div class="ptm-info">
           <div class="ptm-name">Palmitoylation</div>
           <div class="ptm-count">1,636 events &middot; 1,636 sites</div>
         </div>
       </div>
       <div class="ptm-card">
-        <div class="ptm-icon ptm-icon-img"><img src="assets/img/crot.png" alt="Crotonylation"></div>
+        <div class="ptm-icon ptm-icon-img"><img src="assets/img/crot.png" alt="Crotonylation" loading="lazy" decoding="async"></div>
         <div class="ptm-info">
           <div class="ptm-name">Crotonylation</div>
           <div class="ptm-count">105,213 events &middot; 27,671 sites</div>
@@ -177,28 +219,28 @@
     <div class="section-title">Organisms</div>
     <div class="ptm-grid ptm-grid-org">
       <div class="ptm-card">
-        <div class="ptm-icon ptm-icon-img"><img src="assets/img/human.png" alt="Human"></div>
+        <div class="ptm-icon ptm-icon-img"><img src="assets/img/human.png" alt="Human" loading="lazy" decoding="async"></div>
         <div class="ptm-info">
           <div class="ptm-name">Human</div>
           <div class="ptm-count">9,028,313 events &middot; 656,341 sites</div>
         </div>
       </div>
       <div class="ptm-card">
-        <div class="ptm-icon ptm-icon-img"><img src="assets/img/mouse.png" alt="Mouse"></div>
+        <div class="ptm-icon ptm-icon-img"><img src="assets/img/mouse.png" alt="Mouse" loading="lazy" decoding="async"></div>
         <div class="ptm-info">
           <div class="ptm-name">Mouse</div>
           <div class="ptm-count">3,480,200 events &middot; 239,426 sites</div>
         </div>
       </div>
       <div class="ptm-card">
-        <div class="ptm-icon ptm-icon-img"><img src="assets/img/rat.png" alt="Rat"></div>
+        <div class="ptm-icon ptm-icon-img"><img src="assets/img/rat.png" alt="Rat" loading="lazy" decoding="async"></div>
         <div class="ptm-info">
           <div class="ptm-name">Rat</div>
           <div class="ptm-count">208,569 events &middot; 32,586 sites</div>
         </div>
       </div>
       <div class="ptm-card">
-        <div class="ptm-icon ptm-icon-img"><img src="assets/img/yeast.png" alt="Yeast"></div>
+        <div class="ptm-icon ptm-icon-img"><img src="assets/img/yeast.png" alt="Yeast" loading="lazy" decoding="async"></div>
         <div class="ptm-info">
           <div class="ptm-name">Yeast</div>
           <div class="ptm-count">2,934,981 events &middot; 66,525 sites</div>
@@ -221,34 +263,106 @@
       <form id="advance_search_form" action="result.html" method="get" onSubmit="return check_advance_search_form()">
         <input type="hidden" name="type" value="search">
         <div class="adv-search-filters">
-          <label>
+          <div class="filter-div has-filter" data-adv-filter="org">
             <span class="filter-label">Organism</span>
-            <select class="form-control" name="simple_search_org" id="adv_simple_search_org">
-              <option value="All" selected>All organisms</option>
-              <option value="Human">Human</option>
-              <option value="Mouse">Mouse</option>
-              <option value="Rat">Rat</option>
-              <option value="Yeast">Yeast</option>
-            </select>
-          </label>
-          <label>
+            <div class="rf-select rf-select--instant">
+              <input type="hidden" name="simple_search_org" id="adv_simple_search_org" value="All">
+              <button type="button" class="rf-select-toggle" aria-haspopup="listbox" aria-expanded="false">
+                <span class="rf-select-label">All organisms</span>
+                <i class="ri-arrow-down-s-line rf-select-arrow"></i>
+              </button>
+              <div class="rf-select-panel">
+                <div class="rf-select-options" role="listbox">
+                  <button type="button" class="rf-option is-checked" data-value="All" data-label="All organisms">
+                    <span class="rf-checkbox"><i class="ri-check-line"></i></span>
+                    <span class="rf-option-label">All organisms</span>
+                  </button>
+                  <button type="button" class="rf-option" data-value="Human" data-label="Human">
+                    <span class="rf-checkbox"><i class="ri-check-line"></i></span>
+                    <span class="rf-option-label">Human</span>
+                  </button>
+                  <button type="button" class="rf-option" data-value="Mouse" data-label="Mouse">
+                    <span class="rf-checkbox"><i class="ri-check-line"></i></span>
+                    <span class="rf-option-label">Mouse</span>
+                  </button>
+                  <button type="button" class="rf-option" data-value="Rat" data-label="Rat">
+                    <span class="rf-checkbox"><i class="ri-check-line"></i></span>
+                    <span class="rf-option-label">Rat</span>
+                  </button>
+                  <button type="button" class="rf-option" data-value="Yeast" data-label="Yeast">
+                    <span class="rf-checkbox"><i class="ri-check-line"></i></span>
+                    <span class="rf-option-label">Yeast</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="filter-div has-filter" data-adv-filter="mod">
             <span class="filter-label">Modification</span>
-            <select class="form-control" name="simple_search_mod" id="adv_simple_search_mod">
-              <option value="All" selected>All modifications</option>
-              <option value="Phosphorylation">Phosphorylation</option>
-              <option value="Acetylation">Acetylation</option>
-              <option value="Ubiquitylation">Ubiquitylation</option>
-              <option value="Methylation">Methylation</option>
-              <option value="Glycosylation">Glycosylation</option>
-              <option value="SUMOylation">SUMOylation</option>
-              <option value="Malonylation">Malonylation</option>
-              <option value="Lactylation">Lactylation</option>
-              <option value="Succinylation">Succinylation</option>
-              <option value="β-Hydroxybutyrylation">β-Hydroxybutyrylation</option>
-              <option value="Palmitoylation">Palmitoylation</option>
-              <option value="Crotonylation">Crotonylation</option>
-            </select>
-          </label>
+            <div class="rf-select rf-select--instant">
+              <input type="hidden" name="simple_search_mod" id="adv_simple_search_mod" value="All">
+              <button type="button" class="rf-select-toggle" aria-haspopup="listbox" aria-expanded="false">
+                <span class="rf-select-label">All modifications</span>
+                <i class="ri-arrow-down-s-line rf-select-arrow"></i>
+              </button>
+              <div class="rf-select-panel">
+                <div class="rf-select-options" role="listbox">
+                  <button type="button" class="rf-option is-checked" data-value="All" data-label="All modifications">
+                    <span class="rf-checkbox"><i class="ri-check-line"></i></span>
+                    <span class="rf-option-label">All modifications</span>
+                  </button>
+                  <button type="button" class="rf-option" data-value="Phosphorylation" data-label="Phosphorylation">
+                    <span class="rf-checkbox"><i class="ri-check-line"></i></span>
+                    <span class="rf-option-label">Phosphorylation</span>
+                  </button>
+                  <button type="button" class="rf-option" data-value="Acetylation" data-label="Acetylation">
+                    <span class="rf-checkbox"><i class="ri-check-line"></i></span>
+                    <span class="rf-option-label">Acetylation</span>
+                  </button>
+                  <button type="button" class="rf-option" data-value="Ubiquitylation" data-label="Ubiquitylation">
+                    <span class="rf-checkbox"><i class="ri-check-line"></i></span>
+                    <span class="rf-option-label">Ubiquitylation</span>
+                  </button>
+                  <button type="button" class="rf-option" data-value="Methylation" data-label="Methylation">
+                    <span class="rf-checkbox"><i class="ri-check-line"></i></span>
+                    <span class="rf-option-label">Methylation</span>
+                  </button>
+                  <button type="button" class="rf-option" data-value="Glycosylation" data-label="Glycosylation">
+                    <span class="rf-checkbox"><i class="ri-check-line"></i></span>
+                    <span class="rf-option-label">Glycosylation</span>
+                  </button>
+                  <button type="button" class="rf-option" data-value="SUMOylation" data-label="SUMOylation">
+                    <span class="rf-checkbox"><i class="ri-check-line"></i></span>
+                    <span class="rf-option-label">SUMOylation</span>
+                  </button>
+                  <button type="button" class="rf-option" data-value="Malonylation" data-label="Malonylation">
+                    <span class="rf-checkbox"><i class="ri-check-line"></i></span>
+                    <span class="rf-option-label">Malonylation</span>
+                  </button>
+                  <button type="button" class="rf-option" data-value="Lactylation" data-label="Lactylation">
+                    <span class="rf-checkbox"><i class="ri-check-line"></i></span>
+                    <span class="rf-option-label">Lactylation</span>
+                  </button>
+                  <button type="button" class="rf-option" data-value="Succinylation" data-label="Succinylation">
+                    <span class="rf-checkbox"><i class="ri-check-line"></i></span>
+                    <span class="rf-option-label">Succinylation</span>
+                  </button>
+                  <button type="button" class="rf-option" data-value="β-Hydroxybutyrylation" data-label="β-Hydroxybutyrylation">
+                    <span class="rf-checkbox"><i class="ri-check-line"></i></span>
+                    <span class="rf-option-label">β-Hydroxybutyrylation</span>
+                  </button>
+                  <button type="button" class="rf-option" data-value="Palmitoylation" data-label="Palmitoylation">
+                    <span class="rf-checkbox"><i class="ri-check-line"></i></span>
+                    <span class="rf-option-label">Palmitoylation</span>
+                  </button>
+                  <button type="button" class="rf-option" data-value="Crotonylation" data-label="Crotonylation">
+                    <span class="rf-checkbox"><i class="ri-check-line"></i></span>
+                    <span class="rf-option-label">Crotonylation</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div id="advance_search_rows"></div>
@@ -267,13 +381,21 @@
   <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js"></script>
   <script src="assets/js/mine.js"></script>
-  <script src="assets/js/advance-search.js"></script>
+  <script src="assets/js/advance-search.js?v=20260903g"></script>
   <script>
     $(document).ready(function(){
       $('.input-example span').on('click',function(){
-        var info = $(this).attr('value').split(':');
-        $('#simple_search_tag0').val(info[0]);
-        $('#simple_search_input0').val(info[1]);
+        var raw = $(this).attr('value') || '';
+        var sep = raw.indexOf(':');
+        if(sep < 0){
+          return;
+        }
+        if (window.setQptmInstantSelectById) {
+          window.setQptmInstantSelectById('simple_search_tag0', raw.slice(0, sep));
+        } else {
+          $('#simple_search_tag0').val(raw.slice(0, sep));
+        }
+        $('#simple_search_input0').val(raw.slice(sep + 1));
       });
       $(window).scroll(function(){
         if($(this).scrollTop() > 300) $('.back-to-top').addClass('active');

@@ -53,7 +53,9 @@
       var state = {
         org: 'Human',
         mod: 'Phosphorylation',
-        btype: 'condition'
+        btype: 'condition',
+        contrast_type: '',
+        agent_key: ''
       };
 
       var FILTERS = [
@@ -81,6 +83,11 @@
         }
       ];
 
+      var CONDITION_FILTERS = [
+        { key: 'contrast_type', label: 'Condition type', options: [{ value: '', label: 'All types' }] },
+        { key: 'agent_key', label: 'Condition ontology', options: [{ value: '', label: 'All ontologies' }] }
+      ];
+
       function escapeHtml(str) {
         return String(str)
           .replace(/&/g, '&amp;')
@@ -91,24 +98,36 @@
 
       function optionMeta(opt) {
         if (opt && typeof opt === 'object') {
-          return { value: opt.value, label: opt.label };
+          return {
+            value: opt.value,
+            label: opt.label,
+            count: typeof opt.count === 'number' ? opt.count : null
+          };
         }
-        return { value: opt, label: opt };
+        return { value: opt, label: opt, count: null };
+      }
+
+      function allFilters() {
+        return FILTERS.concat(CONDITION_FILTERS);
       }
 
       function displayLabel(key, value) {
-        var filter = FILTERS.find(function(f){ return f.key === key; });
+        var filter = allFilters().find(function(f){ return f.key === key; });
         if (!filter) return value;
         for (var i = 0; i < filter.options.length; i++) {
           var meta = optionMeta(filter.options[i]);
-          if (meta.value === value) return meta.label;
+          if (String(meta.value) === String(value)) {
+            return meta.count != null && meta.value !== ''
+              ? meta.label + ' (' + meta.count + ')'
+              : meta.label;
+          }
         }
-        return value;
+        return value === '' ? (key === 'agent_key' ? 'All ontologies' : 'All types') : value;
       }
 
-      function buildFilters() {
+      function renderFilterGroup(filters, targetSelector) {
         var html = '';
-        FILTERS.forEach(function(filter) {
+        filters.forEach(function(filter) {
           html += '<div class="filter-div has-filter" data-key="' + filter.key + '">';
           html += '<span class="filter-label">' + filter.label + '</span>';
           html += '<div class="rf-select">';
@@ -121,10 +140,13 @@
           html += '<div class="rf-select-options" role="listbox">';
           filter.options.forEach(function(opt) {
             var meta = optionMeta(opt);
-            var checked = meta.value === state[filter.key] ? ' is-checked' : '';
+            var checked = String(meta.value) === String(state[filter.key]) ? ' is-checked' : '';
+            var label = meta.count != null && meta.value !== ''
+              ? meta.label + ' (' + meta.count + ')'
+              : meta.label;
             html += '<button type="button" class="rf-option' + checked + '" data-value="' + escapeHtml(meta.value) + '">';
             html += '<span class="rf-checkbox"><i class="ri-check-line"></i></span>';
-            html += '<span class="rf-option-label">' + escapeHtml(meta.label) + '</span>';
+            html += '<span class="rf-option-label">' + escapeHtml(label) + '</span>';
             html += '</button>';
           });
           html += '</div>';
@@ -133,7 +155,28 @@
           html += '<button type="button" class="btn btn-sm rf-clear-btn">Clear</button>';
           html += '</div></div></div></div>';
         });
-        $('#browseFilterDropdowns').html(html);
+        $(targetSelector).html(html);
+      }
+
+      function buildFilters() {
+        renderFilterGroup(allFilters(), '#browseFilterDropdowns');
+        syncConditionFilterVisibility();
+      }
+
+      function syncConditionFilterVisibility() {
+        var show = state.btype === 'condition';
+        $('.browse-page .filter-div[data-key="contrast_type"], .browse-page .filter-div[data-key="agent_key"]')
+          .toggleClass('is-browse-filter-hidden', !show);
+        if (!show) {
+          state.contrast_type = '';
+          state.agent_key = '';
+          syncFilterUI('contrast_type');
+          syncFilterUI('agent_key');
+        }
+      }
+
+      function toggleConditionFilters() {
+        syncConditionFilterVisibility();
       }
 
       function closeFilterPanels() {
@@ -150,9 +193,53 @@
         var $div = $('.browse-page .filter-div[data-key="' + key + '"]');
         $div.find('.rf-select-label').text(displayLabel(key, state[key]));
         $div.find('.rf-option').each(function() {
-          $(this).toggleClass('is-checked', $(this).attr('data-value') === state[key]);
+          $(this).toggleClass('is-checked', String($(this).attr('data-value')) === String(state[key]));
         });
         $div.addClass('has-filter');
+      }
+
+      function browsePostData(extra) {
+        var data = {
+          org: state.org,
+          mod: state.mod,
+          btype: state.btype
+        };
+        if (state.btype === 'condition') {
+          data.contrast_type = state.contrast_type || '';
+          data.agent_key = state.agent_key || '';
+        }
+        return $.extend(data, extra || {});
+      }
+
+      function loadConditionFacets(done) {
+        if (state.btype !== 'condition') {
+          if (done) done();
+          return;
+        }
+        $.post('./resource/functions.php', browsePostData({
+          type: 'browseConFacets',
+          contrast_type: state.contrast_type || ''
+        }), function(data) {
+          var types = (data && data.contrast_types) ? data.contrast_types : [{ value: '', label: 'All types' }];
+          var agents = (data && data.agents) ? data.agents : [{ value: '', label: 'All ontologies' }];
+          CONDITION_FILTERS[0].options = types;
+          CONDITION_FILTERS[1].options = agents;
+          // Keep selected agent if still present; otherwise reset
+          var agentExists = agents.some(function(a){ return String(optionMeta(a).value) === String(state.agent_key); });
+          if (!agentExists) state.agent_key = '';
+          buildFilters();
+          if (done) done();
+        }, 'json').fail(function() {
+          if (done) done();
+        });
+      }
+
+      function reloadBrowse() {
+        firstWord = '';
+        toggleConditionFilters();
+        loadConditionFacets(function() {
+          loadFirstWords();
+        });
       }
 
       function applyFilter($div) {
@@ -162,30 +249,45 @@
           return;
         }
         state[key] = $checked.attr('data-value');
+        if (key === 'btype' && state.btype !== 'condition') {
+          state.contrast_type = '';
+          state.agent_key = '';
+        }
+        if (key === 'contrast_type') {
+          state.agent_key = '';
+        }
         syncFilterUI(key);
         closeFilterPanels();
-        firstWord = '';
-        loadFirstWords();
+        reloadBrowse();
       }
 
       function clearFilter($div) {
         var key = $div.attr('data-key');
-        var defaults = { org: 'Human', mod: 'Phosphorylation', btype: 'condition' };
+        var defaults = {
+          org: 'Human',
+          mod: 'Phosphorylation',
+          btype: 'condition',
+          contrast_type: '',
+          agent_key: ''
+        };
         state[key] = defaults[key];
+        if (key === 'btype') {
+          state.contrast_type = '';
+          state.agent_key = '';
+        }
+        if (key === 'contrast_type') {
+          state.agent_key = '';
+        }
         syncFilterUI(key);
         closeFilterPanels();
-        firstWord = '';
-        loadFirstWords();
+        reloadBrowse();
       }
 
       function loadFirstWords(){
-        $.post('./resource/functions.php', {
+        $.post('./resource/functions.php', browsePostData({
           type: 'browseFword',
-          org: state.org,
-          mod: state.mod,
-          btype: state.btype,
           firstWord: ''
-        }, function(data){
+        }), function(data){
           var letters = data || [];
           var html = '<span class="filter-label">First Letter</span><div>';
           html += '<span class="filter-tag" data-letter="">All</span>';
@@ -208,15 +310,12 @@
       }
 
       function loadOptions(page){
-        $.post('./resource/functions.php', {
+        $.post('./resource/functions.php', browsePostData({
           type: 'browseOption',
-          org: state.org,
-          mod: state.mod,
-          btype: state.btype,
           firstWord: firstWord,
           nowPage: page,
           optionNumber: 50
-        }, function(data){
+        }), function(data){
           var type = state.btype;
           var html = '<span class="filter-label">' + type.charAt(0).toUpperCase() + type.slice(1) + 's (' + data.totalNum + ' total)</span>';
           html += '<div class="browse-tag-wrap">';
@@ -305,7 +404,7 @@
       });
 
       buildFilters();
-      loadFirstWords();
+      reloadBrowse();
     });
   </script>
 </body>

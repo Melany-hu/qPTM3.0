@@ -43,14 +43,14 @@ if ($ptm_type !== 'all' && isset($PTM_TYPE_MAP[$ptm_type])) {
 }
 $whereClause = implode(' AND ', $where);
 
-$summarySql = "SELECT e.up, e.pos, e.mods, e.pep,
+$summarySql = "SELECT e.up, e.pos, e.mods,
                       MAX(e.qptmscore) AS stars,
                       COUNT(*) AS total_events,
                       COUNT(DISTINCT e.samplecondition) AS total_conditions,
                       COUNT(DISTINCT e.sample) AS total_samples
                FROM qevent e
                WHERE $whereClause
-               GROUP BY e.up, e.pos, e.mods, e.pep";
+               GROUP BY e.up, e.pos, e.mods";
 
 $summaryRows = fetch_all($summarySql, $params, $types);
 
@@ -62,12 +62,11 @@ if (empty($summaryRows)) {
     ]);
 }
 
-$eventsSql = "SELECT e.pmid, e.up, e.gene, e.pos, e.mods, e.pep, e.sample,
-                      e.samplecondition, e.org, e.qratio, e.pvalue,
-                      e.qratiopro, e.pvaluepro, e.qptmscore, e.fdr
+$innerEvents = 'SELECT ' . event_qevent_columns() . "
                FROM qevent e
                WHERE $whereClause
                ORDER BY e.mods, e.samplecondition, e.sample";
+$eventsSql = event_select_sql('(' . $innerEvents . ') e');
 
 $eventRows = fetch_all($eventsSql, $params, $types);
 $events = array_map('format_event_row', $eventRows);
@@ -81,7 +80,6 @@ $summaries = array_map(function ($row) {
         'total_events'     => intval($row['total_events']),
         'total_conditions' => intval($row['total_conditions']),
         'total_samples'    => intval($row['total_samples']),
-        'sequence_window'  => $row['pep'],
     ];
 }, $summaryRows);
 

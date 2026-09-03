@@ -721,8 +721,18 @@ function drawTimeCourse(drawDivID){
   }
 
   var rotateLabels = timeLabels.length > 6;
+  var maxLabelLen = 0;
+  timeLabels.forEach(function(label){
+    maxLabelLen = Math.max(maxLabelLen, String(label || '').length);
+  });
+  if(maxLabelLen > 14){
+    rotateLabels = true;
+  }
   var option = {
     color: ['#0e74d3'],
+    textStyle: {
+      fontSize: 14
+    },
     tooltip: {
       trigger: 'axis',
       confine: true,
@@ -732,7 +742,7 @@ function drawTimeCourse(drawDivID){
       padding: [10, 12],
       textStyle: {
         color: '#1a2330',
-        fontSize: 12,
+        fontSize: 14,
         align: 'left'
       },
       formatter: function(params){
@@ -741,21 +751,21 @@ function drawTimeCourse(drawDivID){
         var condition = conditions[idx] || point.name;
         var value = point.value;
         var valueText = (typeof value === 'number' && !isNaN(value)) ? value.toFixed(2) : '-';
-        var marker = idx === highlightIndex ? '<br/><span style="color:#e03131;font-weight:600;">Current condition</span>' : '';
+        var marker = idx === highlightIndex ? '<br/><span style="color:#0d57d6;font-weight:600;">Current condition</span>' : '';
         return '<strong>' + condition + '</strong><br/>Log<sub>2</sub> Ratio: ' + valueText + marker;
       }
     },
     grid: {
-      left: 12,
-      right: 16,
-      bottom: rotateLabels ? 28 : 16,
-      top: 12,
+      left: 4,
+      right: 4,
+      bottom: rotateLabels ? 8 : 12,
+      top: 28,
       containLabel: true
     },
     xAxis: [{
       type: 'category',
       data: timeLabels,
-      boundaryGap: false,
+      boundaryGap: ['3%', '3%'],
       axisLine: {
         lineStyle: { color: '#b3ccf5' }
       },
@@ -765,18 +775,26 @@ function drawTimeCourse(drawDivID){
       },
       axisLabel: {
         color: '#5c6b7a',
-        fontSize: 11,
+        fontSize: 14,
         interval: 0,
-        rotate: rotateLabels ? 35 : 0,
-        margin: 14
+        rotate: rotateLabels ? 28 : 0,
+        margin: 10,
+        hideOverlap: false,
+        width: rotateLabels ? 100 : 120,
+        overflow: 'truncate',
+        ellipsis: '…'
       }
     }],
     yAxis: [{
       type: 'value',
       name: 'Log2 Ratio',
+      nameLocation: 'end',
+      nameGap: 10,
       nameTextStyle: {
         color: '#5c6b7a',
-        fontSize: 11
+        fontSize: 14,
+        align: 'left',
+        padding: [0, 0, 0, 0]
       },
       axisLine: { show: false },
       axisTick: { show: false },
@@ -788,7 +806,7 @@ function drawTimeCourse(drawDivID){
       },
       axisLabel: {
         color: '#5c6b7a',
-        fontSize: 11
+        fontSize: 14
       }
     }],
     series: [{

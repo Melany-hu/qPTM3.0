@@ -27,7 +27,7 @@
       <nav class="help-nav" aria-label="Help page navigation">
         <ul class="help-nav-list">
           <li>
-            <a href="#help-about" class="help-nav-link active"><i class="ri-information-line mr-2"></i>About qPTM</a>
+            <a href="#help-about" class="help-nav-link active"><i class="ri-information-line mr-2"></i>About qPTM 3.0</a>
             <ul class="help-nav-sublist">
               <li><a href="#help-version" class="help-nav-link">Version comparison</a></li>
             </ul>
@@ -40,13 +40,14 @@
             </ul>
           </li>
           <li>
-            <a href="#help-usage" class="help-nav-link"><i class="ri-book-open-line mr-2"></i>Usage</a>
+            <a href="#help-usage" class="help-nav-link"><i class="ri-lightbulb-flash-line mr-2"></i>Usage</a>
             <ul class="help-nav-sublist">
               <li><a href="#help-home" class="help-nav-link">Home (Quick Search)</a></li>
               <li><a href="#help-advanced" class="help-nav-link">Advanced Search</a></li>
               <li><a href="#help-browse" class="help-nav-link">Browse</a></li>
               <li><a href="#help-results" class="help-nav-link">Results</a></li>
               <li><a href="#help-download" class="help-nav-link">Download</a></li>
+              <li><a href="#help-api" class="help-nav-link">REST API</a></li>
             </ul>
           </li>
           <li><a href="#help-reliability" class="help-nav-link"><i class="ri-star-line mr-2"></i>Reliability</a></li>
@@ -64,14 +65,23 @@
     <div class="help-content">
 
   <div class="lp-panel help-section" id="help-about">
-    <div class="lp-panel-header"><i class="ri-information-line mr-2"></i>About qPTM</div>
+    <div class="lp-panel-header"><i class="ri-information-line mr-2"></i>About qPTM 3.0</div>
     <div class="lp-panel-body">
-      <p class="text-des"><strong>qPTM 3.0</strong> hosts quantitative PTM proteomics data for 12 types of post-translational modifications (acetylation, glycosylation, methylation, phosphorylation, SUMOylation, ubiquitylation, palmitoylation, succinylation, β-hydroxybutyrylation, crotonylation, lactylation, malonylation) in 4 different organisms (human, mouse, rat, yeast).</p>
-      <p class="text-des">In total, <strong>15,652,063</strong> quantification events for <strong>994,878</strong> sites on <strong>49,280</strong> proteins under <strong>3,989</strong> conditions are collected and integrated. The matched proteome datasets were also integrated when available, providing a comprehensive view of PTM regulation.</p>
+      <p class="text-des"><strong>qPTM</strong> (quantitative post-translational modification proteomics) is a manually curated database that collects site-resolved quantitative PTM events from published mass-spectrometry studies. <strong>qPTM 3.0</strong> is the latest release, expanding coverage across modification types, organisms, and experimental conditions while adding richer annotation, programmatic access, and AI-assisted exploration.</p>
+      <p class="text-des">The database currently covers <strong>12</strong> PTM types&mdash;phosphorylation, acetylation, glycosylation, methylation, SUMOylation, ubiquitylation, palmitoylation, succinylation, &beta;-hydroxybutyrylation, crotonylation, lactylation, and malonylation&mdash;in <strong>4</strong> model organisms (human, mouse, rat, and yeast). In total, <strong>15,652,063</strong> quantification events for <strong>994,878</strong> sites on <strong>49,280</strong> proteins under <strong>3,988</strong> conditions are integrated from <strong>833</strong> curated publications.</p>
+      <p class="text-des">Each event records the experimental context (sample, condition, labeling / enrichment / MS methods), quantitative values (log<sub>2</sub> ratio and <i>P</i> value), and matched whole-proteome ratios when available. Conditions are annotated with five major types (cell state, pharmacological, genetic, disease, and physical) and ontology terms where possible. Site reliability is scored with a five-star system that combines raw MS re-identification FDR, recurrence across datasets, and cross-database collection.</p>
+      <p class="text-des">Beyond the quantitative core, qPTM 3.0 links each site to multi-layer annotations in the result detail panel, including:</p>
+      <ul class="help-list text-des">
+        <li><strong>Experiment information</strong> &mdash; Study metadata, time-course changes, re-identified FDR, and recurrence in qPTM / PhosphoSitePlus / dbPTM / PTMAtlas.</li>
+        <li><strong>Protein information</strong> &mdash; UniProt annotations, subcellular localization, sequence and 3D structure, sequence properties, and external database links.</li>
+        <li><strong>Functional regulation</strong> &mdash; Functional score, disease/variant associations, molecular and interaction effects, phase separation, and PTM cross-talk.</li>
+        <li><strong>Regulators and inhibitors</strong> &mdash; Modification-specific upstream enzymes and drug associations.</li>
+      </ul>
+      <p class="text-des">Users can search and browse the database through the web interface, export filtered results or request the full dataset, query records programmatically via the <a href="api.html">REST API</a>, and explore site-level questions with the <a href="agent.php">PTM Research Agent</a>, which integrates qPTM with <strong>37</strong> complementary databases.</p>
 
       <div class="help-summary-section help-section" id="help-version">
         <h3 class="help-summary-title">Comparison between qPTM 3.0 and qPTM 2.0</h3>
-        <p class="text-des">Compared with the previous release (qPTM 2.0), qPTM 3.0 has substantially expanded the curated data as summarized below.</p>
+        <p class="text-des">Compared with the previous release <a href="https://pubmed.ncbi.nlm.nih.gov/36165955/">qPTM 2.0</a> (PMID: <a href="https://pubmed.ncbi.nlm.nih.gov/36165955/">36165955</a>), qPTM 3.0 has substantially expanded the curated data as summarized below.</p>
         <div class="help-table-scroll help-version-table-wrap">
           <table class="lp-table help-version-table">
             <thead>
@@ -110,8 +120,8 @@
               <tr>
                 <td>Conditions</td>
                 <td>2,708</td>
-                <td>3,989</td>
-                <td>1,281</td>
+                <td>3,988</td>
+                <td>1,280</td>
               </tr>
             </tbody>
           </table>
@@ -124,7 +134,7 @@
     <div class="lp-panel-header"><i class="ri-database-2-line mr-2"></i>Curated Data Summary</div>
     <div class="lp-panel-body">
       <div class="help-summary-section help-section" id="help-datasets">
-        <h3 class="help-summary-title">Summary of curated datasets</h3>
+        <h3 class="help-summary-title">Curated datasets</h3>
         <div class="help-table-scroll">
           <table class="lp-table">
             <thead>
@@ -143,7 +153,7 @@
       </div>
 
       <div class="help-summary-section help-section" id="help-literatures">
-        <h3 class="help-summary-title">Summary of curated literatures</h3>
+        <h3 class="help-summary-title">Curated literatures</h3>
         <div class="help-table-scroll">
           <table class="lp-table">
             <thead>
@@ -167,12 +177,12 @@
   </div>
 
   <div class="lp-panel help-section" id="help-usage">
-    <div class="lp-panel-header"><i class="ri-book-open-line mr-2"></i>Usage</div>
+    <div class="lp-panel-header"><i class="ri-lightbulb-flash-line mr-2"></i>Usage</div>
     <div class="lp-panel-body">
 
       <div class="help-summary-section help-section" id="help-home">
         <h3 class="help-summary-title">Home (Quick Search)</h3>
-        <p class="text-des">On the home page of qPTM, users can specify one field or all fields to perform a quick search with keyword(s) in the selected field(s). Users can simply click the example and search buttons to perform an example search.</p>
+        <p class="text-des">On the <a href="index.html">Home</a> page of qPTM, users can specify one field or all fields to perform a quick search with keyword(s) in the selected field(s). Users can simply click the example and search buttons to perform an example search.</p>
         <figure class="help-figure">
           <img src="assets/img/search.png" alt="qPTM quick search on the home page" class="help-figure-img">
           <figcaption class="help-figure-caption">Quick search on the home page</figcaption>
@@ -190,47 +200,112 @@
 
       <div class="help-summary-section help-section" id="help-browse">
         <h3 class="help-summary-title">Browse</h3>
-        <p class="text-des">On the Browse page, users can click one term to search the specified data in qPTM. The data are first grouped by organisms and further grouped by PTM types. Detailed information is organized into three modules&mdash;conditions, samples, and genes&mdash;which are sorted alphabetically. Users can click an initial letter and select the term of interest.</p>
+        <p class="text-des">On the <a href="browse.html">Browse</a> page, users select an <strong>Organism</strong> and <strong>Modification</strong>, then choose <strong>Browse by</strong> <strong>Condition</strong> or <strong>Sample</strong>. When browsing by condition, optional <strong>Condition type</strong> and <strong>Condition ontology</strong> filters further narrow the list. Terms can also be filtered by <strong>First Letter</strong> (A&ndash;Z or #) and are paginated. Click a term tag to open the matching quantitative events on the Results page.</p>
         <figure class="help-figure">
           <img src="assets/img/browse.png" alt="qPTM browse page" class="help-figure-img">
-          <figcaption class="help-figure-caption">Browse data by organism, PTM type, and term</figcaption>
+          <figcaption class="help-figure-caption">Browse by organism, modification, condition or sample</figcaption>
         </figure>
       </div>
 
       <div class="help-summary-section help-section" id="help-results">
         <h3 class="help-summary-title">Results</h3>
-        <p class="text-des">On the Results page, users can view search or browse results and further filter them using the options provided. More information about the experiment and protein is displayed when users click the <i class="ri-add-circle-fill" style="color: var(--primary);"></i> button.</p>
+        <p class="text-des">On the Results page, users can view search or browse results, filter them by gene, position, modification, sample, condition, and reliability, sort any column, and download the current table. Click the <i class="ri-add-circle-fill" style="color: var(--primary);"></i> button in the leftmost column to expand a detail panel for that quantitative event.</p>
         <figure class="help-figure">
           <img src="assets/img/result.png" alt="qPTM search results page" class="help-figure-img">
-          <figcaption class="help-figure-caption">Search results</figcaption>
+          <figcaption class="help-figure-caption">Search results with filters, download, and detail toggle</figcaption>
         </figure>
+
+        <p class="text-des">The detail panel is organized into tabs. The first three tabs are always available; a fourth regulators tab appears for phosphorylation, acetylation, methylation, or ubiquitylation events (label depends on the modification type).</p>
+
+        <h4 class="help-summary-subtitle">Experiment information</h4>
+        <p class="text-des">This tab presents the experimental context of the selected quantitative event, including study provenance, condition annotation, quantification details, and cross-database recurrence.</p>
+        <ul class="help-list text-des">
+          <li><strong>Resource</strong> &mdash; Title of the source study with a link to PubMed.</li>
+          <li><strong>Detail condition</strong> &mdash; Full contrast description, with <strong>Condition type</strong> (five major types: cell state, pharmacological, genetic, disease, and physical) and <strong>Condition ontology</strong> (ontology ID when available).</li>
+          <li><strong>Time course change</strong> &mdash; When available, an interactive log<sub>2</sub> ratio chart across time points or related states.</li>
+          <li><strong>Related protein change</strong> &mdash; Matched protein-level log<sub>2</sub> ratio for the same gene/condition when curated, optionally with its <i>P</i> value.</li>
+          <li><strong>Sample (type)</strong> &mdash; Sample name (linked when an external sample URL exists) and sample class (e.g. Cell, Tissue).</li>
+          <li><strong>Label / Enrichment / Mass spectrometer</strong> &mdash; Quantitative labeling method (e.g. SILAC), enrichment strategy (e.g. Ti:IMAC), and instrument used in the study.</li>
+          <li><strong>Reported PEP/Localization probability</strong> &mdash; Posterior error probability and/or site localization probability reported in the original dataset when available.</li>
+          <li><strong>Re-identified FDR</strong> &mdash; Site-level FDR from qPTM raw MS re-identification when raw data were reprocessed.</li>
+          <li><strong>Records in databases</strong> &mdash; How often the site was identified in qPTM, and whether it is also collected in PhosphoSitePlus, dbPTM, and PTMAtlas.</li>
+        </ul>
+        <figure class="help-figure">
+          <img src="assets/img/detail1_exp_info.png" alt="Experiment information detail tab" class="help-figure-img">
+          <figcaption class="help-figure-caption">Experiment information</figcaption>
+        </figure>
+
+        <h4 class="help-summary-subtitle">Protein information</h4>
+        <p class="text-des">Provides UniProt accession, protein and gene names, organism, function description, subcellular localization, PTMs collected for the protein from other resources, interactive sequence and 3D structure (PDB selector), sequence-property tracks (disorder, exposure, polarity, charge, secondary structure, surface accessibility, hydropathy; zoom and hover for site details), and grouped external database links.</p>
+        <figure class="help-figure">
+          <img src="assets/img/detail2_pro_info_1.png" alt="Protein information: localization, PTMs, sequence and structure" class="help-figure-img">
+          <figcaption class="help-figure-caption">Protein information &mdash; localization, PTMs, sequence and structure</figcaption>
+        </figure>
+        <figure class="help-figure">
+          <img src="assets/img/detail2_pro_info_2.png" alt="Protein information: sequence properties and external links" class="help-figure-img">
+          <figcaption class="help-figure-caption">Protein information &mdash; sequence properties and external links</figcaption>
+        </figure>
+
+        <h4 class="help-summary-subtitle">Functional regulation</h4>
+        <p class="text-des">This tab summarizes site-level functional annotations for the selected modification. Expandable tables show entry counts; rows link to PMIDs and source databases when available.</p>
+        <ul class="help-list text-des">
+          <li><strong>Functional score</strong> &mdash; Predicted functional score for phosphosites (0&ndash;1; higher is more likely functional) from <a href="https://pubmed.ncbi.nlm.nih.gov/31819260/" target="_blank">Ochoa et al.</a>.</li>
+          <li><strong>Disease and variants</strong> &mdash; PTM&ndash;disease associations and variant influences (e.g. creation or disruption of a site), with disease names and sources such as ActiveDriverDB / PTMD.</li>
+          <li><strong>Molecular effects</strong> &mdash; Literature-curated effects of the modification on protein function and biological process (e.g. activity, degradation, cell cycle), with PMIDs and sources such as PhosphoSitePlus.</li>
+          <li><strong>Interaction effects</strong> &mdash; Whether the PTM enhances or inhibits protein&ndash;protein interactions, listing partner proteins, related diseases, experimental methods, PMIDs, and sources such as PTMint.</li>
+          <li><strong>Phase separation</strong> &mdash; Regulation of liquid&ndash;liquid phase separation (LLPS), including effect (promotion/inhibition), LLPS partners, sequence regions, membrane-less organelles (MLOs), disease context, methods, and sources such as PTMPhaSe.</li>
+          <li><strong>Cross-talk</strong> &mdash; Functional associations between PTM sites within the same protein or between interacting proteins (site pairs, partner gene, evidence type), from sources such as PTMcode2.</li>
+        </ul>
+        <figure class="help-figure">
+          <img src="assets/img/detail3_func_reg.png" alt="Functional regulation detail tab" class="help-figure-img">
+          <figcaption class="help-figure-caption">Functional regulation</figcaption>
+        </figure>
+
+        <h4 class="help-summary-subtitle">Regulators and inhibitors</h4>
+        <p class="text-des">A fourth tab appears for phosphorylation, acetylation, methylation, and ubiquitylation events. Content and labeling depend on the modification type; expandable tables distinguish experimental, predicted, and inferred evidence.</p>
+        <ul class="help-list text-des">
+          <li><strong>Phosphorylation regulators and inhibitors</strong> &mdash; Experimental and predicted kinases with inhibitors, clinical status, PMID, and sources such as PhosphoSitePlus and DrugBank, plus inferred kinase&ndash;phosphosite correlations from eKPI (top 10 pairs with cancer cohort).</li>
+          <li><strong>Acetylation regulators and inhibitors</strong> &mdash; Experimental and predicted enzymes with role (writer/eraser/readers), class (e.g. HATs/HDACs), inhibitors, clinical status, and sources such as Deep-PLA, WERAM and DrugBank.</li>
+          <li><strong>Methylation regulators and inhibitors</strong> &mdash; Experimental and predicted enzymes with role (writer/eraser/readers), class (e.g. HATs/HDACs), inhibitors, clinical status, and sources such as WERAM and DrugBank.</li>
+          <li><strong>E3/DUB ligases</strong> (ubiquitylation) &mdash; Experimental E3 and DUB annotations with enzyme class, PMID, and sources such as GPS-Uber and UbiBrowser.</li>
+        </ul>
         <div class="help-figure-grid">
           <figure class="help-figure">
-            <img src="assets/img/detail1.png" alt="About experiment detail view" class="help-figure-img">
-            <figcaption class="help-figure-caption">About experiment</figcaption>
+            <img src="assets/img/detail4_reg_inhi_phos.png" alt="Phosphorylation regulators and inhibitors" class="help-figure-img">
+            <figcaption class="help-figure-caption">Phosphorylation regulators and inhibitors</figcaption>
           </figure>
           <figure class="help-figure">
-            <img src="assets/img/detail2.png" alt="About protein detail view" class="help-figure-img">
-            <figcaption class="help-figure-caption">About protein</figcaption>
+            <img src="assets/img/detail4_reg_inhi_ace.png" alt="Acetylation regulators and inhibitors" class="help-figure-img">
+            <figcaption class="help-figure-caption">Acetylation regulators and inhibitors</figcaption>
           </figure>
           <figure class="help-figure">
-            <img src="assets/img/detail3.png" alt="Potential kinases and inhibitors detail view" class="help-figure-img">
-            <figcaption class="help-figure-caption">Potential kinases and their inhibitors</figcaption>
+            <img src="assets/img/detail4_reg_inhi_meth.png" alt="Methylation regulators and inhibitors" class="help-figure-img">
+            <figcaption class="help-figure-caption">Methylation regulators and inhibitors</figcaption>
           </figure>
           <figure class="help-figure">
-            <img src="assets/img/detail4.png" alt="Sequence and structure detail view" class="help-figure-img">
-            <figcaption class="help-figure-caption">Sequence and structure</figcaption>
+            <img src="assets/img/detail4_reg_inhi_ubi.png" alt="E3/DUB ligases for ubiquitylation" class="help-figure-img">
+            <figcaption class="help-figure-caption">E3/DUB ligases (ubiquitylation)</figcaption>
           </figure>
         </div>
       </div>
 
       <div class="help-summary-section help-section" id="help-download">
         <h3 class="help-summary-title">Download</h3>
-        <p class="text-des">qPTM provides two ways to download data. On the Results page, users can click the <strong>Download</strong> button to export the current search or browse results (including applied filters) as a tab-delimited text file.</p>
-        <p class="text-des">The complete qPTM dataset is also available from the <strong>Download</strong> page. Users should fill in the request form with their name, affiliation, country, and email address, complete the verification, and submit the request. A download link will be sent to the provided email address.</p>
+        <p class="text-des">qPTM provides two ways to download data. On the Results page, users can click the <strong>Download</strong> button to export the current search or browse results (including applied filters) as a tab-delimited text file. The export includes quantitative values plus Experiment information fields shown on the result detail panel (resource title, detail condition, condition type/ontology, sample type, labeling / enrichment / MS methods, related-protein change, localization probability, database cross-references, and more).</p>
+        <p class="text-des">The complete qPTM dataset is also available from the <a href="download.html">Download</a> page. Users should fill in the request form with their name, affiliation, country, and email address, complete the verification, and submit the request. A download link will be sent to the provided email address.</p>
         <figure class="help-figure">
           <img src="assets/img/download.png" alt="qPTM dataset download request form" class="help-figure-img">
           <figcaption class="help-figure-caption">Request access to the complete qPTM dataset</figcaption>
+        </figure>
+      </div>
+
+      <div class="help-summary-section help-section" id="help-api">
+        <h3 class="help-summary-title">REST API</h3>
+        <p class="text-des">qPTM provides a free JSON REST API for programmatic access to quantitative events. No API key is required. The base URL is <code>https://qptm3.omicsbio.info/api</code>. Main endpoints include search events, protein summary, site events, conditions, and browse (condition / sample catalogs).</p>
+        <p class="text-des">The <a href="api.html">API</a> page documents parameters and response fields, and includes curl / Python / R examples plus an interactive <strong>Try it</strong> panel to run live requests in the browser. For bulk analysis, prefer the <a href="download.html">dataset download</a>.</p>
+        <figure class="help-figure">
+          <img src="assets/img/api.png" alt="qPTM REST API code examples and Try it panel" class="help-figure-img">
+          <figcaption class="help-figure-caption">API documentation with code examples and live Try it</figcaption>
         </figure>
       </div>
 
@@ -240,8 +315,8 @@
   <div class="lp-panel help-section" id="help-reliability">
     <div class="lp-panel-header"><i class="ri-star-line mr-2"></i>Reliability</div>
     <div class="lp-panel-body">
-      <p class="text-des">To assess the reliability of PTM sites, we developed a five-star scoring system by integrating raw MS data-based FDR control and the recurrences of identification among datasets.</p>
-      <p class="text-des">We performed MS searching using MaxQuant 2.7.5.0 against the UniProt database (Release 2026_04). Default values were used for all parameters unless stated otherwise, including 1% PSM FDR and 1% site-level FDR. The identified PTMs and relevant site-level FDRs were annotated to the curated data as re-identified FDR to enhance the reliability of qPTM.</p>
+      <p class="text-des">To assess the reliability of PTM sites, we developed a <strong>five-star scoring system</strong> by integrating raw MS data-based FDR control and the recurrences of identification among datasets.</p>
+      <p class="text-des">We performed MS searching using MaxQuant 2.7.5.0 against the UniProt database (Release 2026_04). Default values were used for all parameters unless stated otherwise, including 1% PSM FDR and 1% site-level FDR. The identified PTMs and relevant site-level FDR were annotated to the curated data as re-identified FDR to enhance the reliability of qPTM.</p>
       <p class="text-des">For datasets without raw MS data, the reliability of PTM sites was assessed through the recurrences of identification among datasets, characterized by three major standards in the five-star scoring system as follows:</p>
       <ul class="help-list text-des">
         <li><strong>Recurrence of the PTM site across qPTM 3.0 database.</strong> We counted the number of times each modified site was identified across all datasets. Because sites were filtered through a cutoff of site-level FDR &lt; 1% according to the literature, the more frequently a site was identified, the more reliable it was considered. Modified sites were given zero points when identified once, one point when identified twice, and so on, with a maximum identified score of 4 for each site.</li>
@@ -255,7 +330,7 @@
   <div class="lp-panel help-section" id="help-agent">
     <div class="lp-panel-header"><i class="ri-robot-2-line mr-2"></i>PTM Agent</div>
     <div class="lp-panel-body">
-      <p class="text-des">The <strong>PTM Research Agent</strong> (<a href="agent.php">agent.php</a>) answers natural-language questions about modification sites by querying qPTM together with <strong>37</strong> complementary databases spanning upstream enzymes, quantitative dynamics, subcellular and sequence context, functional and disease associations, protein interactions, pathways, and supporting literature. Evidence retrieved from each source is tagged as <strong>Experimental</strong> or <strong>Predicted</strong> and cited in agent responses.</p>
+      <p class="text-des">The <a href="agent.php">PTM Research Agent</a> answers natural-language questions about modification sites by querying qPTM together with <strong>37</strong> complementary databases spanning upstream enzymes, quantitative dynamics, subcellular and sequence context, functional and disease associations, protein interactions, pathways, and supporting literature. Evidence retrieved from each source is tagged as <strong>Experimental</strong> or <strong>Predicted</strong> and cited in agent responses.</p>
 
       <div class="help-summary-section help-section" id="help-agent-databases">
         <h3 class="help-summary-title">Integrated databases (n = 37)</h3>

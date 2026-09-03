@@ -18,8 +18,5 @@ RewriteRule ^conditions$ conditions.php [L,QSA]
 # Route /api/kinases/{uniprot}/{position} to kinases.php
 RewriteRule ^kinases/([A-Za-z0-9_]+)/([0-9]+)$ kinases.php [L,QSA]
 
-# Route /api/stats to stats.php
-RewriteRule ^stats$ stats.php [L,QSA]
-
 # Route /api/browse/{type} to browse.php
 RewriteRule ^browse/([a-z]+)$ browse.php [L,QSA]

@@ -56,7 +56,7 @@ if ($envUrl) {
         <div class="welcome" id="welcome">
           <div class="welcome-intro">
             <div class="welcome-header">
-              <img class="welcome-logo" src="assets/img/logo.png" alt="qPTM">
+              <img class="welcome-logo" src="assets/img/logo.gif" alt="qPTM">
               <div class="welcome-badge"><i class="ri-chat-smile-2-line"></i> AI-Powered PTM Explorer</div>
             </div>
             <p class="welcome-tagline">生物学问答助手 — 翻译后修饰、激酶底物、定量数据与文献。点击 <strong>Deep Research</strong> 进行深度调研。</p>

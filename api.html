@@ -33,7 +33,6 @@
               <li><a href="#api-protein" class="help-nav-link">Protein</a></li>
               <li><a href="#api-site" class="help-nav-link">Site events</a></li>
               <li><a href="#api-conditions" class="help-nav-link">Conditions</a></li>
-              <li><a href="#api-kinases" class="help-nav-link">Kinases / enzymes</a></li>
               <li><a href="#api-browse" class="help-nav-link">Browse</a></li>
             </ul>
           </li>
@@ -64,7 +63,7 @@
   <div class="lp-panel help-section" id="api-endpoints">
     <div class="lp-panel-header"><i class="ri-route-line mr-2"></i>Endpoints</div>
     <div class="lp-panel-body">
-      <p class="text-des">Organism values: <code>human</code>, <code>mouse</code>, <code>rat</code>, <code>yeast</code>, or <code>all</code>. PTM types: <code>phosphorylation</code>, <code>acetylation</code>, <code>methylation</code>, <code>ubiquitylation</code>, <code>glycosylation</code>, <code>sumoylation</code>, or <code>all</code>.</p>
+      <p class="text-des">Organism values: <code>human</code>, <code>mouse</code>, <code>rat</code>, <code>yeast</code>, or <code>all</code>. PTM types: <code>phosphorylation</code>, <code>acetylation</code>, <code>methylation</code>, <code>ubiquitylation</code>, <code>glycosylation</code>, <code>sumoylation</code>, <code>malonylation</code>, <code>palmitoylation</code>, <code>lactylation</code>, <code>succinylation</code>, <code>crotonylation</code>, <code>β-hydroxybutyrylation</code>, or <code>all</code>.</p>
 
       <div class="help-summary-section help-section" id="api-search">
         <h3 class="help-summary-title"><span class="api-method">GET</span> Search events</h3>
@@ -88,60 +87,60 @@
 
       <div class="help-summary-section help-section" id="api-protein">
         <h3 class="help-summary-title"><span class="api-method">GET</span> Protein</h3>
-        <p class="text-des">Protein annotation and aggregated PTM sites.</p>
+        <p class="text-des">PTM modifications, sites, and experimental conditions for a protein (from quantitative events). Optional <code>position</code> / <code>ptm_type</code> filters.</p>
         <pre class="api-code">GET /api/protein/{uniprot_ac}</pre>
-        <p class="text-des">Example: <code>GET /api/protein/P04637</code></p>
+        <p class="text-des">Example: <code>GET /api/protein/P04637</code> or <code>GET /api/protein.php?uniprot_ac=P04637&amp;position=392</code></p>
       </div>
 
       <div class="help-summary-section help-section" id="api-site">
         <h3 class="help-summary-title"><span class="api-method">GET</span> Site events</h3>
         <p class="text-des">All quantitative events for one residue. Optional <code>ptm_type</code>. Query form: <code>uniprot_ac</code> and <code>position</code>.</p>
         <pre class="api-code">GET /api/site/{uniprot_ac}/{position}</pre>
-        <p class="text-des">Example: <code>GET /api/site/P04637/15</code></p>
+        <p class="text-des">Example: <code>GET /api/site/P04637/392</code></p>
       </div>
 
       <div class="help-summary-section help-section" id="api-conditions">
         <h3 class="help-summary-title"><span class="api-method">GET</span> Conditions</h3>
-        <p class="text-des">Distinct experimental conditions for a protein or site, with event counts and log<sub>2</sub> ratio range.</p>
-        <pre class="api-code">GET /api/conditions?uniprot_ac={ac}</pre>
+        <p class="text-des">Search conditions by name/keyword and/or condition type (<code>contrast_type</code>). Returns matching condition summaries plus their quantitative PTM events (sites, log<sub>2</sub> ratios, p-values, experiment metadata).</p>
+        <pre class="api-code">GET /api/conditions?q={keyword}</pre>
         <div class="help-table-scroll">
           <table class="lp-table">
             <thead><tr><th>Parameter</th><th>Required</th><th>Description</th></tr></thead>
             <tbody>
-              <tr><td><code>uniprot_ac</code></td><td>yes</td><td>UniProt accession</td></tr>
-              <tr><td><code>position</code></td><td>no</td><td>Residue position</td></tr>
+              <tr><td><code>q</code></td><td>yes</td><td><code>condition</code></td></tr>
+              <tr><td><code>contrast_type</code></td><td>yes</td><td><code>pharmacological</code>, <code>genetic</code>, <code>physical</code>, <code>disease</code>, <code>cell_state</code>, <code>other</code></td></tr>
+              <tr><td><code>organism</code></td><td>no</td><td>Organism filter</td></tr>
               <tr><td><code>ptm_type</code></td><td>no</td><td>PTM type filter</td></tr>
+              <tr><td><code>page</code> / <code>per_page</code></td><td>no</td><td>Event pagination (max 100)</td></tr>
             </tbody>
           </table>
         </div>
-        <p class="text-des">Example: <code>GET /api/conditions?uniprot_ac=P04637&amp;position=15</code></p>
-      </div>
-
-      <div class="help-summary-section help-section" id="api-kinases">
-        <h3 class="help-summary-title"><span class="api-method">GET</span> Kinases / enzymes</h3>
-        <p class="text-des">Experimental and predicted kinases (phosphorylation) or acetyltransferases (acetylation) for a site. Query form: <code>uniprot_ac</code> and <code>position</code>.</p>
-        <pre class="api-code">GET /api/kinases/{uniprot_ac}/{position}</pre>
-        <p class="text-des">Example: <code>GET /api/kinases/P04637/15</code></p>
+        <p class="text-des">Prefer a condition keyword in <code>q</code> for site-level rows; a very broad <code>contrast_type</code>-only query returns the condition catalog only. Example: <code>GET /api/conditions?q=UCEC</code></p>
       </div>
 
       <div class="help-summary-section help-section" id="api-browse">
         <h3 class="help-summary-title"><span class="api-method">GET</span> Browse</h3>
-        <p class="text-des"><code>type</code> must be <code>gene</code>, <code>condition</code>, or <code>sample</code>.</p>
+        <p class="text-des"><code>type</code> must be <code>condition</code> or <code>sample</code>. For conditions, filter by condition type and/or condition ontology.</p>
         <pre class="api-code">GET /api/browse/{type}</pre>
         <div class="help-table-scroll">
           <table class="lp-table">
             <thead><tr><th>Parameter</th><th>Required</th><th>Default</th><th>Description</th></tr></thead>
             <tbody>
-              <tr><td><code>type</code></td><td>yes</td><td>—</td><td>Path segment or query parameter</td></tr>
+              <tr><td><code>type</code></td><td>yes</td><td>—</td><td><code>condition</code> or <code>sample</code></td></tr>
               <tr><td><code>organism</code></td><td>no</td><td><code>all</code></td><td>Organism filter</td></tr>
               <tr><td><code>ptm_type</code></td><td>no</td><td><code>all</code></td><td>PTM type filter</td></tr>
-              <tr><td><code>letter</code></td><td>no</td><td><code>all</code></td><td>First letter A–Z</td></tr>
+              <tr><td><code>contrast_type</code></td><td>no</td><td>—</td><td>Condition type (only <code>type=condition</code>): <code>pharmacological</code>, <code>genetic</code>, <code>physical</code>, <code>disease</code>, <code>cell_state</code>, <code>other</code></td></tr>
+              <tr><td><code>ontology</code></td><td>no</td><td>—</td><td>Condition ontology keyword (preferred name, ontology ID, agent key, or alias)</td></tr>
+              <tr><td><code>agent_key</code></td><td>no</td><td>—</td><td>Exact ontology agent key</td></tr>
               <tr><td><code>page</code></td><td>no</td><td>1</td><td>Page number</td></tr>
               <tr><td><code>per_page</code></td><td>no</td><td>50</td><td>Page size, maximum 200</td></tr>
             </tbody>
           </table>
         </div>
-        <p class="text-des">Example: <code>GET /api/browse/gene?organism=human&amp;letter=T&amp;per_page=20</code></p>
+        <p class="text-des">Examples:</p>
+        <pre class="api-code">GET /api/browse/condition?contrast_type=pharmacological&amp;per_page=20
+GET /api/browse/condition?ontology=endometrial%20carcinoma&amp;per_page=20
+GET /api/browse/sample?organism=human&amp;per_page=20</pre>
       </div>
     </div>
   </div>
@@ -149,7 +148,7 @@
   <div class="lp-panel help-section" id="api-fields">
     <div class="lp-panel-header"><i class="ri-list-check mr-2"></i>Event response fields</div>
     <div class="lp-panel-body">
-      <p class="text-des">Search and site endpoints return event objects with these fields:</p>
+      <p class="text-des">Search, site, and conditions endpoints return event objects with these fields:</p>
       <div class="help-table-scroll">
         <table class="lp-table">
           <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
@@ -158,18 +157,33 @@
             <tr><td><code>uniprot_ac</code></td><td>string</td><td>UniProt accession</td></tr>
             <tr><td><code>gene</code></td><td>string</td><td>Gene symbol</td></tr>
             <tr><td><code>position</code></td><td>integer</td><td>Modified residue position</td></tr>
-            <tr><td><code>ptm_type</code></td><td>string</td><td>Modification type (lowercase)</td></tr>
-            <tr><td><code>sequence_window</code></td><td>string</td><td>Peptide / sequence window</td></tr>
+            <tr><td><code>ptm_type</code></td><td>string</td><td>Modification type</td></tr>
             <tr><td><code>sample</code></td><td>string</td><td>Sample description</td></tr>
+            <tr><td><code>sample_type</code></td><td>string</td><td>Sample type</td></tr>
             <tr><td><code>condition</code></td><td>string</td><td>Experimental condition</td></tr>
+            <tr><td><code>detail_condition</code></td><td>string</td><td>Detailed condition description</td></tr>
+            <tr><td><code>condition_type</code></td><td>string</td><td>Condition class</td></tr>
+            <tr><td><code>condition_perturbation</code></td><td>string</td><td>Perturbation subtype when available</td></tr>
+            <tr><td><code>condition_factor</code></td><td>string</td><td>Condition ontology</td></tr>
+            <tr><td><code>condition_ontology_id</code></td><td>string</td><td>Ontology ID for the condition</td></tr>
             <tr><td><code>organism</code></td><td>string</td><td>Organism</td></tr>
+            <tr><td><code>resource_title</code></td><td>string</td><td>Source paper title</td></tr>
+            <tr><td><code>label_method</code></td><td>string</td><td>Labeling method</td></tr>
+            <tr><td><code>enrichment_method</code></td><td>string</td><td>Enrichment method</td></tr>
+            <tr><td><code>mass_spectrometer</code></td><td>string</td><td>Mass spectrometer</td></tr>
             <tr><td><code>log2_ratio</code></td><td>number</td><td>PTM log<sub>2</sub> quantification ratio</td></tr>
             <tr><td><code>p_value</code></td><td>number</td><td>PTM p-value</td></tr>
-            <tr><td><code>proteome_log2_ratio</code></td><td>number</td><td>Matched proteome log<sub>2</sub> ratio, if available</td></tr>
-            <tr><td><code>proteome_p_value</code></td><td>number</td><td>Matched proteome p-value</td></tr>
+            <tr><td><code>proteome_log2_ratio</code></td><td>number</td><td>Matched proteome / related-protein log<sub>2</sub> ratio, if available</td></tr>
+            <tr><td><code>proteome_p_value</code></td><td>number</td><td>Matched proteome / related-protein p-value</td></tr>
+            <tr><td><code>has_time_course</code></td><td>boolean</td><td>Whether a time-course series is available for this event</td></tr>
+            <tr><td><code>reported_pep_localization_prob</code></td><td>string</td><td>Reported PEP / localization probability</td></tr>
             <tr><td><code>stars</code></td><td>integer</td><td>qPTM reliability score</td></tr>
-            <tr><td><code>fdr</code></td><td>string</td><td>FDR value from the source table</td></tr>
+            <tr><td><code>fdr</code></td><td>string</td><td>Re-identified FDR value</td></tr>
             <tr><td><code>fdr_flag</code></td><td>boolean</td><td>Whether an FDR value is present</td></tr>
+            <tr><td><code>qptm_count</code></td><td>integer</td><td>Identified times in qPTM</td></tr>
+            <tr><td><code>in_psp</code></td><td>boolean</td><td>Collected in PhosphoSitePlus</td></tr>
+            <tr><td><code>in_dbptm</code></td><td>boolean</td><td>Collected in dbPTM</td></tr>
+            <tr><td><code>in_ptmatlas</code></td><td>boolean</td><td>Collected in PTMAtlas</td></tr>
           </tbody>
         </table>
       </div>
@@ -181,20 +195,20 @@
     <div class="lp-panel-body">
       <p class="text-des">Replace the base URL if you are calling a local deployment.</p>
       <p class="filter-label">curl</p>
-      <pre class="api-code">curl -s "https://qptm3.omicsbio.info/api/search.php?q=TP53&amp;field=gene&amp;per_page=5"</pre>
+      <pre class="api-code">curl -s "https://qptm3.omicsbio.info/api/search.php?q=TP53&amp;field=gene&amp;organism=human&amp;per_page=5"</pre>
       <p class="filter-label">Python</p>
       <pre class="api-code">import requests
 
 r = requests.get(
     "https://qptm3.omicsbio.info/api/search.php",
-    params={"q": "TP53", "field": "gene", "per_page": 5},
+    params={"q": "TP53", "field": "gene", "organism": "human", "per_page": 5},
     timeout=30,
 )
 r.raise_for_status()
 print(r.json()["total"], "events")</pre>
       <p class="filter-label">R</p>
       <pre class="api-code">library(jsonlite)
-url &lt;- "https://qptm3.omicsbio.info/api/search.php?q=TP53&amp;field=gene&amp;per_page=5"
+url &lt;- "https://qptm3.omicsbio.info/api/search.php?q=TP53&amp;field=gene&amp;organism=human&amp;per_page=5"
 data &lt;- fromJSON(url)
 print(data$total)</pre>
     </div>
@@ -206,20 +220,43 @@ print(data$total)</pre>
       <p class="text-des">Run a live request against this server. Large queries may take a few seconds.</p>
       <div class="api-try-row">
         <label class="api-try-label" for="api-try-endpoint">Endpoint</label>
-        <label class="api-try-label" for="api-try-q">Keyword / UniProt</label>
-        <label class="api-try-label" for="api-try-pos">Position</label>
+        <label class="api-try-label" for="api-try-q" id="api-try-q-label">Keyword</label>
+        <label class="api-try-label" for="api-try-pos" id="api-try-pos-label">Position</label>
         <span class="api-try-label api-try-label--empty" aria-hidden="true"></span>
 
-        <select id="api-try-endpoint" class="form-control api-try-control">
-          <option value="search">Search events</option>
-          <option value="protein">Protein</option>
-          <option value="site">Site events</option>
-          <option value="conditions">Conditions</option>
-          <option value="kinases">Kinases / enzymes</option>
-          <option value="browse">Browse genes</option>
-        </select>
-        <input id="api-try-q" class="form-control api-try-control" value="TP53">
-        <input id="api-try-pos" class="form-control api-try-control" value="15">
+        <div class="rf-select rf-select--instant api-try-control api-try-endpoint-select">
+          <input type="hidden" id="api-try-endpoint" value="search">
+          <button type="button" class="rf-select-toggle" aria-label="Endpoint" aria-haspopup="listbox" aria-expanded="false">
+            <span class="rf-select-label" title="Search events">Search events</span>
+            <i class="ri-arrow-down-s-line rf-select-arrow"></i>
+          </button>
+          <div class="rf-select-panel">
+            <div class="rf-select-options" role="listbox">
+              <button type="button" class="rf-option is-checked" data-value="search" data-label="Search events" title="Search events">
+                <span class="rf-checkbox"><i class="ri-check-line"></i></span>
+                <span class="rf-option-label">Search events</span>
+              </button>
+              <button type="button" class="rf-option" data-value="protein" data-label="Protein" title="Protein">
+                <span class="rf-checkbox"><i class="ri-check-line"></i></span>
+                <span class="rf-option-label">Protein</span>
+              </button>
+              <button type="button" class="rf-option" data-value="site" data-label="Site events" title="Site events">
+                <span class="rf-checkbox"><i class="ri-check-line"></i></span>
+                <span class="rf-option-label">Site events</span>
+              </button>
+              <button type="button" class="rf-option" data-value="conditions" data-label="Conditions" title="Conditions">
+                <span class="rf-checkbox"><i class="ri-check-line"></i></span>
+                <span class="rf-option-label">Conditions</span>
+              </button>
+              <button type="button" class="rf-option" data-value="browse" data-label="Browse" title="Browse">
+                <span class="rf-checkbox"><i class="ri-check-line"></i></span>
+                <span class="rf-option-label">Browse</span>
+              </button>
+            </div>
+          </div>
+        </div>
+        <input id="api-try-q" class="form-control api-try-control" value="TP53" autocomplete="off">
+        <input id="api-try-pos" class="form-control api-try-control" value="" inputmode="numeric" autocomplete="off">
         <button type="button" class="btn btn-primary api-try-control" id="api-try-run"><i class="ri-send-plane-line"></i> Send</button>
       </div>
       <div class="api-try-url" id="api-try-url"></div>
@@ -239,6 +276,7 @@ print(data$total)</pre>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jquery.easing@1.4.1/jquery.easing.min.js"></script>
 <script src="assets/js/main.js"></script>
-<script src="assets/js/api.js"></script>
+  <script src="assets/js/advance-search.js?v=20260903j"></script>
+<script src="assets/js/api.js?v=20260903k"></script>
 </body>
 </html>

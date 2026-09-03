@@ -2915,7 +2915,7 @@ async function downloadMessage(btn) {
     });
     exportEl.remove();
 
-    const logo = await loadImageDataUrl('assets/img/logo.png');
+    const logo = await loadImageDataUrl('assets/img/logo.gif');
     const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
     const pageW = pdf.internal.pageSize.getWidth();
     const pageH = pdf.internal.pageSize.getHeight();
@@ -4274,7 +4274,7 @@ function beginAssistantTurn() {
 
   const avatar = document.createElement('img');
   avatar.className = 'msg-avatar';
-  avatar.src = 'assets/img/logo.png';
+  avatar.src = 'assets/img/logo.gif';
   avatar.alt = '';
 
   const body = document.createElement('div');

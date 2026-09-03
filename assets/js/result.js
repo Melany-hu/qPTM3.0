@@ -4,6 +4,7 @@
   var RESULT_ROOT = '#main';
 
   var FILTER_CONFIG = {
+    gene: { label: 'Gene Name' },
     pos: { label: 'Position' },
     mods: { label: 'Modification' },
     sample: { label: 'Sample' },
@@ -64,7 +65,17 @@
     }
 
     var labels = applied.map(function(value) {
-      return config.formatLabel ? config.formatLabel(value) : value;
+      if (config.formatLabel) {
+        return config.formatLabel(value);
+      }
+      var optionLabel = '';
+      $div.find('.rf-option').each(function() {
+        if (String($(this).attr('data-value')) === String(value)) {
+          optionLabel = $(this).find('.rf-option-label').text();
+          return false;
+        }
+      });
+      return optionLabel || value;
     });
     $label.text(labels.length > 1 ? labels.length + ' selected' : labels[0]);
     $div.addClass('has-filter');
@@ -85,13 +96,28 @@
     }, 0);
   }
 
+  function collectAppliedFiltersMap() {
+    var map = {};
+    $(RESULT_ROOT + ' .filter-div').each(function() {
+      var key = $(this).attr('value');
+      var applied = getAppliedValues($(this));
+      if (key && applied.length) {
+        map[key] = applied;
+      }
+    });
+    return map;
+  }
+
   function applyFilterDropdown($div, refreshTable) {
     setAppliedValues($div, getPendingValues($div));
     updateFilterLabel($div);
     closeFilterPanels();
-    if (refreshTable !== false) {
-      changeResultTable(1);
+    if (refreshTable === false) {
+      return;
     }
+    reloadFilterOptions(function() {
+      changeResultTable(1);
+    });
   }
 
   function clearFilterDropdown($div, refreshTable) {
@@ -99,12 +125,16 @@
     setPendingValues($div, []);
     updateFilterLabel($div);
     closeFilterPanels();
-    if (refreshTable !== false) {
-      changeResultTable(1);
+    if (refreshTable === false) {
+      return;
     }
+    reloadFilterOptions(function() {
+      changeResultTable(1);
+    });
   }
 
   function populateFilterSelects(filterOptions) {
+    var previousApplied = collectAppliedFiltersMap();
     var $row = $(RESULT_ROOT + ' .filter-dropdowns');
     $row.empty();
 
@@ -115,6 +145,7 @@
       }
 
       var config = FILTER_CONFIG[key];
+      var available = {};
       var html = '<div class="filter-div" value="' + key + '">';
       html += '<span class="filter-label">' + config.label + '</span>';
       html += '<div class="rf-select">';
@@ -130,6 +161,7 @@
         var label = (value && typeof value === 'object' && value.label)
           ? value.label
           : (config.formatLabel ? config.formatLabel(value) : value);
+        available[String(rawValue)] = true;
         html += '<button type="button" class="rf-option" data-value="' + escapeHtml(rawValue) + '">';
         html += '<span class="rf-checkbox"><i class="ri-check-line"></i></span>';
         html += '<span class="rf-option-label">' + escapeHtml(label) + '</span>';
@@ -140,18 +172,25 @@
       html += '<button type="button" class="btn btn-sm btn-primary rf-apply-btn">Apply</button>';
       html += '<button type="button" class="btn btn-sm rf-clear-btn">Clear</button>';
       html += '</div></div></div></div>';
-      $row.append(html);
+      var $div = $(html);
+      $row.append($div);
+
+      var kept = (previousApplied[key] || []).filter(function(value) {
+        return !!available[String(value)];
+      });
+      setAppliedValues($div, kept);
+      updateFilterLabel($div);
     });
   }
 
   var PAGE_SIZE_OPTIONS = [10, 20, 50];
   var lastQueryContent = '';
   var initialLoadPending = true;
-  var sortState = { field: 'qptmscore', dir: 'desc' };
+  var sortState = { field: null, dir: 'desc' };
 
   function getOrderInfo() {
     if (!sortState.field) {
-      return 'qptmscore desc, up, pos';
+      return 'timetype desc, qptmscore desc, up, pos';
     }
     return sortState.field + ' ' + sortState.dir;
   }
@@ -256,6 +295,18 @@
     );
   }
 
+  function showResultsLoading(message) {
+    var text = message || 'Loading results...';
+    $('#pageInfo').text('Loading...');
+    $('#pageButton').empty();
+    $('#tableChange').html(
+      '<tr><td colspan="10"><div class="status-msg">'
+      + '<div class="typing-dots" aria-hidden="true"><span></span><span></span><span></span></div> '
+      + escapeHtml(text)
+      + '</div></td></tr>'
+    );
+  }
+
   function getFilterInfo() {
     var filterInfos = [];
     $(RESULT_ROOT + ' .filter-div').each(function() {
@@ -294,6 +345,8 @@
       renderResultError('Search query is not ready yet.');
       return;
     }
+
+    showResultsLoading('Loading results...');
 
     var newQueryInfo = [rawQueryInfo]
       .concat(getFilterInfo(), getInlineSearchInfo())
@@ -404,6 +457,181 @@
     });
   }
 
+  function ensureStructureData($proPanel, lineId, done) {
+    var $block = $proPanel.find('.sequence-properties-block').first();
+    if (!$block.length) {
+      if (typeof done === 'function') done();
+      return;
+    }
+    if ($block.attr('data-structure-loaded') === '1') {
+      if (typeof done === 'function') done();
+      return;
+    }
+    if ($block.data('structureLoading')) {
+      $block.data('structurePending', done);
+      return;
+    }
+    var up = $block.attr('data-up') || '';
+    var org = $block.attr('data-org') || '';
+    if (!up) {
+      if (typeof done === 'function') done();
+      return;
+    }
+    $block.data('structureLoading', true);
+    $.ajax({
+      url: './resource/functions.php',
+      method: 'POST',
+      dataType: 'json',
+      data: {
+        type: 'detail_structure',
+        uniprot: up,
+        organism: org
+      }
+    }).done(function(data) {
+      if (typeof data === 'string') {
+        try {
+          data = JSON.parse(data);
+        } catch (e) {
+          data = null;
+        }
+      }
+      if (!data || typeof data !== 'object') {
+        return;
+      }
+      var $data = $block.find('.data').first().empty();
+      var fields = [
+        ['sequence', 'sequence'],
+        ['ptminfo', 'ptminfo'],
+        ['disorder', 'disorder'],
+        ['exposeburied', 'exposeburied'],
+        ['polar', 'polar'],
+        ['charge', 'charge'],
+        ['secondstr', 'secondstr'],
+        ['surface', 'surface'],
+        ['hydropathy', 'hydropathy']
+      ];
+      fields.forEach(function(pair) {
+        $('<input>', {
+          type: 'hidden',
+          id: pair[0] + '-' + lineId
+        }).val(data[pair[1]] == null ? '' : String(data[pair[1]])).appendTo($data);
+      });
+      $block.attr('data-structure-loaded', '1');
+    }).always(function() {
+      $block.data('structureLoading', false);
+      var pending = $block.data('structurePending');
+      $block.removeData('structurePending');
+      if (typeof done === 'function') done();
+      if (typeof pending === 'function' && pending !== done) pending();
+    });
+  }
+
+  function loadLazyDetailTable($lazy, done) {
+    if (!$lazy || !$lazy.length) {
+      if (typeof done === 'function') done(null);
+      return;
+    }
+    if ($lazy.attr('data-loaded') === '1' || !$lazy.hasClass('lazy-detail-table')) {
+      if (typeof done === 'function') done($lazy);
+      return;
+    }
+    if ($lazy.data('loading')) {
+      $lazy.data('pendingDone', done);
+      return;
+    }
+    var kind = $lazy.attr('data-lazy') || '';
+    var up = $lazy.attr('data-up') || '';
+    var typeMap = { ptms: 'detail_ptms', ptmd: 'detail_ptmd' };
+    var type = typeMap[kind];
+    if (!type || !up) {
+      if (typeof done === 'function') done($lazy);
+      return;
+    }
+    $lazy.data('loading', true);
+    $lazy.addClass('is-loading').html(
+      '<div class="structure-viewer-loading detail-table-loading">'
+      + '<span class="structure-spinner" aria-hidden="true"></span>'
+      + '<span>Loading table...</span>'
+      + '</div>'
+    );
+    $.ajax({
+      url: './resource/functions.php',
+      method: 'POST',
+      dataType: 'html',
+      data: { type: type, uniprot: up }
+    }).done(function(html) {
+      var $new = $('<div>').html(html).children().first();
+      if (!$new.length) {
+        // Response may be a bare "-" for empty tables.
+        $lazy.removeClass('lazy-detail-table is-loading').attr('data-loaded', '1').html(html || '-');
+        if (typeof done === 'function') done($lazy);
+        return;
+      }
+      $new.attr('data-loaded', '1').removeClass('is-loading');
+      $lazy.replaceWith($new);
+      if (typeof done === 'function') done($new);
+      var pending = $lazy.data('pendingDone');
+      if (typeof pending === 'function' && pending !== done) pending($new);
+    }).fail(function() {
+      $lazy.removeClass('is-loading').html(
+        '<div class="structure-viewer-error detail-table-loading">'
+        + '<i class="ri-information-line" aria-hidden="true"></i>'
+        + '<span>Failed to load table.</span>'
+        + '</div>'
+      );
+      if (typeof done === 'function') done($lazy);
+    }).always(function() {
+      $lazy.data('loading', false);
+    });
+  }
+
+  function prefetchLazyTables($panel) {
+    if (!$panel || !$panel.length) {
+      return;
+    }
+    $panel.find('.lazy-detail-table').each(function() {
+      var $lazy = $(this);
+      if ($lazy.attr('data-loaded') === '1' || $lazy.data('loading')) {
+        return;
+      }
+      loadLazyDetailTable($lazy, function($new) {
+        // Keep collapsed peek (hide-more) after prefetch.
+        if ($new && $new.length) {
+          $new.addClass('hide-more');
+        }
+      });
+    });
+  }
+
+  function loadFilterOptionsAsync(mainQueryInfo, done) {
+    if (!mainQueryInfo) {
+      if (typeof done === 'function') {
+        done();
+      }
+      return;
+    }
+    $.post('./resource/functions.php', {
+      type: 'filteroptions',
+      mainQueryInfo: mainQueryInfo,
+      appliedFilters: JSON.stringify(collectAppliedFiltersMap())
+    }, function(data) {
+      if (data && !data.error) {
+        populateFilterSelects(data);
+      }
+      if (typeof done === 'function') {
+        done();
+      }
+    }, 'json').fail(function() {
+      if (typeof done === 'function') {
+        done();
+      }
+    });
+  }
+
+  function reloadFilterOptions(done) {
+    loadFilterOptionsAsync($('#rawQueryInfo').text(), done);
+  }
+
   function loadDetailContent($toggle) {
     var $detailRow = $toggle.closest('.Table-line').next('.Detail-line');
     var $cell = $detailRow.find('td').first();
@@ -502,7 +730,9 @@
           applyFilterDropdown($div, false);
         }
       });
-      changeResultTable(1);
+      reloadFilterOptions(function() {
+        changeResultTable(1);
+      });
     });
 
     $('#filterClearButton').on('click', function() {
@@ -510,7 +740,9 @@
         clearFilterDropdown($(this), false);
       });
       closeFilterPanels();
-      changeResultTable(1);
+      reloadFilterOptions(function() {
+        changeResultTable(1);
+      });
     });
 
     $(document).on('change', RESULT_ROOT + ' #selectRowNumber', function() {
@@ -585,11 +817,14 @@
       updateDetailPanelCaret($wrap);
 
       if (clickBtn.indexOf('pro-') === 0) {
-        var lineId = clickBtn.split('-')[1];
+        var lineId = clickBtn.split('-').slice(1).join('-');
         var $proPanel = $('#div-' + clickBtn);
         // Wait until the panel is visible and laid out, then render charts.
         window.setTimeout(function() {
-          renderStructureCharts(lineId);
+          prefetchLazyTables($proPanel);
+          ensureStructureData($proPanel, lineId, function() {
+            renderStructureCharts(lineId);
+          });
           if (window.initKnownLocalizations) {
             window.initKnownLocalizations($proPanel);
           }
@@ -597,6 +832,10 @@
             window.initProteinStructurePanels($proPanel);
           }
         }, 40);
+      }
+
+      if (clickBtn.indexOf('reg-') === 0) {
+        prefetchLazyTables($('#div-' + clickBtn));
       }
 
       if (clickBtn.indexOf('enz-') === 0) {
@@ -672,14 +911,28 @@
       var $btn = $(this);
       var $icon = $btn.find('i').length ? $btn.find('i') : $btn;
       var $rich = $btn.closest('tr').find('.detail-rich');
-      var $target = $rich.find('.detail-table-scroll').first();
-      if (!$target.length) {
-        $target = $rich.find('.seq-table').first();
-      }
-      if (!$target.length) {
-        $target = $rich.children('.hide-table');
-      }
+      var findTarget = function() {
+        var $t = $rich.find('.detail-table-scroll').first();
+        if (!$t.length) {
+          $t = $rich.find('.seq-table').first();
+        }
+        if (!$t.length) {
+          $t = $rich.children('.hide-table');
+        }
+        return $t;
+      };
+      var $target = findTarget();
       if (!isExpandIconOpen($icon)) {
+        var $lazy = $rich.find('.lazy-detail-table').first();
+        if ($lazy.length && $lazy.attr('data-loaded') !== '1') {
+          setExpandIconOpen($icon, true);
+          $btn.addClass('is-open');
+          loadLazyDetailTable($lazy, function($new) {
+            $target = $new && $new.length ? $new : findTarget();
+            $target.removeClass('hide-more');
+          });
+          return;
+        }
         setExpandIconOpen($icon, true);
         $target.removeClass('hide-more');
         $btn.addClass('is-open');
@@ -751,10 +1004,8 @@
         if (lastQueryContent) {
           renderQuerySummary();
         }
-        if (data.filterOptions) {
-          populateFilterSelects(data.filterOptions);
-        }
         changeResultTable(1);
+        loadFilterOptionsAsync(data.mainQueryInfo);
       },
       error: function(jqXHR, textStatus) {
         $('#pageInfo').text('Search failed');

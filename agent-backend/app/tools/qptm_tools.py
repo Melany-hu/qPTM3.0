@@ -98,19 +98,23 @@ def _qptm_site_conditions(
     position: int,
     ptm_type: str = "all",
 ) -> dict[str, Any]:
-    """Get all experimental conditions where a specific PTM site was quantified."""
-    data = _get("/conditions.php", {
+    """Get experimental conditions for a PTM site via /api/protein.php."""
+    params: dict[str, Any] = {
         "uniprot_ac": uniprot_ac,
         "position": str(position),
-        "ptm_type": ptm_type,
-    })
+    }
+    if ptm_type and ptm_type != "all":
+        params["ptm_type"] = ptm_type
+    data = _get("/protein.php", params)
     conditions = data.get("conditions", [])
-    summary = f"Site {uniprot_ac} position {position} was quantified under {len(conditions)} condition(s). "
+    summary = (
+        f"Site {uniprot_ac} position {position} was quantified under "
+        f"{data.get('total_conditions', len(conditions))} condition(s). "
+    )
     if conditions:
         top = conditions[:10]
         cond_names = [c.get("condition_name", "") for c in top]
         summary += f"Top conditions: {', '.join(cond_names)}. "
-        # Highlight conditions with large fold changes
         significant = [
             c for c in conditions
             if c.get("log2_range", {}).get("max") is not None
@@ -122,6 +126,7 @@ def _qptm_site_conditions(
         "summary": summary,
         "uniprot_ac": uniprot_ac,
         "position": position,
+        "gene": data.get("gene"),
         "total_conditions": data.get("total_conditions", 0),
         "conditions": conditions[:15],
     }

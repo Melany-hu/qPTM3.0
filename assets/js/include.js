@@ -6,10 +6,12 @@
     var critical = document.createElement('style');
     critical.id = 'preloader-critical';
     critical.textContent =
-      'html.preloader-active body{overflow:hidden}' +
-      'html.preloader-active body>*:not(#preloader){visibility:hidden}' +
+      'html.preloader-active,html.preloader-active body{overflow:hidden}' +
+      /* Cover only — do not toggle visibility on page content.
+         Toggling visibility re-triggers CSS transitions (e.g. adv-search
+         drawer translateX), which looks like a left slide on reveal. */
       '#preloader{position:fixed;inset:0;z-index:999999;display:flex;align-items:center;justify-content:center;background:#f5f7fa}' +
-      '#preloader.preloader-hidden{opacity:0;visibility:hidden;pointer-events:none;transition:opacity .45s ease,visibility .45s ease}' +
+      '#preloader.preloader-hidden{opacity:0;visibility:hidden;pointer-events:none;transition:opacity .25s ease,visibility .25s ease}' +
       '.preloader-inner{display:flex;flex-direction:column;align-items:center;gap:16px}' +
       '.typing-dots{display:inline-flex;align-items:center;gap:4px;padding:4px 0;line-height:1}' +
       '.typing-dots span{width:8px;height:8px;border-radius:50%;background:#8e97a0;animation:qptmBounce 1.4s ease-in-out infinite}' +
@@ -34,17 +36,103 @@
   }
   window.hideQptmPreloader = hidePreloader;
 
-  function isDeferredPreloaderPage() {
-    var page = window.location.pathname.split('/').pop() || 'index.html';
-    return page === 'result.html';
+  function whenStylesAndFontsReady(callback) {
+    var done = false;
+    function finish() {
+      if (done) return;
+      done = true;
+      callback();
+    }
+
+    function linkLooksReady(link) {
+      try {
+        // Same-origin or CORS-enabled: sheet is set once loaded.
+        // Cross-origin without CORS: sheet is still non-null after load in modern browsers.
+        if (link.sheet) return true;
+      } catch (e) {
+        // Some browsers throw on access; treat as ready enough to reveal.
+        return true;
+      }
+      return false;
+    }
+
+    function waitStylesheets() {
+      var links = Array.prototype.slice.call(document.querySelectorAll('link[rel="stylesheet"]'));
+      if (!links.length) {
+        finishFonts();
+        return;
+      }
+
+      var pending = links.length;
+      function oneDone() {
+        pending -= 1;
+        if (pending <= 0) finishFonts();
+      }
+
+      links.forEach(function (link) {
+        if (linkLooksReady(link)) {
+          oneDone();
+          return;
+        }
+        var settled = false;
+        function settle() {
+          if (settled) return;
+          settled = true;
+          oneDone();
+        }
+        link.addEventListener('load', settle);
+        link.addEventListener('error', settle);
+        // If load already fired before listeners attached, poll briefly.
+        var tries = 0;
+        (function poll() {
+          if (settled) return;
+          if (linkLooksReady(link) || tries++ > 40) {
+            settle();
+            return;
+          }
+          setTimeout(poll, 50);
+        })();
+      });
+    }
+
+    function finishFonts() {
+      if (document.fonts && document.fonts.ready) {
+        var finished = false;
+        function doneFonts() {
+          if (finished) return;
+          finished = true;
+          finish();
+        }
+        document.fonts.ready.then(doneFonts).catch(doneFonts);
+        // Don't block forever on slow CDN icon fonts.
+        setTimeout(doneFonts, 1500);
+      } else {
+        finish();
+      }
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', waitStylesheets);
+    } else {
+      waitStylesheets();
+    }
   }
 
   if (!isDeferredPreloaderPage()) {
-    if (document.readyState === 'complete') {
-      hidePreloader();
-    } else {
-      window.addEventListener('load', hidePreloader);
-    }
+    // Wait for CSS + icon fonts so Remix Icon glyphs are not briefly garbled,
+    // but do not wait for window.load / images.
+    whenStylesAndFontsReady(function () {
+      requestAnimationFrame(function () {
+        hidePreloader();
+      });
+    });
+    // Absolute safety net
+    setTimeout(hidePreloader, 4000);
+  }
+
+  function isDeferredPreloaderPage() {
+    var page = window.location.pathname.split('/').pop() || 'index.html';
+    return page === 'result.html';
   }
 
   function loadSync(url) {
