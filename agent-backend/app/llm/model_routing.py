@@ -61,7 +61,15 @@ DEFAULT_FALLBACK_MODELS = (
     "gemini-3.6-flash",
     "kimi-k3",
     "claude-sonnet-5",
-    "qwen3.7-max",
+)
+
+# Known-unavailable ids: still listed in some catalogs but rejected by the gateway.
+_BLOCKED_MODELS = frozenset(
+    {
+        "qwen3.7-max",
+        "opencode-go/qwen3.7-max",
+        "opencode/qwen3.7-max",
+    }
 )
 
 
@@ -88,6 +96,8 @@ def model_chain(primary: str, fallbacks_raw: str | None) -> list[str]:
     seen: set[str] = set()
     for mid in [primary, *fallbacks]:
         if not mid or mid in seen:
+            continue
+        if mid in _BLOCKED_MODELS or mid.rsplit("/", 1)[-1] in _BLOCKED_MODELS:
             continue
         seen.add(mid)
         chain.append(mid)

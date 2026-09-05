@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+import logging
 import re
 import uuid
 from datetime import datetime, timezone
@@ -11,6 +12,8 @@ from pathlib import Path
 from typing import Any
 
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 _PMID_RE = re.compile(r"\b(?:PMID[:\s#]*)?(\d{7,8})\b", re.I)
 _STEM_PMID_RE = re.compile(r"^(\d{7,8})$")
@@ -79,6 +82,39 @@ def extract_pmid(text: str | None) -> str | None:
         return None
     m = _PMID_RE.search(text.strip())
     return m.group(1) if m else None
+
+
+def pmid_looks_valid(pmid: str | None) -> bool:
+    """Reject all-zero / too-short dummy PMIDs before hitting NCBI."""
+    if not pmid:
+        return False
+    s = str(pmid).strip()
+    if not s.isdigit() or not (7 <= len(s) <= 8):
+        return False
+    if set(s) <= {"0"}:
+        return False
+    return True
+
+
+def pmid_exists_in_pubmed(pmid: str) -> bool | None:
+    """True / False when NCBI answers; None on network failure (do not block)."""
+    if not pmid_looks_valid(pmid):
+        return False
+    try:
+        import httpx
+
+        url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi"
+        with httpx.Client(timeout=12.0) as client:
+            resp = client.get(url, params={"db": "pubmed", "id": pmid, "retmode": "json"})
+            resp.raise_for_status()
+            data = resp.json()
+        result = (data.get("result") or {}).get(str(pmid)) or {}
+        if not result or result.get("error"):
+            return False
+        return True
+    except Exception as exc:
+        logger.warning("PMID existence check failed for %s: %s", pmid, exc)
+        return None
 
 
 _FILENAME_PMID_RE = re.compile(r"(?<!\d)(\d{7,8})(?!\d)")

@@ -7,7 +7,8 @@ import { mergeCitation } from "./citations.js";
 import { detectLang } from "./gate.js";
 import { retrieveToolsDeep } from "./retriever.js";
 import { generateFollowUps } from "./followups.js";
-import { applyResolvedIdentity, invokeArgumentsJson, resolveSessionTarget, } from "./resolve-target.js";
+import { applyResolvedIdentity, invokeArgumentsJson, resolveSessionTarget, resolvedBanner, } from "./resolve-target.js";
+import { sanitizeUserVisibleText } from "./protocol.js";
 function phase(p, label) {
     return { type: "phase_update", phase: p, label };
 }
@@ -15,7 +16,7 @@ export async function* runDeepResearch(userMessage, history, session) {
     const memory = session.memory;
     const artifacts = session.artifacts;
     const lang = detectLang(userMessage);
-    mergeEntities(memory, parseEntities(userMessage));
+    mergeEntities(memory, parseEntities(userMessage), userMessage);
     normalizeTargetIdentity(memory, userMessage);
     yield phase("planning", lang === "zh" ? "制定调研计划" : "Planning research");
     if (memory.gene || memory.uniprot_ac) {
@@ -140,10 +141,27 @@ export async function* runDeepResearch(userMessage, history, session) {
         artifacts.add("web_search", userMessage, web.slice(0, 1500));
     }
     yield phase("synthesis", lang === "zh" ? "撰写深度调研报告" : "Writing research report");
-    const report = await synthesizeDeepReport(userMessage, history, memory, artifacts, skills, sourcesCatalog, citations, lang);
-    for (const chunk of chunkText(report, 120)) {
-        yield { type: "text", content: chunk };
+    const banner = resolvedBanner(memory, lang);
+    if (banner)
+        yield { type: "text", content: banner };
+    let reportBody = "";
+    try {
+        for await (const chunk of streamDeepReport(userMessage, history, memory, artifacts, skills, sourcesCatalog, citations, lang)) {
+            reportBody += chunk;
+            yield { type: "text", content: chunk };
+        }
     }
+    catch (e) {
+        const fallback = lang === "zh"
+            ? "报告生成超时或失败，请缩小问题范围后重试。"
+            : "Report generation timed out or failed. Try a narrower question and retry.";
+        if (!reportBody.trim()) {
+            reportBody = fallback;
+            yield { type: "text", content: fallback };
+        }
+        console.warn("DR synthesis failed:", e);
+    }
+    const report = banner + sanitizeUserVisibleText(reportBody, lang);
     yield { type: "sources", citations };
     session.citations = citations;
     const followUps = await generateFollowUps(userMessage, report, memory, artifacts, "deep_research", toolsUsed);
@@ -216,7 +234,7 @@ Max 6 steps. Never use WHO/WHEN/WHERE/WHY labels in title/rationale.`;
     }
     return { summary: question, steps };
 }
-async function synthesizeDeepReport(question, history, memory, artifacts, skills, catalog, citations, lang) {
+function buildDeepReportMessages(question, history, memory, artifacts, skills, catalog, citations, lang) {
     const citeList = citations.map((c) => `${c.id}: ${c.database}`).join(", ");
     const system = lang === "zh"
         ? `你是 PTM 深度调研专家。优先基于已收集证据撰写分节、引用充分的调研报告。
@@ -224,8 +242,9 @@ async function synthesizeDeepReport(question, history, memory, artifacts, skills
 1. 若证据足以回答用户问题：直接写报告；不要把整篇答案写成澄清问卷。
 2. 若关键信息仍不清楚、且会实质改变结论：可以再提问（简短、具体、可操作）；也可在报告末尾列出待确认点。能部分回答时先写已有发现，再问缺口。
 3. 若你采用了假设（例如默认某位点），必须明确标注假设，并说明换位点后结论可能变化。
-4. 不要套用固定 WHO/WHEN/WHERE/WHY 标题。区分数据库事实 vs 机制推理；标注证据级别。引用：${citeList}
+4. 不要套用固定 WHO/WHEN/WHERE/WHY 标题。区分数据库事实 vs 机制推理；标注 evidence level。引用：${citeList}
 5. 工具标注：[empty_result]=库中无记录；[missing_params]=缺参；[call_bug]=调用失败。
+6. 禁止输出 DSML、tool_calls、function_call 等协议 markup。
 已解析靶点：${memoryPromptBlock(memory)}。`
         : `You are a PTM deep-research expert. Prefer a sectioned, well-cited report grounded in collected evidence.
 Rules:
@@ -234,13 +253,14 @@ Rules:
 3. State any assumptions explicitly.
 4. No forced WHO/WHEN/WHERE/WHY headings. Separate facts vs hypotheses; label evidence levels. Citations: ${citeList}
 5. Tool tags: [empty_result]=no DB records; [missing_params]=need args; [call_bug]=call failed.
+6. Never emit DSML, tool_calls, function_call, or other protocol markup.
 Resolved target: ${memoryPromptBlock(memory)}.`;
     const evidence = [
         memory.findings_summary,
-        artifacts.catalogForPrompt(15),
+        artifacts.catalogForPrompt(12),
         artifacts.getLiteratureContext(),
     ].join("\n\n");
-    const messages = [
+    return [
         { role: "system", content: `${system}\n\n${skills}\n${catalog.slice(0, 3500)}` },
         ...history.slice(-6).map((h) => ({
             role: h.role,
@@ -248,22 +268,25 @@ Resolved target: ${memoryPromptBlock(memory)}.`;
         })),
         {
             role: "user",
-            content: `Research question: ${question}\n\nEvidence collected:\n${evidence.slice(0, 14000)}`,
+            content: `Research question: ${question}\n\nEvidence collected:\n${evidence.slice(0, 10000)}`,
         },
     ];
-    const llm = getLlm();
-    try {
-        const { content } = await llm.chatCompletion(messages, { maxTokens: 8192, temperature: 0.35 });
-        return content;
-    }
-    catch {
-        const { content } = await getLlm().chatCompletion(messages, { maxTokens: 8192 });
-        return content;
-    }
 }
-function chunkText(text, size = 80) {
-    const chunks = [];
-    for (let i = 0; i < text.length; i += size)
-        chunks.push(text.slice(i, i + size));
-    return chunks;
+async function* streamDeepReport(question, history, memory, artifacts, skills, catalog, citations, lang) {
+    const messages = buildDeepReportMessages(question, history, memory, artifacts, skills, catalog, citations, lang);
+    const llm = getLlm();
+    let gotText = false;
+    for await (const ev of llm.chatCompletionStream(messages, {
+        maxTokens: cfg.drSynthesisMaxTokens,
+        temperature: 0.35,
+        maxModels: cfg.drSynthesisMaxModels,
+        totalTimeoutMs: cfg.drSynthesisTimeoutMs,
+    })) {
+        if (ev.type !== "text" || !ev.content)
+            continue;
+        gotText = true;
+        yield ev.content;
+    }
+    if (!gotText)
+        throw new Error("empty DR report stream");
 }

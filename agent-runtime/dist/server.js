@@ -6,6 +6,8 @@ import { runAgent, newSessionId } from "./agent/run.js";
 import { createConversation, listConversations, getConversation, deleteConversation, addMessage, updateTitle, belongsToDevice, titleFromMessage, } from "./storage/conversations.js";
 import { classifyQueryMode, gateReply, detectLang } from "./agent/gate.js";
 import { parseEntities } from "./context/memory.js";
+import { resetSession } from "./context/session.js";
+import { sanitizeUserVisibleText } from "./agent/protocol.js";
 const app = new Hono();
 app.use("*", cors({
     origin: cfg.corsOrigins.includes("*") ? "*" : cfg.corsOrigins,
@@ -63,6 +65,13 @@ app.post("/conversations/:id/messages", async (c) => {
     addMessage(id, role, content, meta);
     return c.json({ ok: true });
 });
+app.post("/reset-session", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const sid = String(body.session_id || "").trim();
+    if (sid)
+        resetSession(sid);
+    return c.json({ ok: true });
+});
 app.post("/classify", async (c) => {
     const body = await c.req.json();
     const message = String(body.message || "");
@@ -86,7 +95,10 @@ app.post("/chat", async (c) => {
     const mode = (body.mode === "deep_research" ? "deep_research" : "qa");
     const sessionId = body.session_id || newSessionId();
     let conversationId = body.conversation_id;
-    const history = (body.history || []);
+    const history = (body.history || []).map((h) => ({
+        role: h.role,
+        content: sanitizeUserVisibleText(h.content || ""),
+    }));
     const clarificationResponse = body.clarification_response;
     let userMsg = message.trim();
     if (!userMsg && clarificationResponse) {
@@ -133,7 +145,7 @@ app.post("/chat", async (c) => {
                     controller.enqueue(encoder.encode(errSse));
             }
             if (fullAnswer) {
-                addMessage(conversationId, "assistant", fullAnswer, {
+                addMessage(conversationId, "assistant", sanitizeUserVisibleText(fullAnswer), {
                     follow_ups: followUps,
                     mode,
                 });

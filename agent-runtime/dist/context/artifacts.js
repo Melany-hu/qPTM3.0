@@ -34,6 +34,10 @@ export class ArtifactStore {
             .map((a) => `[${a.id}] ${a.kind}: ${a.query.slice(0, 120)} → ${a.summary.slice(0, 200)}${a.pmids?.length ? ` (PMIDs: ${a.pmids.slice(0, 5).join(",")})` : ""}`)
             .join("\n");
     }
+    clear() {
+        this.artifacts = [];
+        this.counter = 0;
+    }
     shouldSkipLiteratureSearch(message) {
         const lower = message.toLowerCase();
         const refers = /这些文献|上述文献|刚才的文献|those papers|these papers|the papers above|summarize.*literature|文献讲了|上面.*文献/i.test(message);

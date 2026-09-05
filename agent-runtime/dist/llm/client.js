@@ -17,20 +17,47 @@ export class LlmClient {
                 apiKey: cfg.deepseekApiKey,
                 baseURL: base,
                 maxRetries: 0,
-                timeout: 120000,
+                timeout: cfg.llmTimeoutMs,
             });
             this.clients.set(base, c);
         }
         return c;
     }
     modelChain() {
+        const blocked = new Set(["qwen3.7-max"]);
         const chain = [cfg.deepseekModel, ...cfg.deepseekFallbackModels];
-        return [...new Set(chain.filter(Boolean))];
+        return [
+            ...new Set(chain.filter((m) => {
+                if (!m)
+                    return false;
+                const bare = m.includes("/") ? m.split("/").pop() || m : m;
+                return !blocked.has(m.toLowerCase()) && !blocked.has(bare.toLowerCase());
+            })),
+        ];
+    }
+    modelsForAttempt(maxModels) {
+        const chain = this.modelChain();
+        if (!maxModels || maxModels >= chain.length)
+            return chain;
+        return chain.slice(0, Math.max(1, maxModels));
+    }
+    attemptTimeoutMs(options, deadline) {
+        const perCall = options.timeoutMs ?? cfg.llmTimeoutMs;
+        if (!deadline)
+            return perCall;
+        const remaining = deadline - Date.now();
+        if (remaining <= 0)
+            return null;
+        return Math.max(5000, Math.min(perCall, remaining));
     }
     async chatCompletion(messages, options = {}) {
-        const models = this.modelChain();
+        const models = this.modelsForAttempt(options.maxModels);
+        const deadline = options.totalTimeoutMs ? Date.now() + options.totalTimeoutMs : null;
         let lastErr = null;
         for (const model of models) {
+            const timeout = this.attemptTimeoutMs(options, deadline);
+            if (timeout == null)
+                break;
             try {
                 const res = await this.clientFor(model).chat.completions.create({
                     model,
@@ -38,7 +65,7 @@ export class LlmClient {
                     tools: options.tools,
                     temperature: options.temperature ?? 0.3,
                     max_tokens: options.maxTokens ?? 4096,
-                });
+                }, { signal: AbortSignal.timeout(timeout) });
                 const msg = res.choices[0]?.message;
                 const content = msg?.content || "";
                 const toolCalls = (msg?.tool_calls || []).map((tc) => ({
@@ -57,9 +84,13 @@ export class LlmClient {
         throw lastErr || new Error("LLM failed");
     }
     async *chatCompletionStream(messages, options = {}) {
-        const models = this.modelChain();
+        const models = this.modelsForAttempt(options.maxModels);
+        const deadline = options.totalTimeoutMs ? Date.now() + options.totalTimeoutMs : null;
         let lastErr = null;
         for (const model of models) {
+            const timeout = this.attemptTimeoutMs(options, deadline);
+            if (timeout == null)
+                break;
             try {
                 const stream = await this.clientFor(model).chat.completions.create({
                     model,
@@ -68,7 +99,7 @@ export class LlmClient {
                     temperature: options.temperature ?? 0.3,
                     max_tokens: options.maxTokens ?? 8192,
                     stream: true,
-                });
+                }, { signal: AbortSignal.timeout(timeout) });
                 const toolAcc = new Map();
                 for await (const chunk of stream) {
                     const delta = chunk.choices[0]?.delta;

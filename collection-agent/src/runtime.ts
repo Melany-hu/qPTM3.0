@@ -39,8 +39,13 @@ const DEFAULT_FALLBACKS = [
   "opencode/gemini-3.6-flash",
   "opencode-go/kimi-k3",
   "opencode/claude-sonnet-5",
-  "opencode-go/qwen3.7-max",
 ]
+
+const BLOCKED_MODELS = new Set([
+  "qwen3.7-max",
+  "opencode-go/qwen3.7-max",
+  "opencode/qwen3.7-max",
+])
 
 export function loadDotEnv(cwd: string = projectRoot()): void {
   const envPath = join(cwd, ".env")
@@ -126,11 +131,11 @@ export function resolveModelId(rawModelId: string): string {
 }
 
 function parseFallbackList(raw: string | undefined): string[] {
-  if (!raw?.trim()) return [...DEFAULT_FALLBACKS]
-  return raw
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean)
+  const src = !raw?.trim() ? [...DEFAULT_FALLBACKS] : raw.split(",").map((s) => s.trim()).filter(Boolean)
+  return src.filter((id) => {
+    const bare = id.includes("/") ? id.split("/").pop() || id : id
+    return !BLOCKED_MODELS.has(id) && !BLOCKED_MODELS.has(bare)
+  })
 }
 
 /** Primary MODEL plus MODEL_FALLBACKS (deduped, resolved). */
@@ -144,6 +149,8 @@ export function modelCandidateIds(primaryRaw?: string): string[] {
   const seen = new Set<string>()
   for (const raw of [primary, ...fallbacks]) {
     const id = resolveModelId(raw)
+    const bare = id.includes("/") ? id.split("/").pop() || id : id
+    if (BLOCKED_MODELS.has(id) || BLOCKED_MODELS.has(bare)) continue
     if (seen.has(id)) continue
     seen.add(id)
     out.push(id)

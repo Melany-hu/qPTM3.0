@@ -25,6 +25,8 @@ export declare function parseEntities(message: string): ParsedEntities;
 export declare function extractPositionFromText(text: string): number | null;
 /** Normalize organism / p53-family gene symbols. Does NOT invent a site. */
 export declare function normalizeTargetIdentity(memory: InvestigationMemory, contextText?: string): void;
-export declare function mergeEntities(memory: InvestigationMemory, parsed: ParsedEntities): void;
+export declare function mergeEntities(memory: InvestigationMemory, parsed: ParsedEntities, query?: string): void;
+export declare function sameGene(a: string | null | undefined, b: string | null | undefined): boolean;
+export declare function wantsSameSite(query: string): boolean;
 export declare function memoryPromptBlock(memory: InvestigationMemory): string;
 export declare function addFinding(memory: InvestigationMemory, tool: string, summary: string): void;

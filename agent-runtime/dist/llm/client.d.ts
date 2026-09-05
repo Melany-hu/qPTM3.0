@@ -14,10 +14,15 @@ export declare class LlmClient {
     private clients;
     private clientFor;
     modelChain(): string[];
+    private modelsForAttempt;
+    private attemptTimeoutMs;
     chatCompletion(messages: OpenAI.Chat.ChatCompletionMessageParam[], options?: {
         tools?: OpenAI.Chat.ChatCompletionTool[];
         temperature?: number;
         maxTokens?: number;
+        timeoutMs?: number;
+        totalTimeoutMs?: number;
+        maxModels?: number;
     }): Promise<{
         content: string;
         toolCalls: Array<{
@@ -30,6 +35,9 @@ export declare class LlmClient {
         tools?: OpenAI.Chat.ChatCompletionTool[];
         temperature?: number;
         maxTokens?: number;
+        timeoutMs?: number;
+        totalTimeoutMs?: number;
+        maxModels?: number;
     }): AsyncGenerator<LlmStreamEvent>;
 }
 export declare function getLlm(): LlmClient;

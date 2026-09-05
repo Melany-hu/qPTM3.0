@@ -6,11 +6,17 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 dotenv({ path: resolve(__dirname, "../../agent-backend/.env") });
 dotenv({ path: resolve(__dirname, "../.env") });
 
+const BLOCKED_MODELS = new Set(["qwen3.7-max"]);
+
 function splitCsv(s: string | undefined): string[] {
   return (s || "")
     .split(",")
     .map((x) => x.trim())
-    .filter(Boolean);
+    .filter(Boolean)
+    .filter((x) => {
+      const bare = x.includes("/") ? x.split("/").pop() || x : x;
+      return !BLOCKED_MODELS.has(x.toLowerCase()) && !BLOCKED_MODELS.has(bare.toLowerCase());
+    });
 }
 
 export const cfg = {
@@ -33,6 +39,13 @@ export const cfg = {
   biomcpArgs: splitCsv(process.env.BIOMCP_ARGS || "serve"),
   tavilyApiKey: process.env.TAVILY_API_KEY || "",
   webSearchTimeoutMs: Number(process.env.WEB_SEARCH_TIMEOUT_MS || 5000),
+  /** Per-LLM-attempt timeout (ms). */
+  llmTimeoutMs: Number(process.env.LLM_TIMEOUT_MS || 90000),
+  /** Total wall-clock budget for Deep Research report synthesis (ms). */
+  drSynthesisTimeoutMs: Number(process.env.DR_SYNTHESIS_TIMEOUT_MS || 180000),
+  drSynthesisMaxTokens: Number(process.env.DR_SYNTHESIS_MAX_TOKENS || 4096),
+  /** How many models to try before failing DR synthesis (limits 10+ min fallback chains). */
+  drSynthesisMaxModels: Number(process.env.DR_SYNTHESIS_MAX_MODELS || 2),
   skillsDir: resolve(__dirname, "..", process.env.SKILLS_DIR || "../skills"),
   qaMaxRounds: 3,
   drMaxPlanSteps: 12,

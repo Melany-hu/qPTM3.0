@@ -2230,8 +2230,13 @@ def infer_tool_arguments(
             return {}
         return {"uniprot_ac": uniprot, "position": position}
 
+    if tool_name == "uniprot_annotation":
+        if not uniprot:
+            return {}
+        return {"uniprot_ac": uniprot}
+
     if tool_name in ("iptmnet_enzymes", "iptmnet_ptm_ppi", "psp_regulatory",
-                     "uniprot_annotation", "dbptm_functional", "ptm_stability",
+                     "dbptm_functional", "ptm_stability",
                      "psp_kinase_substrate", "psp_disease_sites", "psp_ptmvar",
                      "interpro_domains", "pfam_domains"):
         args = {}

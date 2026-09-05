@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     deepseek_model: str = "deepseek-v4-flash"
     # Comma-separated bare model ids tried after DEEPSEEK_MODEL on failure
     deepseek_fallback_models: str = (
-        "gpt-5,gemini-3.6-flash,kimi-k3,claude-sonnet-5,qwen3.7-max"
+        "gpt-5,gemini-3.6-flash,kimi-k3,claude-sonnet-5"
     )
 
     # qPTM REST API (PHP backend — deployed at /api/ on the qPTM web server)
@@ -100,8 +100,7 @@ class Settings(BaseSettings):
         "opencode/gpt-5,"
         "opencode/gemini-3.6-flash,"
         "opencode-go/kimi-k3,"
-        "opencode/claude-sonnet-5,"
-        "opencode-go/qwen3.7-max"
+        "opencode/claude-sonnet-5"
     )
     unpaywall_email: str = ""
     ncbi_api_key: str = ""

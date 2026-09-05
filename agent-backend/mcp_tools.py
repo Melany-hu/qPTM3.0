@@ -7,7 +7,12 @@ import logging
 import re
 from typing import Any
 
-from app.sources.uniprot_id import resolve_identity
+from app.sources.uniprot_id import (
+    gene_matches_identity,
+    lookup_by_accession,
+    organism_id_for,
+    resolve_identity,
+)
 from app.tools.registry import registry
 from app.workflow.planner import infer_tool_arguments, parse_query_entities
 
@@ -153,12 +158,19 @@ def _build_entities(args: dict[str, Any]) -> dict[str, Any]:
     return entities
 
 
-def _local_resolve_from_qptm(gene: str) -> dict[str, Any] | None:
-    """Fallback: gene → UniProt AC from qPTM search (no UniProt REST)."""
+def _local_resolve_from_qptm(gene: str, organism: str = "human") -> dict[str, Any] | None:
+    """Fallback: gene → UniProt AC from qPTM search (no UniProt REST).
+
+    Only accept hits whose gene symbol matches ``gene`` so STAT3 cannot
+    pick up a leftover TP53 accession.
+    """
+    want = str(gene or "").strip().upper()
+    if not want:
+        return None
     try:
         result = registry.execute(
             "qptm_search",
-            {"query": gene, "field": "gene", "organism": "human", "per_page": 5},
+            {"query": gene, "field": "gene", "organism": organism or "human", "per_page": 10},
         )
     except Exception as exc:
         logger.warning("local qPTM resolve failed: %s", exc)
@@ -167,6 +179,9 @@ def _local_resolve_from_qptm(gene: str) -> dict[str, Any] | None:
         return None
     for event in result.get("events") or []:
         if not isinstance(event, dict):
+            continue
+        ev_gene = str(event.get("gene") or "").strip().upper()
+        if ev_gene and ev_gene != want:
             continue
         ac = event.get("uniprot_ac") or event.get("uniprot") or event.get("up")
         if not ac:
@@ -181,28 +196,39 @@ def _local_resolve_from_qptm(gene: str) -> dict[str, Any] | None:
 
 
 def resolve_target_entities(entities: dict[str, Any]) -> dict[str, Any]:
-    """Fill gene/uniprot_ac via UniProt identity, then local qPTM fallback."""
+    """Fill gene/uniprot_ac via UniProt identity, then local qPTM fallback.
+
+    Always validates gene↔accession homology when both are present. A stale
+    session accession (e.g. STAT3 + P04637) is discarded and re-resolved.
+    """
     gene = entities.get("gene")
     uniprot = entities.get("uniprot_ac")
+    org_id = organism_id_for(entities.get("organism"))
     identity: dict[str, Any] | None = None
 
-    if not (uniprot and gene):
-        try:
-            identity = resolve_identity(uniprot_ac=uniprot, gene=gene)
-        except Exception as exc:
-            logger.warning("resolve_identity failed: %s", exc)
-            identity = None
+    try:
+        identity = resolve_identity(uniprot_ac=uniprot, gene=gene, organism_id=org_id)
+    except Exception as exc:
+        logger.warning("resolve_identity failed: %s", exc)
+        identity = None
 
-    if not identity and gene and not uniprot:
-        identity = _local_resolve_from_qptm(str(gene))
+    if identity and gene and not gene_matches_identity(str(gene), identity):
+        identity = None
+
+    if not identity and gene:
+        identity = _local_resolve_from_qptm(str(gene), str(entities.get("organism") or "human"))
 
     if not identity:
         return entities
 
-    if not entities.get("uniprot_ac") and identity.get("uniprot_ac"):
-        entities["uniprot_ac"] = str(identity["uniprot_ac"]).upper()
-    if not entities.get("gene") and identity.get("gene"):
-        entities["gene"] = str(identity["gene"])
+    ident_ac = str(identity.get("uniprot_ac") or "").upper()
+    ident_gene = identity.get("gene")
+    if ident_ac:
+        entities["uniprot_ac"] = ident_ac
+    if ident_gene and (
+        not entities.get("gene") or gene_matches_identity(str(entities.get("gene")), identity)
+    ):
+        entities["gene"] = str(ident_gene)
     if not entities.get("organism") and identity.get("organism"):
         entities["organism"] = identity.get("organism")
     entities["_resolved"] = {
@@ -247,6 +273,9 @@ def _classify_result(tool_name: str, result: dict[str, Any]) -> dict[str, Any]:
     if err:
         err_s = str(err)
         kind = "tool_error"
+        http_status = result.get("http_status")
+        if http_status in (400, 401, 403, 404, 500, 502, 503):
+            kind = "http_error"
         if "target_uniprot_ac" in err_s or "unexpected keyword" in err_s:
             kind = "call_bug"
         elif "Provide" in err_s or "Missing" in err_s or "required" in err_s.lower():
@@ -453,6 +482,31 @@ def _invoke_one(tool_name: str, entities: dict[str, Any]) -> dict[str, Any]:
                 "summary": f"Skipped {tool_name}: need {', '.join(miss)}",
                 "missing": miss,
                 "data": None,
+            }
+
+    gene_arg = args.get("gene") or entities.get("gene")
+    ac_arg = args.get("uniprot_ac") or entities.get("uniprot_ac")
+    if gene_arg and ac_arg:
+        ident = None
+        try:
+            ident = lookup_by_accession(str(ac_arg))
+        except Exception:
+            ident = None
+        if ident and not gene_matches_identity(str(gene_arg), ident):
+            return {
+                "success": False,
+                "error_kind": "identity_mismatch",
+                "summary": (
+                    f"Refused {tool_name}: gene={gene_arg} is not consistent with "
+                    f"UniProt {ac_arg} ({ident.get('gene') or 'unknown'}). "
+                    "Re-resolve the target before querying databases."
+                ),
+                "missing": [],
+                "data": {
+                    "gene": gene_arg,
+                    "uniprot_ac": ac_arg,
+                    "identity_gene": ident.get("gene"),
+                },
             }
 
     if tool_name in ("qptm_kinases", "qptm_site_conditions"):

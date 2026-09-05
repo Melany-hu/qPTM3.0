@@ -9,6 +9,7 @@ The registry maps tool names to their schemas and handlers.
 
 from __future__ import annotations
 
+import inspect
 import logging
 from typing import Any, Callable
 
@@ -59,9 +60,14 @@ class ToolRegistry:
         if not handler:
             return {"error": f"Unknown tool: {name}"}
         try:
-            result = handler(**arguments)
+            args = _normalize_tool_arguments(arguments)
+            args = _filter_handler_kwargs(handler, args)
+            result = handler(**args)
             logger.info(f"Tool {name} executed successfully")
             return result
+        except TypeError as e:
+            logger.error(f"Tool {name} argument error: {e}", exc_info=True)
+            return {"error": f"Tool argument error: {e}"}
         except Exception as e:
             logger.error(f"Tool {name} failed: {e}", exc_info=True)
             return {"error": f"Tool execution failed: {e}"}
@@ -87,6 +93,50 @@ class ToolRegistry:
             }
             for schema in self._schemas
         ]
+
+
+_ARG_ALIASES = {
+    "uniprot": "uniprot_ac",
+    "accession": "uniprot_ac",
+    "uniprot_id": "uniprot_ac",
+    "uniprotid": "uniprot_ac",
+    "up": "uniprot_ac",
+    "pos": "position",
+    "residue": "position",
+    "residue_position": "position",
+}
+
+
+def _normalize_tool_arguments(arguments: dict[str, Any] | None) -> dict[str, Any]:
+    """Map common alias keys onto canonical tool parameter names."""
+    out: dict[str, Any] = dict(arguments or {})
+    for alias, canon in _ARG_ALIASES.items():
+        if alias not in out:
+            continue
+        val = out.pop(alias)
+        empty = val in (None, "", 0, "0")
+        if empty:
+            continue
+        current = out.get(canon)
+        if current in (None, "", 0, "0"):
+            out[canon] = val
+    return out
+
+
+def _filter_handler_kwargs(handler: ToolHandler, arguments: dict[str, Any]) -> dict[str, Any]:
+    """Drop extra keys so handlers do not raise ``unexpected keyword argument``."""
+    try:
+        sig = inspect.signature(handler)
+    except (TypeError, ValueError):
+        return arguments
+    if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
+        return arguments
+    allowed = {
+        name
+        for name, p in sig.parameters.items()
+        if p.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
+    }
+    return {k: v for k, v in arguments.items() if k in allowed}
 
 
 # Global registry

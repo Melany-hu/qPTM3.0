@@ -2,6 +2,7 @@ const __agentCfg = window.QPTM_AGENT_CONFIG || {};
 const CHAT_URL = __agentCfg.chatUrl || '/agent-api/chat';
 const CONVERSATIONS_URL = CHAT_URL.replace(/\/chat\/?$/, '/conversations');
 const CLASSIFY_URL = CHAT_URL.replace(/\/chat\/?$/, '/classify');
+const RESET_SESSION_URL = CHAT_URL.replace(/\/chat\/?$/, '/reset-session');
 const COLLECTION_URL = CHAT_URL.replace(/\/chat\/?$/, '/collection');
 const CONV_STORAGE_KEY = 'qptm_agent_conversation_id';
 const DEVICE_STORAGE_KEY = 'qptm_agent_device_id';
@@ -312,11 +313,24 @@ function onFilesSelected(event) {
 async function classifyIntent(message, filenames) {
   const res = await fetch(CLASSIFY_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message, upload_filenames: filenames }),
+    headers: apiHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ message, upload_filenames: filenames || [] }),
   });
   if (!res.ok) throw new Error(`Classify HTTP ${res.status}`);
   return res.json();
+}
+
+async function resetRuntimeSession(sid) {
+  if (!sid) return;
+  try {
+    await fetch(RESET_SESSION_URL, {
+      method: 'POST',
+      headers: apiHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ session_id: sid }),
+    });
+  } catch (err) {
+    console.warn('Session reset failed:', err);
+  }
 }
 
 function createCollectionPanelEl(jobId, seedData) {
@@ -2265,6 +2279,11 @@ async function uploadCollectionFile(jobId, uploadType, file, panel) {
 }
 
 async function startCollectionFlow(message, files) {
+  currentWorkflowState = null;
+  currentActivityTimeline = null;
+  currentThinkingTools = null;
+  currentPlanPanel = null;
+  if (typeof syncWorkflowSidebar === 'function') syncWorkflowSidebar();
   setSendButtonToStop();
   const abortController = new AbortController();
   currentAbortController = abortController;
@@ -2451,8 +2470,10 @@ async function deleteConversation(id) {
     conversationList = conversationList.filter((c) => c.id !== id);
     if (conversationId === id) {
       persistConversationId(null);
+      const oldSid = sessionId;
       sessionId = null;
       clearChatArea();
+      resetRuntimeSession(oldSid);
     }
     renderSidebar();
   } catch (err) {
@@ -2466,14 +2487,24 @@ function clearChatArea() {
   chatHistory = [];
   currentThinkingTools = null;
   currentPlanPanel = null;
+  currentActivityTimeline = null;
+  currentWorkflowState = null;
+  activeCollectionPanel = null;
+  pendingClarificationState = null;
+  if (typeof syncWorkflowSidebar === 'function') syncWorkflowSidebar();
 }
 
 function startNewConversation() {
   if (isStreaming) return;
+  const oldSid = sessionId;
+  const oldCid = conversationId;
   persistConversationId(null);
   sessionId = null;
+  const oldKey = sessionStorageKey(oldCid);
+  if (oldKey) sessionStorage.removeItem(oldKey);
   clearChatArea();
   renderSidebar();
+  resetRuntimeSession(oldSid);
   inputField.focus();
 }
 
@@ -3251,7 +3282,31 @@ function applyInlineMarkdown(text) {
   return s;
 }
 
+function stripProtocolMarkup(text) {
+  if (!text) return '';
+  let s = String(text);
+  s = s.replace(/<\|DSML\|[\s\S]*?(?:\|DSML\|>|$)/gi, '');
+  s = s.replace(/<\/?tool_call\b[^>]*>[\s\S]*?(<\/tool_call>|$)/gi, '');
+  s = s.replace(/```(?:json|xml|text)?\s*\{[\s\S]*?"tool_calls"[\s\S]*?```/gi, '');
+  s = s.replace(/"?tool_calls"?\s*[:=]\s*\[[\s\S]*?\]/gi, '');
+  s = s.replace(/"?function_call"?\s*[:=]\s*\{[\s\S]*?\}/gi, '');
+  s = s.replace(/<\|[^|]{0,80}\|>/g, '');
+  return s.replace(/\n{3,}/g, '\n\n').trim();
+}
+
+function sanitizeUserVisibleText(text) {
+  const raw = String(text || '');
+  const leaked = /<\|?DSML\|?|<\/?tool_call\b|tool_calls|function_call|<tool\b|<\/tool>/i.test(raw);
+  const cleaned = stripProtocolMarkup(raw);
+  if (leaked && cleaned.replace(/\s/g, '').length < 12) {
+    return /[\u4e00-\u9fff]/.test(raw) ? '生成失败，请重试。' : 'Generation failed. Please retry.';
+  }
+  return cleaned;
+}
+
 function renderMarkdown(text) {
+  if (!text) return '';
+  text = sanitizeUserVisibleText(text);
   if (!text) return '';
 
   const codeBlocks = [];
@@ -4945,9 +5000,10 @@ async function executeChatRequest({
   hideContentLoading(assistantContent);
   hideStreamingCursor(assistantContent);
   if (fullText) {
-    const displayText = stripTrailingInvite(fullText);
+    const safeText = sanitizeUserVisibleText(fullText);
+    const displayText = stripTrailingInvite(safeText);
     assistantContent.innerHTML = renderMarkdown(displayText);
-    chatHistory.push({ role: 'assistant', content: fullText });
+    chatHistory.push({ role: 'assistant', content: safeText });
     attachMessageActions(assistantContent, fullText);
     const qs = followUps.length ? followUps : extractNextStepQuestions(fullText);
     mountFollowUpPanel(assistantContent.closest('.assistant-body'), qs, detectLangFromText(fullText));
@@ -4992,7 +5048,7 @@ async function sendMessage() {
   }
 
   let routeCollection = files.some((f) => classifyUploadKind(f.name) !== 'unknown');
-  if (!routeCollection && files.length) {
+  if (!routeCollection) {
     try {
       const intent = await classifyIntent(text, files.map((f) => f.name));
       routeCollection = Boolean(intent.route_collection);

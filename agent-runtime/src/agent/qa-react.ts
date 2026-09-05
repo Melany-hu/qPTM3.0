@@ -24,7 +24,9 @@ import {
   applyResolvedIdentity,
   invokeArgumentsJson,
   resolveSessionTarget,
+  resolvedBanner,
 } from "./resolve-target.js";
+import { sanitizeUserVisibleText } from "./protocol.js";
 
 function phase(phase: string, label: string): AgentEvent {
   return { type: "phase_update", phase, label };
@@ -89,7 +91,7 @@ export async function* runQA(
   const artifacts = session.artifacts;
   const lang = detectLang(userMessage);
   const parsed = parseEntities(userMessage);
-  mergeEntities(memory, parsed);
+  mergeEntities(memory, parsed, userMessage);
   memory.query_mode = classifyQueryMode(userMessage, parsed);
 
   yield phase("planning", lang === "zh" ? "理解问题" : "Understanding question");
@@ -106,7 +108,10 @@ export async function* runQA(
 
   if (memory.query_mode === "concept") {
     yield phase("synthesis", lang === "zh" ? "撰写回答" : "Writing answer");
-    const answer = await synthesizeConcept(userMessage, history, skills, lang);
+    const answer = sanitizeUserVisibleText(
+      await synthesizeConcept(userMessage, history, skills, lang),
+      lang,
+    );
     for (const chunk of chunkText(answer)) yield { type: "text", content: chunk };
     const followUps = await generateFollowUps(userMessage, answer, memory, artifacts, "qa", []);
     yield { type: "follow_up_questions", questions: followUps };
@@ -123,7 +128,10 @@ export async function* runQA(
   if (artifacts.shouldSkipLiteratureSearch(userMessage)) {
     yield phase("synthesis", lang === "zh" ? "基于已有文献回答" : "Answering from cached literature");
     const litCtx = artifacts.getLiteratureContext();
-    const synth = await synthesizeQA(userMessage, history, memory, skills, sourcesCatalog, litCtx, citations, lang);
+    const synth = resolvedBanner(memory, lang) + sanitizeUserVisibleText(
+      await synthesizeQA(userMessage, history, memory, skills, sourcesCatalog, litCtx, citations, lang),
+      lang,
+    );
     for (const chunk of chunkText(synth)) yield { type: "text", content: chunk };
     yield { type: "sources", citations };
     const followUps = await generateFollowUps(userMessage, synth, memory, artifacts, "qa", toolsUsed);
@@ -211,7 +219,7 @@ export async function* runQA(
 
   yield phase("synthesis", lang === "zh" ? "撰写回答" : "Writing answer");
   const extraCtx = [litSummary, webSummary].filter(Boolean).join("\n---\n");
-  const answer = await synthesizeQA(
+  let answer = await synthesizeQA(
     userMessage,
     history,
     memory,
@@ -221,6 +229,7 @@ export async function* runQA(
     citations,
     lang,
   );
+  answer = resolvedBanner(memory, lang) + sanitizeUserVisibleText(answer, lang);
   for (const chunk of chunkText(answer)) yield { type: "text", content: chunk };
 
   yield { type: "sources", citations };

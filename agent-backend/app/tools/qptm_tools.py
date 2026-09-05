@@ -35,10 +35,25 @@ def _sync_client() -> httpx.Client:
 
 
 def _get(path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Make a GET request to the qPTM API and return parsed JSON."""
+    """Make a GET request to the qPTM API and return parsed JSON.
+
+    HTTP 4xx/5xx are returned as ``{"error", "http_status"}`` so callers can
+    surface a clean failure instead of raising inside the tool handler.
+    """
     with _sync_client() as client:
         resp = client.get(path, params=params)
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            snippet = ""
+            try:
+                snippet = (resp.text or "")[:240]
+            except Exception:
+                snippet = ""
+            logger.warning("qPTM API %s HTTP %s: %s", path, resp.status_code, snippet)
+            return {
+                "error": f"qPTM API {path} HTTP {resp.status_code}",
+                "http_status": resp.status_code,
+                "detail": snippet,
+            }
         return resp.json()
 
 
@@ -99,16 +114,46 @@ def _qptm_site_conditions(
     ptm_type: str = "all",
 ) -> dict[str, Any]:
     """Get experimental conditions for a PTM site via /api/protein.php."""
+    ac = (uniprot_ac or "").strip().upper()
+    try:
+        pos = int(position)
+    except (TypeError, ValueError):
+        pos = 0
+    if not ac:
+        return {
+            "error": "qptm_site_conditions requires uniprot_ac",
+            "http_status": 400,
+        }
+    if pos <= 0:
+        return {
+            "error": "qptm_site_conditions requires a positive residue position",
+            "http_status": 400,
+        }
     params: dict[str, Any] = {
-        "uniprot_ac": uniprot_ac,
-        "position": str(position),
+        "uniprot_ac": ac,
+        "position": str(pos),
     }
     if ptm_type and ptm_type != "all":
         params["ptm_type"] = ptm_type
     data = _get("/protein.php", params)
+    if data.get("error"):
+        status = data.get("http_status")
+        return {
+            "error": (
+                f"位点定量接口失败（HTTP {status}）。未取得 fold-change 数值。"
+                if status
+                else str(data.get("error"))
+            ),
+            "http_status": status,
+            "uniprot_ac": ac,
+            "position": pos,
+            "summary": (
+                f"Site-conditions lookup failed for {ac} position {pos}: {data.get('error')}"
+            ),
+        }
     conditions = data.get("conditions", [])
     summary = (
-        f"Site {uniprot_ac} position {position} was quantified under "
+        f"Site {ac} position {pos} was quantified under "
         f"{data.get('total_conditions', len(conditions))} condition(s). "
     )
     if conditions:
@@ -122,10 +167,14 @@ def _qptm_site_conditions(
         ]
         if significant:
             summary += f"{len(significant)} condition(s) show log2 ratio > 1 (significant change)."
+    elif data.get("message"):
+        summary += str(data["message"])
+    else:
+        summary += "库内无定量 / no site-specific quantitative records."
     return {
         "summary": summary,
-        "uniprot_ac": uniprot_ac,
-        "position": position,
+        "uniprot_ac": ac,
+        "position": pos,
         "gene": data.get("gene"),
         "total_conditions": data.get("total_conditions", 0),
         "conditions": conditions[:15],

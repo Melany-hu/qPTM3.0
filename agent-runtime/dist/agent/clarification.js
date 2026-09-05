@@ -225,7 +225,7 @@ export function mergeClarification(original, selections, freeText) {
 export function applyClarificationToMemory(memory, selections, freeText) {
     const texts = [...Object.values(selections), freeText].filter(Boolean);
     for (const t of texts) {
-        mergeEntities(memory, parseEntities(t));
+        mergeEntities(memory, parseEntities(t), t);
         const pos = extractPositionFromText(t);
         if (pos && !memory.position)
             memory.position = pos;

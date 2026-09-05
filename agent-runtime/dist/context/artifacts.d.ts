@@ -19,6 +19,7 @@ export declare class ArtifactStore {
     findLiterature(): Artifact[];
     findDbResults(): Artifact[];
     catalogForPrompt(max?: number): string;
+    clear(): void;
     shouldSkipLiteratureSearch(message: string): boolean;
     getLiteratureContext(): string;
 }

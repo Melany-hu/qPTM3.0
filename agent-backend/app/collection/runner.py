@@ -26,6 +26,81 @@ _running: dict[str, asyncio.Task] = {}
 # silently refusing to start a new run (the old one keeps the job "running").
 _procs: dict[str, asyncio.subprocess.Process] = {}
 
+_MODEL_FAIL_RE = (
+    "not supported",
+    "is not supported",
+    "model qwen",
+    "401 model",
+    "all llm models failed",
+)
+
+
+def _is_model_gateway_error(exc: BaseException) -> bool:
+    msg = str(exc).lower()
+    if "401" in msg and any(tok in msg for tok in ("not supported", "qwen", "model")):
+        return True
+    return any(tok in msg for tok in _MODEL_FAIL_RE)
+
+
+def _fetch_pmid_metadata(pmid: str) -> dict[str, Any]:
+    """Best-effort PubMed metadata for graceful collection degrade."""
+    pmid = str(pmid or "").strip()
+    if not pmid.isdigit():
+        return {}
+    try:
+        import httpx
+
+        url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi"
+        params = {"db": "pubmed", "id": pmid, "retmode": "json"}
+        with httpx.Client(timeout=12.0) as client:
+            resp = client.get(url, params=params)
+            resp.raise_for_status()
+            data = resp.json()
+        result = (data.get("result") or {}).get(pmid) or {}
+        if not result or result.get("error"):
+            return {}
+        return {
+            "pmid": pmid,
+            "title": result.get("title") or "",
+            "source": result.get("source") or "",
+            "pubdate": result.get("pubdate") or "",
+            "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
+        }
+    except Exception as exc:
+        logger.warning("PMID metadata lookup failed for %s: %s", pmid, exc)
+        return {}
+
+
+def _graceful_collection_failure(pmid: str, exc: BaseException) -> dict[str, Any]:
+    meta = _fetch_pmid_metadata(pmid) if _is_model_gateway_error(exc) else {}
+    if _is_model_gateway_error(exc):
+        title = meta.get("title") or ""
+        bits = [
+            f"Could not extract quantitative PTM tables for PMID {pmid}",
+            "(literature model unavailable).",
+        ]
+        if title:
+            bits.append(f"PMID metadata only: {title}.")
+        bits.append("Please upload the PDF or supplementary tables to continue.")
+        message = " ".join(bits)
+        return {
+            "status": "error",
+            "error": None,
+            "message": message,
+            "summary": {
+                "pmid_metadata": meta,
+                "graceful_degrade": "model_unavailable",
+            },
+        }
+    raw = str(exc)
+    if "traceback" in raw.lower() or "qwen3.7-max is not supported" in raw.lower():
+        raw = "Collection failed. Please upload a PDF or try another PMID."
+    return {
+        "status": "error",
+        "error": raw[:500],
+        "message": f"Collection failed: {raw[:400]}",
+    }
+
 
 class CliTimeoutError(RuntimeError):
     """Raised when a collection-agent child process exceeds its deadline."""
@@ -419,13 +494,13 @@ async def schedule_job(
                 "stages": {},
                 "summary": {},
             }
-            payload.update(
-                {
-                    "status": "error",
-                    "error": str(exc),
-                    "message": f"Collection failed: {exc}",
-                }
-            )
+            degrade = _graceful_collection_failure(pmid, exc)
+            summary = dict(payload.get("summary") or {})
+            extra_summary = degrade.pop("summary", None) or {}
+            if extra_summary:
+                summary.update(extra_summary)
+            payload.update(degrade)
+            payload["summary"] = summary
             job_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         finally:
             _running.pop(job_id, None)
@@ -575,6 +650,18 @@ def job_state_to_response(job_id: str, pmid: str | None = None) -> dict[str, Any
     state = read_job_json(job_id) or {}
     summary = state.get("summary") if isinstance(state.get("summary"), dict) else {}
     summary = refresh_artifact_summary(job_id, summary)
+    raw_error = state.get("error")
+    if isinstance(raw_error, str) and (
+        "qwen3.7-max is not supported" in raw_error.lower()
+        or "401 model" in raw_error.lower()
+        or "traceback (most recent call last)" in raw_error.lower()
+    ):
+        raw_error = None
+        message = state.get("message") or (
+            "Could not retrieve full text. Please upload the PDF or supplementary tables."
+        )
+    else:
+        message = state.get("message", "")
     return {
         "job_id": job_id,
         "pmid": state.get("pmid") or pmid,
@@ -582,12 +669,12 @@ def job_state_to_response(job_id: str, pmid: str | None = None) -> dict[str, Any
         "current_stage": state.get("currentStage"),
         "next_stage": state.get("nextStage"),
         "awaiting_upload": state.get("awaitingUpload"),
-        "message": state.get("message", ""),
+        "message": message,
         "stages": state.get("stages") or {},
         "summary": summary,
         "offer_contribute": bool(state.get("offerContribute")),
         "contribution": state.get("contribution"),
-        "error": state.get("error"),
+        "error": raw_error,
         "needs_pmid": False,
         "resolve_urls": bool(summary.get("resolveUrls")),
     }

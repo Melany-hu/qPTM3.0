@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { getOrCreateSession } from "../context/session.js";
+import { ArtifactStore } from "../context/artifacts.js";
 import { mergeClarification, applyClarificationToMemory, buildDeepResearchClarification, clarificationEvent, } from "./clarification.js";
 import { runQA } from "./qa-react.js";
 import { runDeepResearch } from "./deep-research.js";
 import { detectLang } from "./gate.js";
-import { mergeEntities, normalizeTargetIdentity, parseEntities } from "../context/memory.js";
+import { mergeEntities, normalizeTargetIdentity, parseEntities, wantsSameSite, } from "../context/memory.js";
 /** Soft cap so the agent can ask multiple times, but not loop forever. */
 const MAX_CLARIFY_ROUNDS = 4;
 export async function* runAgent(opts) {
@@ -13,7 +14,18 @@ export async function* runAgent(opts) {
     session.lastMode = opts.mode;
     let userMessage = (opts.message || "").trim();
     const parsed = parseEntities(userMessage);
-    mergeEntities(session.memory, parsed);
+    const reuse = wantsSameSite(userMessage);
+    const geneChanged = Boolean(parsed.gene && session.memory.gene && parsed.gene.toUpperCase() !== session.memory.gene.toUpperCase());
+    const pmidOnly = Boolean(parsed.pmid && !parsed.gene && !parsed.uniprot_ac);
+    if (!reuse && (geneChanged || pmidOnly || (parsed.gene && !session.memory.gene && session.memory.uniprot_ac))) {
+        session.artifacts = new ArtifactStore();
+        session.citations = [];
+        session.memory.findings_summary = "";
+        session.pendingClarification = null;
+        session.deepResearchBrief = null;
+        session.clarifyRound = 0;
+    }
+    mergeEntities(session.memory, parsed, userMessage);
     const lang = detectLang(userMessage);
     if (opts.mode === "deep_research") {
         let skippedClarify = false;
@@ -29,7 +41,7 @@ export async function* runAgent(opts) {
             }
             session.deepResearchBrief = userMessage;
             session.clarifyRound += 1;
-            mergeEntities(session.memory, parseEntities(userMessage));
+            mergeEntities(session.memory, parseEntities(userMessage), userMessage);
             normalizeTargetIdentity(session.memory, userMessage);
             session.pendingClarification = null;
         }

@@ -1,4 +1,4 @@
-import { InvestigationMemory, mergeEntities } from "../context/memory.js";
+import { InvestigationMemory, mergeEntities, sameGene } from "../context/memory.js";
 import { callQptmTool, type QptmToolResult } from "../mcp/hub.js";
 
 function isResidueToken(token: string): boolean {
@@ -28,9 +28,14 @@ export function applyResolvedIdentity(
         : NaN;
   const ptm = blob.ptm_type != null ? String(blob.ptm_type) : "";
 
+  // Never let a tool result overwrite the query gene with a different protein
+  // (e.g. uniprot_annotation(P04637) returning TP53 after the user asked STAT3).
+  if (gene && memory.gene && !isResidueToken(memory.gene) && !sameGene(memory.gene, gene)) {
+    return;
+  }
+
   const patch: Parameters<typeof mergeEntities>[1] = {};
   if (gene && !isResidueToken(gene)) {
-    // Do not clobber a good gene with a worse one unless we also gained UniProt.
     if (!memory.gene || isResidueToken(memory.gene) || uniprot) {
       patch.gene = gene;
     }
@@ -41,31 +46,11 @@ export function applyResolvedIdentity(
   mergeEntities(memory, patch);
 }
 
-/** Resolve gene/site → UniProt once per turn before batch tool calls. */
+/** Resolve gene/site → UniProt on every user turn (no stale-session short-circuit). */
 export async function resolveSessionTarget(
   memory: InvestigationMemory,
   query: string,
 ): Promise<QptmToolResult> {
-  if (memory.uniprot_ac && memory.gene && !isResidueToken(memory.gene)) {
-    return {
-      success: true,
-      summary: `Target ${memory.gene} UniProt=${memory.uniprot_ac}${memory.position ? ` site=${memory.position}` : ""}`,
-      data: {
-        gene: memory.gene,
-        uniprot_ac: memory.uniprot_ac,
-        position: memory.position,
-        ptm_type: memory.ptm_type,
-      },
-      error_kind: null,
-      resolved: {
-        gene: memory.gene,
-        uniprot_ac: memory.uniprot_ac,
-        position: memory.position,
-        ptm_type: memory.ptm_type,
-      },
-    };
-  }
-
   const result = await callQptmTool("qptm_resolve", {
     query,
     gene: memory.gene && !isResidueToken(memory.gene) ? memory.gene : "",
@@ -73,7 +58,12 @@ export async function resolveSessionTarget(
     uniprot_ac: memory.uniprot_ac || "",
     ptm_type: memory.ptm_type || "",
   });
-  applyResolvedIdentity(memory, result);
+  if (result.success) {
+    applyResolvedIdentity(memory, result);
+  } else if (memory.gene) {
+    // Failed resolve must not keep a previous accession from another protein.
+    memory.uniprot_ac = null;
+  }
   return result;
 }
 
@@ -85,4 +75,18 @@ export function invokeArgumentsJson(memory: InvestigationMemory, query: string):
     ptm_type: memory.ptm_type || "phosphorylation",
     query,
   });
+}
+
+export function resolvedBanner(memory: InvestigationMemory, lang: "zh" | "en"): string {
+  if (!memory.gene && !memory.uniprot_ac) return "";
+  const gene = memory.gene || "";
+  const ac = memory.uniprot_ac || "";
+  const site = memory.position ? String(memory.position) : "";
+  const org = memory.organism || "human";
+  const core = [gene, ac ? `(${ac})` : "", site ? `· ${site}` : "", org ? `· ${org}` : ""]
+    .filter(Boolean)
+    .join(" ");
+  return lang === "zh"
+    ? `**已解析靶点：** Resolved: ${core}\n\n`
+    : `**Resolved:** ${core}\n\n`;
 }

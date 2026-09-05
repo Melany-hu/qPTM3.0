@@ -42,6 +42,8 @@ from app.collection.store import (
     new_job_id,
     note_wants_protein_log2,
     parse_derived_ratio_specs,
+    pmid_exists_in_pubmed,
+    pmid_looks_valid,
     read_csv_preview,
     read_job_json,
     read_supp_previews,
@@ -146,6 +148,32 @@ async def create_job(
         blobs.extend(supplementary_blobs)
         if blobs:
             resolved_pmid = await resolve_pmid_from_uploads(blobs)
+
+    if resolved_pmid and not pmid_looks_valid(resolved_pmid):
+        return CollectionJobResponse(
+            job_id=new_job_id(),
+            pmid=resolved_pmid,
+            status="error",
+            message=(
+                f"PMID {resolved_pmid} is invalid. Please check the number "
+                "or upload the PDF / supplementary tables instead."
+            ),
+            needs_pmid=True,
+        )
+
+    if resolved_pmid:
+        exists = pmid_exists_in_pubmed(resolved_pmid)
+        if exists is False:
+            return CollectionJobResponse(
+                job_id=new_job_id(),
+                pmid=resolved_pmid,
+                status="error",
+                message=(
+                    f"PMID {resolved_pmid} was not found in PubMed. "
+                    "Please check the identifier or upload the PDF."
+                ),
+                needs_pmid=True,
+            )
 
     if not resolved_pmid:
         # Accession-only MS URL resolution (PXD / IPX / …) — no PMID pipeline.

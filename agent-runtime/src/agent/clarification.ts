@@ -289,7 +289,7 @@ export function applyClarificationToMemory(
 ): void {
   const texts = [...Object.values(selections), freeText].filter(Boolean);
   for (const t of texts) {
-    mergeEntities(memory, parseEntities(t));
+    mergeEntities(memory, parseEntities(t), t);
     const pos = extractPositionFromText(t);
     if (pos && !memory.position) memory.position = pos;
     if (/小鼠|mouse/i.test(t)) memory.organism = "mouse";

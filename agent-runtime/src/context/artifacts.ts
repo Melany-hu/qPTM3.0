@@ -68,6 +68,11 @@ export class ArtifactStore {
       .join("\n");
   }
 
+  clear(): void {
+    this.artifacts = [];
+    this.counter = 0;
+  }
+
   shouldSkipLiteratureSearch(message: string): boolean {
     const lower = message.toLowerCase();
     const refers =

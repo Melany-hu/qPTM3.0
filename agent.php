@@ -142,6 +142,6 @@ window.QPTM_AGENT_CONFIG = {
   chatUrl: <?php echo json_encode($BACKEND_URL, JSON_UNESCAPED_SLASHES); ?>
 };
 </script>
-<script src="assets/js/agent.js?v=20260901-followup-fix"></script>
+<script src="assets/js/agent.js?v=20260905-p0-fix"></script>
 </body>
 </html>

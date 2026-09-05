@@ -156,17 +156,81 @@ def lookup_by_gene(
     return json.loads(raw) if raw else None
 
 
+_ORGANISM_IDS: dict[str, int] = {
+    "human": 9606,
+    "homo sapiens": 9606,
+    "9606": 9606,
+    "mouse": 10090,
+    "mus musculus": 10090,
+    "10090": 10090,
+    "rat": 10116,
+    "rattus norvegicus": 10116,
+    "10116": 10116,
+    "yeast": 559292,
+    "saccharomyces cerevisiae": 559292,
+    "559292": 559292,
+}
+
+
+def organism_id_for(organism: str | None, default: int = 9606) -> int:
+    """Map organism name / taxon string → NCBI taxonomy id."""
+    if organism is None:
+        return default
+    key = str(organism).strip().lower()
+    if not key:
+        return default
+    return _ORGANISM_IDS.get(key, default)
+
+
+def _norm_gene(symbol: str | None) -> str:
+    return str(symbol or "").strip().upper()
+
+
+def gene_matches_identity(gene: str | None, identity: dict[str, Any] | None) -> bool:
+    """True when ``gene`` is the primary symbol or a listed synonym of ``identity``."""
+    target = _norm_gene(gene)
+    if not target or not identity:
+        return False
+    names = [
+        identity.get("gene"),
+        *(identity.get("gene_names") or []),
+        *(identity.get("gene_synonyms") or []),
+    ]
+    return any(_norm_gene(n) == target for n in names if n)
+
+
 def resolve_identity(
     *,
     uniprot_ac: str | None = None,
     gene: str | None = None,
     organism_id: int = 9606,
 ) -> dict[str, Any] | None:
-    """Resolve protein identity. Prefer accession; else gene → accession."""
+    """Resolve protein identity.
+
+    If both gene and accession are given, they must refer to the same protein.
+    A mismatched accession is discarded and the gene is re-resolved.
+    """
+    ident_ac: dict[str, Any] | None = None
     if uniprot_ac:
-        ident = lookup_by_accession(uniprot_ac)
-        if ident:
-            return ident
+        ident_ac = lookup_by_accession(uniprot_ac)
+
+    if gene and ident_ac:
+        if gene_matches_identity(gene, ident_ac):
+            return ident_ac
+        logger.warning(
+            "gene/uniprot mismatch: gene=%s accession=%s identity_gene=%s — resolving by gene",
+            gene,
+            uniprot_ac,
+            ident_ac.get("gene"),
+        )
+        ident_ac = None
+
+    if ident_ac and not gene:
+        return ident_ac
+
     if gene:
-        return lookup_by_gene(gene, organism_id=organism_id)
-    return None
+        ident_gene = lookup_by_gene(gene, organism_id=organism_id)
+        if ident_gene:
+            return ident_gene
+
+    return ident_ac

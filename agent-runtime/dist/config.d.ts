@@ -14,6 +14,13 @@ export declare const cfg: {
     biomcpArgs: string[];
     tavilyApiKey: string;
     webSearchTimeoutMs: number;
+    /** Per-LLM-attempt timeout (ms). */
+    llmTimeoutMs: number;
+    /** Total wall-clock budget for Deep Research report synthesis (ms). */
+    drSynthesisTimeoutMs: number;
+    drSynthesisMaxTokens: number;
+    /** How many models to try before failing DR synthesis (limits 10+ min fallback chains). */
+    drSynthesisMaxModels: number;
     skillsDir: string;
     qaMaxRounds: number;
     drMaxPlanSteps: number;

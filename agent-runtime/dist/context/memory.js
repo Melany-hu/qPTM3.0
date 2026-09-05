@@ -15,6 +15,7 @@ export function emptyMemory() {
 const GENE_RE = /\b([A-Z][A-Z0-9]{1,9})\b/g;
 const UNIPROT_RE = /\b([OPQ][0-9][A-Z0-9]{3}[0-9](?:-\d+)?|[A-NR-Z][0-9][A-Z][A-Z0-9]{2}[0-9](?:-\d+)?)\b/i;
 const PMID_RE = /\b(?:PMID[:\s#]*)?(\d{7,8})\b/i;
+const SAME_SITE_RE = /同上|同样的位点|该位点|这个位点|same\s+(site|protein|target)|this\s+site|同上位点/i;
 export function parseEntities(message) {
     const out = {};
     const pmidM = PMID_RE.exec(message);
@@ -101,11 +102,27 @@ export function normalizeTargetIdentity(memory, contextText = "") {
         memory.gene = memory.organism === "mouse" ? "Trp53" : "TP53";
     }
 }
-export function mergeEntities(memory, parsed) {
+export function mergeEntities(memory, parsed, query = "") {
+    const reuse = Boolean(query && SAME_SITE_RE.test(query));
+    const parsedGene = parsed.gene && !isResidueToken(parsed.gene) ? parsed.gene : "";
+    const geneChanged = Boolean(parsedGene && memory.gene && parsedGene.toUpperCase() !== memory.gene.toUpperCase());
+    const pmidOnly = Boolean(parsed.pmid && !parsedGene && !parsed.uniprot_ac && !parsed.position);
+    if (!reuse) {
+        if (geneChanged) {
+            // New gene must not keep the previous accession (STAT3 must not inherit P04637).
+            memory.uniprot_ac = parsed.uniprot_ac || null;
+        }
+        if (pmidOnly) {
+            memory.gene = null;
+            memory.uniprot_ac = null;
+            memory.position = null;
+            memory.ptm_type = "phosphorylation";
+        }
+    }
     memory.entities = { ...memory.entities, ...parsed };
     // Never let a residue token overwrite a real gene (common after site clarification).
-    if (parsed.gene && !isResidueToken(parsed.gene))
-        memory.gene = parsed.gene;
+    if (parsedGene)
+        memory.gene = parsedGene;
     if (parsed.uniprot_ac)
         memory.uniprot_ac = parsed.uniprot_ac;
     if (parsed.position)
@@ -118,6 +135,14 @@ export function mergeEntities(memory, parsed) {
         memory.pmid = parsed.pmid;
     if (parsed.mutation_label)
         memory.mutation_label = parsed.mutation_label;
+}
+export function sameGene(a, b) {
+    if (!a || !b)
+        return false;
+    return a.trim().toUpperCase() === b.trim().toUpperCase();
+}
+export function wantsSameSite(query) {
+    return SAME_SITE_RE.test(query || "");
 }
 export function memoryPromptBlock(memory) {
     const parts = [];
