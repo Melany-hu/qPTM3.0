@@ -18,7 +18,7 @@ if ($envUrl) {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>qPTM | Agent</title>
 <script src="assets/js/include.js"></script>
-<link rel="stylesheet" href="assets/css/agent.css?v=20260901-resolve-tools">
+<link rel="stylesheet" href="assets/css/agent.css?v=20260906-sidebar-rail">
 
 </head>
 <body class="agent-page">
@@ -33,14 +33,27 @@ if ($envUrl) {
 
 <div class="agent-shell">
   <aside class="agent-sidebar" id="agentSidebar">
-    <button class="sidebar-toggle" type="button" id="sidebarToggle" aria-label="Toggle sidebar">
-      <i class="ri-sidebar-unfold-line"></i>
-    </button>
-    <button class="sidebar-new-btn" type="button" onclick="startNewConversation()">
-      <i class="ri-add-line"></i> New chat
-    </button>
-    <div class="sidebar-history-label">History</div>
-    <div class="sidebar-history" id="sidebarHistory"></div>
+    <div class="sidebar-header">
+      <span class="sidebar-brand">PTM Agent</span>
+      <button type="button" class="sidebar-icon-btn sidebar-collapse-btn" id="sidebarCollapseBtn" title="Collapse sidebar" aria-label="Collapse sidebar">
+        <i class="ri-side-bar-line"></i>
+      </button>
+    </div>
+    <div class="sidebar-rail" aria-hidden="true">
+      <button type="button" class="sidebar-rail-btn" id="sidebarExpandBtn" title="Open sidebar" aria-label="Open sidebar">
+        <i class="ri-side-bar-line"></i>
+      </button>
+      <button type="button" class="sidebar-rail-btn" id="sidebarRailNewBtn" title="New chat" aria-label="New chat">
+        <i class="ri-edit-2-line"></i>
+      </button>
+    </div>
+    <div class="sidebar-body">
+      <button class="sidebar-new-btn" type="button" id="sidebarNewBtn">
+        <i class="ri-edit-2-line"></i>
+        <span>New chat</span>
+      </button>
+      <div class="sidebar-history" id="sidebarHistory"></div>
+    </div>
   </aside>
 
   <div class="agent-main">
@@ -59,34 +72,23 @@ if ($envUrl) {
               <img class="welcome-logo" src="assets/img/logo.gif" alt="qPTM">
               <div class="welcome-badge"><i class="ri-chat-smile-2-line"></i> AI-Powered PTM Explorer</div>
             </div>
-            <p class="welcome-tagline">生物学问答助手 — 翻译后修饰、激酶底物、定量数据与文献。点击 <strong>Deep Research</strong> 进行深度调研。</p>
           </div>
-          <div class="example-cards">
-            <button type="button" class="example-card" onclick="sendExample('Which kinases phosphorylate AKT1 S473?')">
-              <i class="ri-git-branch-line"></i>
-              <span class="example-card-title">Upstream regulators</span>
-              <span class="example-card-desc">Which kinases phosphorylate AKT1 S473?</span>
-            </button>
-            <button type="button" class="example-card" onclick="sendExample('TP53 S15 phosphorylation after DNA damage')">
-              <i class="ri-line-chart-line"></i>
-              <span class="example-card-title">Quantitative dynamics</span>
-              <span class="example-card-desc">TP53 S15 after DNA damage</span>
-            </button>
-            <button type="button" class="example-card" onclick="sendExample('STAT3 Y705 phosphorylation in cancer signaling')">
-              <i class="ri-heart-pulse-line"></i>
-              <span class="example-card-title">Function &amp; disease</span>
-              <span class="example-card-desc">STAT3 Y705 in cancer signaling</span>
-            </button>
-            <button type="button" class="example-card" onclick="sendExample('Comprehensive deep research on TP53 S15 phosphorylation', 'deep_research')">
-              <i class="ri-telescope-line"></i>
-              <span class="example-card-title">Deep Research</span>
-              <span class="example-card-desc">Full investigation on TP53 S15</span>
-            </button>
-            <button type="button" class="example-card" onclick="sendExample('Collect quantitative PTM data from PMID 39732660')">
-              <i class="ri-file-paper-2-line"></i>
-              <span class="example-card-title">Literature collection</span>
-              <span class="example-card-desc">Collect PTM data from a PMID</span>
-            </button>
+          <div class="example-chips">
+            <div class="example-row">
+              <button type="button" class="example-chip" onclick="sendExample('Which kinases phosphorylate AKT1 S473?')">Which kinases phosphorylate AKT1 S473?</button>
+              <button type="button" class="example-chip" onclick="sendExample('TP53 S15 phosphorylation after DNA damage')">TP53 S15 phosphorylation after DNA damage</button>
+              <button type="button" class="example-chip" onclick="sendExample('STAT3 Y705 phosphorylation in cancer signaling')">STAT3 Y705 phosphorylation in cancer signaling</button>
+            </div>
+            <div class="example-row">
+              <button type="button" class="example-chip" onclick="sendExample('Where is EGFR Y1173 phosphorylated in the cell?')">Where is EGFR Y1173 phosphorylated in the cell?</button>
+              <button type="button" class="example-chip" onclick="sendExample('Which conditions regulate MDM2 S166 acetylation?')">Which conditions regulate MDM2 S166 acetylation?</button>
+              <button type="button" class="example-chip" onclick="sendExample('What is the role of PTEN K289 ubiquitination in signaling?')">What is the role of PTEN K289 ubiquitination in signaling?</button>
+            </div>
+            <div class="example-row">
+              <button type="button" class="example-chip" onclick="sendExample('What drugs affect EGFR Y1068 phosphorylation?')">What drugs affect EGFR Y1068 phosphorylation?</button>
+              <button type="button" class="example-chip example-chip-dr" onclick="sendExample('Comprehensive deep research on TP53 S15 phosphorylation', 'deep_research')"><i class="ri-microscope-line" aria-hidden="true"></i> Deep research on TP53 S15 phosphorylation</button>
+              <button type="button" class="example-chip example-chip-collection" onclick="sendExample('Collect quantitative PTM data from PMID 39732660')">Collect quantitative PTM data from PMID 39732660</button>
+            </div>
           </div>
         </div>
       </div>
@@ -97,22 +99,23 @@ if ($envUrl) {
       </button>
       <div class="input-wrapper composer-card">
         <input type="file" id="fileInput" multiple accept=".pdf,.xml,.zip,.xlsx,.xls,.csv,.tsv" style="display:none">
-        <textarea class="input-field" id="inputField"
-          placeholder="Ask about a PTM site, or upload a PDF for literature collection…"
-          rows="1" onkeydown="handleKey(event)"></textarea>
-        <div class="input-actions">
+        <div class="composer-bar">
           <button class="attach-btn" type="button" id="attachBtn" title="Attach PDF/XML or supplementary tables" onclick="document.getElementById('fileInput').click()">
             <i class="ri-attachment-2"></i>
           </button>
-          <button class="dr-toggle-btn" type="button" id="deepResearchBtn" title="Deep Research — comprehensive PTM investigation" aria-pressed="false">
-            <i class="ri-telescope-line"></i>
-            <span class="dr-toggle-label">Deep Research</span>
-          </button>
-          <button class="send-btn" id="sendBtn" onclick="sendMessage()">
-            <i class="ri-send-plane-fill"></i>
-          </button>
+          <textarea class="input-field" id="inputField"
+            placeholder="Ask about a PTM site, or upload a PDF for literature collection."
+            rows="1" onkeydown="handleKey(event)"></textarea>
+          <div class="composer-end">
+            <button class="dr-toggle-btn" type="button" id="deepResearchBtn" title="Deep Research — comprehensive PTM investigation" aria-pressed="false">
+              <i class="ri-microscope-line"></i>
+              <span class="dr-toggle-label">Deep Research</span>
+            </button>
+            <button class="send-btn" id="sendBtn" onclick="sendMessage()">
+              <i class="ri-arrow-up-line"></i>
+            </button>
+          </div>
         </div>
-        <div class="composer-hint">Enter to send · Shift+Enter for new line</div>
       </div>
     </div><!-- /.chat-column -->
 
@@ -142,6 +145,6 @@ window.QPTM_AGENT_CONFIG = {
   chatUrl: <?php echo json_encode($BACKEND_URL, JSON_UNESCAPED_SLASHES); ?>
 };
 </script>
-<script src="assets/js/agent.js?v=20260905-p0-fix"></script>
+<script src="assets/js/agent.js?v=20260906-sidebar-rail"></script>
 </body>
 </html>

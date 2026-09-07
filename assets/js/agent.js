@@ -128,9 +128,91 @@ let currentAbortController = null;
 
 const chatArea = document.getElementById('chatArea');
 const welcome = document.getElementById('welcome');
+const chatColumn = document.querySelector('.chat-column');
 const inputField = document.getElementById('inputField');
+
+function isWelcomeVisible() {
+  return welcome && welcome.style.display !== 'none';
+}
+
+function syncNewChatUi() {
+  const isNewChat = isWelcomeVisible();
+  if (chatColumn) chatColumn.classList.toggle('is-new-chat', isNewChat);
+  if (isNewChat && typeof workflowSidebarOpen !== 'undefined' && workflowSidebarOpen) {
+    closeWorkflowSidebar();
+  }
+}
+
+function hideWelcome() {
+  if (welcome) welcome.style.display = 'none';
+  syncNewChatUi();
+}
+
+function showWelcome() {
+  if (welcome) welcome.style.display = '';
+  syncNewChatUi();
+}
 const sendBtn = document.getElementById('sendBtn');
 const sidebarHistory = document.getElementById('sidebarHistory');
+const SIDEBAR_COLLAPSED_KEY = 'qptm_agent_sidebar_collapsed';
+function isSidebarMobile() {
+  return window.matchMedia('(max-width: 768px)').matches;
+}
+
+function setSidebarCollapsed(collapsed, { persist = true } = {}) {
+  const sidebar = document.getElementById('agentSidebar');
+  const rail = sidebar?.querySelector('.sidebar-rail');
+  if (!sidebar) return;
+  const next = Boolean(collapsed) && !isSidebarMobile();
+  sidebar.classList.toggle('is-collapsed', next);
+  if (rail) rail.setAttribute('aria-hidden', next ? 'false' : 'true');
+  if (persist && !isSidebarMobile()) {
+    try {
+      localStorage.setItem(SIDEBAR_COLLAPSED_KEY, next ? '1' : '0');
+    } catch (_) { /* ignore */ }
+  }
+}
+
+function expandSidebar({ focusHistory = false } = {}) {
+  setSidebarCollapsed(false);
+  if (!focusHistory) return;
+  const historyEl = document.getElementById('sidebarHistory');
+  if (!historyEl) return;
+  historyEl.scrollTop = 0;
+  historyEl.classList.add('sidebar-history-focus');
+  window.setTimeout(() => historyEl.classList.remove('sidebar-history-focus'), 1200);
+}
+
+function initAgentSidebarUi() {
+  const sidebar = document.getElementById('agentSidebar');
+  if (!sidebar) return;
+
+  let collapsed = false;
+  try {
+    collapsed = localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1';
+  } catch (_) { /* ignore */ }
+  setSidebarCollapsed(collapsed, { persist: false });
+
+  document.getElementById('sidebarCollapseBtn')?.addEventListener('click', () => {
+    setSidebarCollapsed(true);
+  });
+  document.getElementById('sidebarExpandBtn')?.addEventListener('click', () => {
+    expandSidebar();
+  });
+  document.getElementById('sidebarRailNewBtn')?.addEventListener('click', () => {
+    startNewConversation();
+  });
+  document.getElementById('sidebarNewBtn')?.addEventListener('click', () => {
+    startNewConversation();
+  });
+
+  window.addEventListener('resize', () => {
+    if (isSidebarMobile() && sidebar.classList.contains('is-collapsed')) {
+      setSidebarCollapsed(false, { persist: false });
+    }
+  });
+}
+
 const fileInput = document.getElementById('fileInput');
 const pendingFilesEl = document.getElementById('pendingFiles');
 
@@ -150,7 +232,7 @@ function setSendButtonToStop() {
 function setSendButtonToSend() {
   isStreaming = false;
   sendBtn.classList.remove('stop');
-  sendBtn.innerHTML = '<i class="ri-send-plane-fill"></i>';
+  sendBtn.innerHTML = '<i class="ri-arrow-up-line"></i>';
   sendBtn.title = '';
   sendBtn.onclick = sendMessage;
   sendBtn.disabled = false;
@@ -1840,7 +1922,7 @@ function renderGenericLiveThinking(contentDiv, data, panel) {
 }
 
 function beginCollectionTurn(jobId, pmid, seedData) {
-  if (welcome) welcome.style.display = 'none';
+  hideWelcome();
   const msg = document.createElement('div');
   msg.className = 'message assistant';
   const body = document.createElement('div');
@@ -2483,7 +2565,7 @@ async function deleteConversation(id) {
 
 function clearChatArea() {
   chatArea.querySelectorAll('.message').forEach((el) => el.remove());
-  if (welcome) welcome.style.display = '';
+  showWelcome();
   chatHistory = [];
   currentThinkingTools = null;
   currentPlanPanel = null;
@@ -2523,7 +2605,7 @@ async function loadConversation(id, { force = false } = {}) {
     persistConversationId(data.id);
     sessionId = restoreSessionForConversation(data.id);
     clearChatArea();
-    if (welcome) welcome.style.display = 'none';
+    hideWelcome();
     chatHistory = [];
     (data.messages || []).forEach((msg) => {
       if (msg.role === 'assistant') {
@@ -3010,7 +3092,9 @@ async function downloadMessage(btn) {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
+  initAgentSidebarUi();
   initWorkflowSidebarUi();
+  syncNewChatUi();
   const drBtn = document.getElementById('deepResearchBtn');
   if (drBtn) drBtn.addEventListener('click', toggleDeepResearchMode);
   await loadConversationList();
@@ -3069,10 +3153,8 @@ if (scrollBottomBtn) {
 
 function resizeInputField() {
   inputField.style.height = 'auto';
-  const maxH = 120;
-  const nextH = Math.min(inputField.scrollHeight, maxH);
-  inputField.style.height = nextH + 'px';
-  inputField.style.overflowY = inputField.scrollHeight > maxH ? 'auto' : 'hidden';
+  inputField.style.height = '38px';
+  inputField.style.overflowY = 'hidden';
 }
 
 inputField.addEventListener('input', resizeInputField);
@@ -3574,7 +3656,7 @@ function escapeHtml(text) {
 }
 
 function addMessage(role, content) {
-  if (welcome) welcome.style.display = 'none';
+  hideWelcome();
 
   const msg = document.createElement('div');
   msg.className = `message ${role}`;
@@ -3646,7 +3728,7 @@ function createThinkingToolsEl(tools, collapsed = false) {
 }
 
 function addStoredAssistantMessage(content, meta) {
-  if (welcome) welcome.style.display = 'none';
+  hideWelcome();
 
   const msg = document.createElement('div');
   msg.className = 'message assistant';
@@ -4320,7 +4402,7 @@ function refreshActivitySummary() {
 }
 
 function beginAssistantTurn() {
-  if (welcome) welcome.style.display = 'none';
+  hideWelcome();
   activityToolCount = 0;
   initWorkflowState();
 
