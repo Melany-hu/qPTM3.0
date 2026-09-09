@@ -13,6 +13,17 @@ fasta_file/
 
 # Runtime / generated data (keep scripts and .gitkeep)
 collection-agent/runtime/collection/
+collection-agent/dist/
+collection-agent/.pi/
+collection-agent/sessions/
+collection-agent/L2M3-master/
+collection-agent/AI-Agents-in-Depth-zh-CN.pdf
+# Pipeline outputs (large, regenerable)
+collection-agent/data/**
+collection-agent/validation/**
+collection-agent/**/*.log
+collection-agent/**/*.bak
+collection-agent/**/*.bak_*
 agent-backend/runtime/eval/results_*.jsonl
 agent-backend/runtime/eval/summary_*.md
 !agent-backend/runtime/eval/run_agent_eval.py
