@@ -139,3 +139,4 @@ assets/
 api/
 *.html
 *.php
+deploy/
