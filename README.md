@@ -20,14 +20,14 @@ A comprehensive resource for quantitative post-translational modification (PTM) 
               └───────────┘      └─────────────┘      └─────────────┘
 ```
 
-| Component | Technology | Location | Port |
+| Component | Technology | Location |
 |-----------|-----------|----------|------|
-| Website frontend | HTML/JS/CSS | Root `*.html` | 80/443 |
-| Website backend | PHP + MySQL | `resource/functions.php` | 80/443 |
-| Agent chat UI | HTML/JS/CSS | `agent.php` | 80/443 |
-| Agent REST API | PHP + MySQL | `api/*.php` | 80/443 |
-| Agent backend | Python + FastAPI | `agent-backend/` | 8100 |
-| LLM | DeepSeek V3 | External API | — |
+| Website frontend | HTML/JS/CSS | Root `*.html` |
+| Website backend | PHP + MySQL | `resource/functions.php` |
+| Agent chat UI | HTML/JS/CSS | `agent.php` |
+| Agent REST API | PHP + MySQL | `api/*.php` |
+| Agent backend | Python + FastAPI | `agent-backend/` |
+| LLM | DeepSeek V3 | External API |
 
 ## Tools
 
