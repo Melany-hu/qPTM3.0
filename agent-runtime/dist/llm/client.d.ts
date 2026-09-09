@@ -16,6 +16,7 @@ export declare class LlmClient {
     modelChain(): string[];
     private modelsForAttempt;
     private attemptTimeoutMs;
+    private requestOptionsFor;
     chatCompletion(messages: OpenAI.Chat.ChatCompletionMessageParam[], options?: {
         tools?: OpenAI.Chat.ChatCompletionTool[];
         temperature?: number;

@@ -18,7 +18,7 @@ if ($envUrl) {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>qPTM | Agent</title>
 <script src="assets/js/include.js"></script>
-<link rel="stylesheet" href="assets/css/agent.css?v=20260906-sidebar-rail">
+<link rel="stylesheet" href="assets/css/agent.css?v=20260907-scroll-btn9">
 
 </head>
 <body class="agent-page">
@@ -31,25 +31,26 @@ if ($envUrl) {
 
 <div id="site-header"></div>
 
-<div class="agent-shell">
+<div class="agent-shell" id="agentShell">
+  <button type="button" class="agent-sidebar-backdrop" id="sidebarMobileBackdrop" aria-hidden="true" aria-label="Close sidebar"></button>
   <aside class="agent-sidebar" id="agentSidebar">
     <div class="sidebar-header">
       <span class="sidebar-brand">PTM Agent</span>
       <button type="button" class="sidebar-icon-btn sidebar-collapse-btn" id="sidebarCollapseBtn" title="Collapse sidebar" aria-label="Collapse sidebar">
-        <i class="ri-side-bar-line"></i>
+        <i class="ri-sidebar-fold-line"></i>
       </button>
     </div>
     <div class="sidebar-rail" aria-hidden="true">
       <button type="button" class="sidebar-rail-btn" id="sidebarExpandBtn" title="Open sidebar" aria-label="Open sidebar">
-        <i class="ri-side-bar-line"></i>
+        <i class="ri-sidebar-unfold-line"></i>
       </button>
       <button type="button" class="sidebar-rail-btn" id="sidebarRailNewBtn" title="New chat" aria-label="New chat">
-        <i class="ri-edit-2-line"></i>
+        <i class="ri-chat-new-line"></i>
       </button>
     </div>
     <div class="sidebar-body">
       <button class="sidebar-new-btn" type="button" id="sidebarNewBtn">
-        <i class="ri-edit-2-line"></i>
+        <i class="ri-chat-new-line"></i>
         <span>New chat</span>
       </button>
       <div class="sidebar-history" id="sidebarHistory"></div>
@@ -95,7 +96,7 @@ if ($envUrl) {
 
       <div class="input-pending-files" id="pendingFiles"></div>
       <button class="scroll-bottom-btn" id="scrollBottomBtn" type="button" title="Scroll to bottom" aria-label="Scroll to bottom">
-        <i class="ri-arrow-down-line"></i>
+        <i class="ri-arrow-down-s-line"></i>
       </button>
       <div class="input-wrapper composer-card">
         <input type="file" id="fileInput" multiple accept=".pdf,.xml,.zip,.xlsx,.xls,.csv,.tsv" style="display:none">
@@ -145,6 +146,6 @@ window.QPTM_AGENT_CONFIG = {
   chatUrl: <?php echo json_encode($BACKEND_URL, JSON_UNESCAPED_SLASHES); ?>
 };
 </script>
-<script src="assets/js/agent.js?v=20260906-sidebar-rail"></script>
+<script src="assets/js/agent.js?v=20260907-scroll-btn"></script>
 </body>
 </html>

@@ -21,6 +21,7 @@ const BARE_MODEL_PROVIDER: Record<string, string> = {
   "deepseek-v4-pro": "opencode-go",
   "deepseek-chat": "deepseek",
   "deepseek-reasoner": "deepseek",
+  "glm-5.2": "opencode-go",
   "gpt-5": "opencode",
   "gemini-3.6-flash": "opencode",
   "gemini-3.5-flash": "opencode",
@@ -35,10 +36,8 @@ const BARE_MODEL_PROVIDER: Record<string, string> = {
 const OPENCODE_GO_DEEPSEEK_IDS = new Set(["deepseek-v4-flash", "deepseek-v4-pro"])
 
 const DEFAULT_FALLBACKS = [
-  "opencode/gpt-5",
-  "opencode/gemini-3.6-flash",
-  "opencode-go/kimi-k3",
-  "opencode/claude-sonnet-5",
+  "opencode-go/glm-5.2",
+  "opencode-go/deepseek-v4-pro",
 ]
 
 const BLOCKED_MODELS = new Set([

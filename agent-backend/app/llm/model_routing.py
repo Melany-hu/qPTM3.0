@@ -57,10 +57,8 @@ _GO_PREFERRED_MODELS = frozenset(
 )
 
 DEFAULT_FALLBACK_MODELS = (
-    "gpt-5",
-    "gemini-3.6-flash",
-    "kimi-k3",
-    "claude-sonnet-5",
+    "glm-5.2",
+    "deepseek-v4-pro",
 )
 
 # Known-unavailable ids: still listed in some catalogs but rejected by the gateway.

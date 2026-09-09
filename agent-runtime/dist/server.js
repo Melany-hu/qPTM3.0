@@ -8,6 +8,7 @@ import { classifyQueryMode, gateReply, detectLang } from "./agent/gate.js";
 import { parseEntities } from "./context/memory.js";
 import { resetSession } from "./context/session.js";
 import { sanitizeUserVisibleText } from "./agent/protocol.js";
+import { runWithOpenCodeSession } from "./llm/session-context.js";
 const app = new Hono();
 app.use("*", cors({
     origin: cfg.corsOrigins.includes("*") ? "*" : cfg.corsOrigins,
@@ -123,21 +124,23 @@ app.post("/chat", async (c) => {
             let fullAnswer = "";
             let followUps = [];
             try {
-                for await (const event of runAgent({
-                    message: message || userMsg,
-                    sessionId,
-                    history,
-                    mode,
-                    clarificationResponse,
-                })) {
-                    const sse = agentEventToSse(event);
-                    if (sse)
-                        controller.enqueue(encoder.encode(sse));
-                    if (event.type === "text")
-                        fullAnswer += event.content || "";
-                    if (event.type === "follow_up_questions")
-                        followUps = event.questions || [];
-                }
+                await runWithOpenCodeSession(sessionId, async () => {
+                    for await (const event of runAgent({
+                        message: message || userMsg,
+                        sessionId,
+                        history,
+                        mode,
+                        clarificationResponse,
+                    })) {
+                        const sse = agentEventToSse(event);
+                        if (sse)
+                            controller.enqueue(encoder.encode(sse));
+                        if (event.type === "text")
+                            fullAnswer += event.content || "";
+                        if (event.type === "follow_up_questions")
+                            followUps = event.questions || [];
+                    }
+                });
             }
             catch (e) {
                 const errSse = agentEventToSse({ type: "error", message: String(e) });

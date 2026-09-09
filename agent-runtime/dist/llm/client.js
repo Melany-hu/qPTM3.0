@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import { cfg } from "../config.js";
+import { getOpenCodeSessionId } from "./session-context.js";
 const ZEN_PREFIXES = ["gpt-", "gemini-", "claude-", "kimi-", "qwen"];
 function baseUrlForModel(model) {
     const m = model.toLowerCase();
@@ -50,6 +51,15 @@ export class LlmClient {
             return null;
         return Math.max(5000, Math.min(perCall, remaining));
     }
+    requestOptionsFor(model) {
+        const base = baseUrlForModel(model);
+        if (base !== cfg.deepseekBaseUrl)
+            return {};
+        const sessionId = getOpenCodeSessionId();
+        if (!sessionId)
+            return {};
+        return { headers: { "x-opencode-session": sessionId } };
+    }
     async chatCompletion(messages, options = {}) {
         const models = this.modelsForAttempt(options.maxModels);
         const deadline = options.totalTimeoutMs ? Date.now() + options.totalTimeoutMs : null;
@@ -65,7 +75,7 @@ export class LlmClient {
                     tools: options.tools,
                     temperature: options.temperature ?? 0.3,
                     max_tokens: options.maxTokens ?? 4096,
-                }, { signal: AbortSignal.timeout(timeout) });
+                }, { signal: AbortSignal.timeout(timeout), ...this.requestOptionsFor(model) });
                 const msg = res.choices[0]?.message;
                 const content = msg?.content || "";
                 const toolCalls = (msg?.tool_calls || []).map((tc) => ({
@@ -99,7 +109,7 @@ export class LlmClient {
                     temperature: options.temperature ?? 0.3,
                     max_tokens: options.maxTokens ?? 8192,
                     stream: true,
-                }, { signal: AbortSignal.timeout(timeout) });
+                }, { signal: AbortSignal.timeout(timeout), ...this.requestOptionsFor(model) });
                 const toolAcc = new Map();
                 for await (const chunk of stream) {
                     const delta = chunk.choices[0]?.delta;

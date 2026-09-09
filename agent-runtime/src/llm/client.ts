@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import { cfg } from "../config.js";
+import { getOpenCodeSessionId } from "./session-context.js";
 
 const ZEN_PREFIXES = ["gpt-", "gemini-", "claude-", "kimi-", "qwen"];
 
@@ -63,6 +64,14 @@ export class LlmClient {
     return Math.max(5000, Math.min(perCall, remaining));
   }
 
+  private requestOptionsFor(model: string): { headers?: Record<string, string> } {
+    const base = baseUrlForModel(model);
+    if (base !== cfg.deepseekBaseUrl) return {};
+    const sessionId = getOpenCodeSessionId();
+    if (!sessionId) return {};
+    return { headers: { "x-opencode-session": sessionId } };
+  }
+
   async chatCompletion(
     messages: OpenAI.Chat.ChatCompletionMessageParam[],
     options: {
@@ -90,7 +99,7 @@ export class LlmClient {
             temperature: options.temperature ?? 0.3,
             max_tokens: options.maxTokens ?? 4096,
           },
-          { signal: AbortSignal.timeout(timeout) },
+          { signal: AbortSignal.timeout(timeout), ...this.requestOptionsFor(model) },
         );
         const msg = res.choices[0]?.message;
         const content = msg?.content || "";
@@ -136,7 +145,7 @@ export class LlmClient {
             max_tokens: options.maxTokens ?? 8192,
             stream: true,
           },
-          { signal: AbortSignal.timeout(timeout) },
+          { signal: AbortSignal.timeout(timeout), ...this.requestOptionsFor(model) },
         );
 
         const toolAcc: Map<number, { id: string; name: string; args: string }> = new Map();

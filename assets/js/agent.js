@@ -155,15 +155,67 @@ function showWelcome() {
 const sendBtn = document.getElementById('sendBtn');
 const sidebarHistory = document.getElementById('sidebarHistory');
 const SIDEBAR_COLLAPSED_KEY = 'qptm_agent_sidebar_collapsed';
+const SIDEBAR_AUTO_COLLAPSE_WIDTH = 1080;
 function isSidebarMobile() {
   return window.matchMedia('(max-width: 768px)').matches;
+}
+
+function shouldAutoCollapseSidebar() {
+  return !isSidebarMobile() && window.innerWidth < SIDEBAR_AUTO_COLLAPSE_WIDTH;
+}
+
+function syncSidebarForViewport() {
+  if (isSidebarMobile()) {
+    setSidebarMobileOpen(false);
+    setSidebarCollapsed(true, { persist: false });
+    return;
+  }
+  setSidebarMobileOpen(false);
+  if (shouldAutoCollapseSidebar()) {
+    setSidebarCollapsed(true, { persist: false });
+    return;
+  }
+  let collapsed = false;
+  try {
+    collapsed = localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1';
+  } catch (_) { /* ignore */ }
+  setSidebarCollapsed(collapsed, { persist: false });
+}
+
+function setSidebarMobileOpen(open) {
+  const shell = document.getElementById('agentShell');
+  const sidebar = document.getElementById('agentSidebar');
+  const backdrop = document.getElementById('sidebarMobileBackdrop');
+  if (!sidebar) return;
+  const active = Boolean(open) && isSidebarMobile();
+  sidebar.classList.toggle('is-mobile-open', active);
+  shell?.classList.toggle('sidebar-mobile-open', active);
+  backdrop?.setAttribute('aria-hidden', active ? 'false' : 'true');
+}
+
+function closeSidebarPanel() {
+  if (isSidebarMobile()) {
+    setSidebarMobileOpen(false);
+    setSidebarCollapsed(true, { persist: false });
+    return;
+  }
+  setSidebarCollapsed(true);
 }
 
 function setSidebarCollapsed(collapsed, { persist = true } = {}) {
   const sidebar = document.getElementById('agentSidebar');
   const rail = sidebar?.querySelector('.sidebar-rail');
   if (!sidebar) return;
-  const next = Boolean(collapsed) && !isSidebarMobile();
+  const next = Boolean(collapsed);
+  if (!next && isSidebarMobile()) {
+    setSidebarMobileOpen(true);
+    sidebar.classList.remove('is-collapsed');
+    if (rail) rail.setAttribute('aria-hidden', 'true');
+    return;
+  }
+  if (isSidebarMobile()) {
+    setSidebarMobileOpen(false);
+  }
   sidebar.classList.toggle('is-collapsed', next);
   if (rail) rail.setAttribute('aria-hidden', next ? 'false' : 'true');
   if (persist && !isSidebarMobile()) {
@@ -187,14 +239,10 @@ function initAgentSidebarUi() {
   const sidebar = document.getElementById('agentSidebar');
   if (!sidebar) return;
 
-  let collapsed = false;
-  try {
-    collapsed = localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1';
-  } catch (_) { /* ignore */ }
-  setSidebarCollapsed(collapsed, { persist: false });
+  syncSidebarForViewport();
 
   document.getElementById('sidebarCollapseBtn')?.addEventListener('click', () => {
-    setSidebarCollapsed(true);
+    closeSidebarPanel();
   });
   document.getElementById('sidebarExpandBtn')?.addEventListener('click', () => {
     expandSidebar();
@@ -205,12 +253,11 @@ function initAgentSidebarUi() {
   document.getElementById('sidebarNewBtn')?.addEventListener('click', () => {
     startNewConversation();
   });
-
-  window.addEventListener('resize', () => {
-    if (isSidebarMobile() && sidebar.classList.contains('is-collapsed')) {
-      setSidebarCollapsed(false, { persist: false });
-    }
+  document.getElementById('sidebarMobileBackdrop')?.addEventListener('click', () => {
+    closeSidebarPanel();
   });
+
+  window.addEventListener('resize', syncSidebarForViewport);
 }
 
 const fileInput = document.getElementById('fileInput');
@@ -3116,21 +3163,28 @@ chatArea.addEventListener('click', (e) => {
 
 // ── Scroll-to-bottom button ─────────────────────────────
 const scrollBottomBtn = document.getElementById('scrollBottomBtn');
-const agentMainEl = document.querySelector('.agent-main');
 
 function isNearBottom(area) {
   return area.scrollHeight - area.scrollTop - area.clientHeight < 120;
 }
 
-/** Align the scroll-to-bottom button vertically with the send button. */
+/** Place scroll-to-bottom button centered above the composer. */
 function positionScrollBottomBtn() {
-  if (!scrollBottomBtn || !agentMainEl || !sendBtn) return;
-  const mainRect = agentMainEl.getBoundingClientRect();
-  const sendRect = sendBtn.getBoundingClientRect();
-  const sendCenter = sendRect.top + sendRect.height / 2;
-  const fromBottom = mainRect.bottom - sendCenter;
-  const btnHalf = scrollBottomBtn.offsetHeight / 2 || 19;
-  scrollBottomBtn.style.bottom = Math.max(8, fromBottom - btnHalf) + 'px';
+  if (!scrollBottomBtn) return;
+  const chatColumn = document.querySelector('.chat-column');
+  const inputWrapper = document.querySelector('.input-wrapper');
+  if (!chatColumn || !inputWrapper) return;
+
+  const colRect = chatColumn.getBoundingClientRect();
+  const inputRect = inputWrapper.getBoundingClientRect();
+  const pendingEl = document.getElementById('pendingFiles');
+  let pendingGap = 0;
+  if (pendingEl && pendingEl.children.length) {
+    pendingGap = pendingEl.getBoundingClientRect().height + 8;
+  }
+  const gap = 12;
+  const bottomOffset = colRect.bottom - inputRect.top + gap + pendingGap;
+  scrollBottomBtn.style.bottom = `${Math.max(8, bottomOffset)}px`;
 }
 
 function updateScrollBottomBtn() {
