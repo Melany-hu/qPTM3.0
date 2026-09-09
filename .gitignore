@@ -132,3 +132,10 @@ resource/properties/human.parquet
 resource/properties/properties.sqlite
 resource/annotation/
 sendemail.php
+
+# Website files (kept locally, not tracked in repo)
+resource/
+assets/
+api/
+*.html
+*.php
